@@ -1,0 +1,321 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>PondFront.io</title>
+    <link rel="stylesheet" href="./style.css" />
+  </head>
+  <body>
+    <main class="shell">
+      <section id="startScreen" class="start-screen">
+        <div class="lobby-bg" aria-hidden="true">
+          <i></i>
+          <i></i>
+          <i></i>
+        </div>
+        <div class="start-card lobby-card">
+          <section class="lobby-hero">
+            <p class="eyebrow">Real-time Pond Territory Strategy</p>
+            <h1>PondFront.io</h1>
+            <p class="start-copy">Expand your pond empire, manage Animal Energy, form alliances, and control 70% of the lake.</p>
+            <div class="lobby-badges">
+              <span>84x54 lake</span>
+              <span>Animal powers</span>
+              <span>Smart bots</span>
+            </div>
+
+            <label class="name-field" for="playerName">
+              <span>Commander Name</span>
+              <input id="playerName" maxlength="18" value="Player" autocomplete="off" />
+            </label>
+
+            <div class="start-actions">
+              <button id="startButton" class="primary start-match">Start as Duck</button>
+              <button id="practiceButton" class="secondary-button" type="button">Practice Mode</button>
+              <button id="lobbyHelpButton" class="secondary-button" type="button">How to Play</button>
+            </div>
+          </section>
+
+          <section class="animal-select-panel">
+            <div class="lobby-section-head">
+              <span class="label">Choose Animal</span>
+              <strong>Pick your pond strategy</strong>
+            </div>
+            <div class="animal-row" aria-label="Choose animal">
+              <button class="animal-choice selected" data-animal="duck" title="Duck: fast water expansion and higher max energy.">
+                <span class="animal-disc duck">D</span>
+                <span class="animal-card-copy">
+                  <strong>Duck</strong>
+                  <em>Fast Expansion</em>
+                  <small>Flock Rush</small>
+                </span>
+                <span class="perk-list">
+                  <b>Open water</b>
+                  <b>Early growth</b>
+                  <b>Easy</b>
+                </span>
+              </button>
+              <button class="animal-choice" data-animal="snake" title="Snake: stronger around reeds and mud.">
+                <span class="animal-disc snake">S</span>
+                <span class="animal-card-copy">
+                  <strong>Snake</strong>
+                  <em>Ambush Control</em>
+                  <small>Ambush</small>
+                </span>
+                <span class="perk-list">
+                  <b>Reeds and mud</b>
+                  <b>Border attacks</b>
+                  <b>Medium</b>
+                </span>
+              </button>
+              <button class="animal-choice" data-animal="frog" title="Frog: lily income and jump expansion.">
+                <span class="animal-disc frog">F</span>
+                <span class="animal-card-copy">
+                  <strong>Frog</strong>
+                  <em>Mobility Tactics</em>
+                  <small>Big Leap</small>
+                </span>
+                <span class="perk-list">
+                  <b>Lily pads</b>
+                  <b>Leap expansion</b>
+                  <b>Medium</b>
+                </span>
+              </button>
+            </div>
+          </section>
+
+          <aside class="lobby-side">
+            <div class="selected-animal-card" id="selectedAnimalCard">
+              <span class="animal-disc duck" id="selectedAnimalIcon">D</span>
+              <div>
+                <span class="label">Selected Animal</span>
+                <strong id="selectedAnimalName">Duck</strong>
+                <p id="selectedAnimalSummary">Duck is best for fast early expansion. Use Flock Rush to claim open water quickly before enemies reach your border.</p>
+              </div>
+              <dl id="selectedAnimalStats">
+                <dt>Ability</dt><dd>Flock Rush</dd>
+                <dt>Best Terrain</dt><dd>Open Water</dd>
+                <dt>Weakness</dt><dd>Reed fights</dd>
+              </dl>
+            </div>
+
+            <div class="match-options">
+              <div class="lobby-section-head">
+                <span class="label">Match Setup</span>
+                <strong>Customize the pond</strong>
+              </div>
+              <label for="difficulty">Bot strategy</label>
+              <select id="difficulty">
+                <option value="easy">Chill</option>
+                <option value="normal" selected>Normal</option>
+                <option value="smart">Aggressive</option>
+                <option value="chaos">Chaos</option>
+              </select>
+              <label for="mapSize">Map size</label>
+              <select id="mapSize">
+                <option value="small">Small</option>
+                <option value="medium">Medium</option>
+                <option value="large" selected>Large</option>
+                <option value="huge">Huge</option>
+              </select>
+              <label for="botCount">Bot count</label>
+              <select id="botCount">
+                <option value="4">4</option>
+                <option value="8">8</option>
+                <option value="12" selected>12</option>
+                <option value="16">16</option>
+              </select>
+              <label for="matchLength">Match length</label>
+              <select id="matchLength">
+                <option value="quick">Quick</option>
+                <option value="standard" selected>Standard</option>
+                <option value="long">Long</option>
+              </select>
+            </div>
+
+            <div class="lake-preview" aria-label="Animated lake territory preview">
+              <div class="preview-map">
+                <span class="preview-region region-a"></span>
+                <span class="preview-region region-b"></span>
+                <span class="preview-region region-c"></span>
+                <span class="preview-wave"></span>
+              </div>
+              <div class="bot-preview">
+                <span>Amazon Fang</span>
+                <span>Nile Jumper</span>
+                <span>Mekong Stripe</span>
+                <span>Delta Bloom</span>
+              </div>
+            </div>
+          </aside>
+        </div>
+
+        <section id="lobbyGuide" class="lobby-guide hidden" aria-modal="true" role="dialog">
+          <div>
+            <header>
+              <div>
+                <span class="label">How to Play</span>
+                <h2>Pond control basics</h2>
+              </div>
+              <button id="closeLobbyGuide" class="icon-button" type="button">X</button>
+            </header>
+            <div class="guide-grid">
+              <article><strong>Basics</strong><p>Expand into neutral pond tiles and grow Animal Energy from territory.</p></article>
+              <article><strong>Animals</strong><p>Duck expands fast, Snake controls reeds and mud, Frog jumps toward objectives.</p></article>
+              <article><strong>Combat</strong><p>Attack connected enemy borders with energy waves and reinforce your own fronts.</p></article>
+              <article><strong>Buildings</strong><p>Build farms, nests, guards, tunnels, and jump pads to shape your economy.</p></article>
+              <article><strong>Diplomacy</strong><p>Request alliances, mark enemies, send signals, and break deals when the lake changes.</p></article>
+              <article><strong>Winning</strong><p>Control 70% of the playable lake, or lead the territory count when time runs out.</p></article>
+            </div>
+          </div>
+        </section>
+      </section>
+
+      <section id="gameScreen" class="game-screen hidden">
+        <header class="topbar">
+          <div class="brand">
+            <span class="brand-mark">P</span>
+            <strong>PondFront.io</strong>
+            <button id="helpButton" class="help-button" data-tip="Open the in-game guide.">Help</button>
+          </div>
+          <div class="top-stats">
+            <div class="stat"><span>Energy <button class="info-button" data-tip-key="energy" aria-label="Energy info">?</button></span><strong id="energyStat">0 / 0</strong></div>
+            <div class="stat"><span>Income <button class="info-button" data-tip-key="income" aria-label="Income info">?</button></span><strong id="incomeStat">+0/s</strong></div>
+            <div class="stat control-stat">
+              <span>Territory <button class="info-button" data-tip-key="territory" aria-label="Territory info">?</button></span><strong id="territoryStat">0%</strong>
+              <i><b id="controlMeter"></b></i>
+            </div>
+            <div class="stat"><span>Animal</span><strong id="animalStat">Duck</strong></div>
+            <div class="stat"><span>Timer <button class="info-button" data-tip-key="win" aria-label="Win condition info">?</button></span><strong id="timerStat">15:00</strong></div>
+          </div>
+        </header>
+
+        <section class="play-area">
+          <canvas id="mapCanvas" aria-label="PondFront strategy map"></canvas>
+
+          <aside class="left-panel">
+            <div class="panel selected-panel">
+              <span class="label">Selected Tile</span>
+              <strong id="tileTitle">No tile selected</strong>
+              <p id="tileDetails">Click a border or target tile.</p>
+              <div class="mini-stats">
+                <span id="tileOwner">Neutral</span>
+                <span id="tileDefense">Def 0</span>
+              </div>
+              <div id="tileFacts" class="info-grid"></div>
+              <p id="tileWarning" class="panel-warning hidden"></p>
+            </div>
+
+            <div id="playerPanel" class="panel hidden">
+              <span class="label">Player</span>
+              <strong id="selectedPlayer">-</strong>
+              <p id="selectedPlayerMeta">Choose an enemy border.</p>
+              <div id="selectedPlayerFacts" class="info-grid"></div>
+              <div id="diplomacyButtons" class="diplo-grid">
+                <button data-diplomacy="requestAlliance" title="Ask this player to become allies.">Alliance</button>
+                <button data-diplomacy="sendPeace" title="Offer peace and avoid attacks.">Peace</button>
+                <button data-diplomacy="breakAlliance" title="End alliance with this player.">Break</button>
+                <button data-diplomacy="markEnemy" title="Mark this player as a target.">Enemy</button>
+                <button data-diplomacy="signal" title="Send a pond signal.">Signal</button>
+              </div>
+            </div>
+
+            <div class="panel ability-panel">
+              <span class="label">Ability</span>
+              <strong id="abilityName">Flock Rush</strong>
+              <p id="abilityPerk">Fast water expansion.</p>
+              <div class="cooldown"><b id="cooldownBar"></b></div>
+              <span id="cooldownText">Ready</span>
+            </div>
+          </aside>
+
+          <aside class="right-panel">
+            <canvas id="miniMap" aria-label="Minimap"></canvas>
+            <div class="panel leaderboard-panel">
+              <span class="label">Leaderboard</span>
+              <ol id="leaderboard"></ol>
+            </div>
+          </aside>
+
+          <div id="toast" class="toast hidden"></div>
+          <div class="view-toggle">
+            <label><input id="strategicView" type="checkbox" checked /> Strategic view</label>
+            <label><input id="showIcons" type="checkbox" /> Tile icons</label>
+            <label>
+              Effects
+              <select id="effectsLevel" aria-label="Effects level">
+                <option value="high" selected>High</option>
+                <option value="medium">Medium</option>
+                <option value="low">Low</option>
+              </select>
+            </label>
+            <label><input id="floatingText" type="checkbox" checked /> Text</label>
+            <label><input id="attackArrows" type="checkbox" checked /> Arrows</label>
+            <label><input id="reducedMotion" type="checkbox" /> Reduced motion</label>
+          </div>
+        </section>
+
+        <footer class="bottombar">
+          <div class="percent-row">
+            <button data-percent="0.1">10%</button>
+            <button class="active" data-percent="0.25">25%</button>
+            <button data-percent="0.5">50%</button>
+            <button data-percent="0.75">75%</button>
+            <button data-percent="1">100%</button>
+          </div>
+          <div class="action-row">
+            <button id="expandButton" data-tip-key="expand" title="Expand into selected neutral water.">Expand</button>
+            <button id="attackButton" data-tip-key="attack" title="Attack selected enemy border with chosen energy percent.">Attack</button>
+            <button id="defendButton" data-tip-key="defend" title="Store energy in your selected territory.">Defend</button>
+            <button id="buildButton" data-tip-key="build" title="Build economy or defense on selected owned tile.">Build</button>
+            <button id="abilityButton" data-tip-key="ability" title="Use your animal ability.">Ability</button>
+          </div>
+          <select id="buildSelect" title="Choose building type.">
+            <option value="nest">Nest</option>
+            <option value="lilyFarm">Lily Farm</option>
+            <option value="reedGuard">Reed Guard</option>
+            <option value="mudTunnel">Mud Tunnel</option>
+            <option value="jumpPad">Jump Pad</option>
+          </select>
+        </footer>
+
+        <section id="tutorial" class="tutorial">
+          <div>
+            <span class="label">Quick Start</span>
+            <h2>Control 70% of the lake</h2>
+            <ol>
+              <li>Click a glowing neutral border tile, then Expand.</li>
+              <li>Animal Energy grows with territory and special zones.</li>
+              <li>Attack only connected enemy borders.</li>
+              <li>Defend border tiles before strong enemies arrive.</li>
+              <li>Build income and defense, then use your animal ability.</li>
+            </ol>
+            <button id="closeTutorial" class="primary">Play</button>
+          </div>
+        </section>
+
+        <section id="resultScreen" class="result hidden">
+          <div>
+            <h2 id="resultTitle">Match Over</h2>
+            <p id="resultSummary"></p>
+            <dl id="resultStats"></dl>
+            <button id="playAgain" class="primary">Play Again</button>
+          </div>
+        </section>
+      </section>
+    </main>
+
+    <script src="/shared/balanceConfig.js"></script>
+    <script src="/shared/gameConfig.js"></script>
+    <script src="/shared/animals.js"></script>
+    <script src="./infoPanel.js"></script>
+    <script src="./contextMenu.js"></script>
+    <script src="./tooltips.js"></script>
+    <script src="./helpMenu.js"></script>
+    <script src="./vfx.js"></script>
+    <script src="./render.js"></script>
+    <script src="./ui.js"></script>
+    <script src="./game.js"></script>
+  </body>
+</html>
