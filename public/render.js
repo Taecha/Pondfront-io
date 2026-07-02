@@ -75,6 +75,10 @@
             "defend",
             "ability",
             "abilityUsed",
+            "objectiveAppeared",
+            "objectiveCaptured",
+            "campCaptured",
+            "campMoved",
             "ping",
             "buildComplete",
             "buildUpgrade",
@@ -179,6 +183,18 @@
         ctx.stroke();
       }
       ctx.globalAlpha = 1;
+      this.drawLakeEventOverlay(ctx, rect);
+    }
+
+    drawLakeEventOverlay(ctx, rect) {
+      const event = this.state?.lakeEvent?.active;
+      if (!event) return;
+      ctx.save();
+      const pulse = 0.5 + Math.sin(performance.now() * 0.004) * 0.5;
+      ctx.globalAlpha = 0.05 + pulse * 0.025;
+      ctx.fillStyle = event.color || "#83dced";
+      ctx.fillRect(0, 0, rect.width, rect.height);
+      ctx.restore();
     }
 
     drawMap(ctx, options) {
@@ -206,6 +222,7 @@
       this.drawLocalGlow(ctx);
       this.drawRegionNames(ctx);
       this.drawDefense(ctx);
+      this.drawSpecialMarkers(ctx);
       this.drawLegalHints(ctx, options);
       this.drawPreview(ctx, options);
       this.drawSelection(ctx, options);
@@ -446,6 +463,55 @@
         ctx.lineWidth = Math.max(1, size * 0.045);
         this.roundRect(ctx, p.x + size * 0.18, p.y + size * 0.18, size * 0.64, size * 0.64, Math.max(3, size * 0.12));
         ctx.stroke();
+      });
+      ctx.restore();
+    }
+
+    drawSpecialMarkers(ctx) {
+      const markers = [];
+      (this.state.objectives || []).forEach((objective) => {
+        const tile = this.tileMap.get(objective.tileId);
+        if (!tile) return;
+        markers.push({
+          tile,
+          active: objective.active,
+          owner: objective.owner,
+          label: objective.definition?.short || "OB",
+          color: objective.definition?.color || "#83dced",
+          ring: true,
+        });
+      });
+      (this.state.camps || []).forEach((camp) => {
+        const tile = this.tileMap.get(camp.tileId);
+        if (!tile) return;
+        markers.push({
+          tile,
+          active: true,
+          owner: camp.owner,
+          label: camp.definition?.short || "CP",
+          color: camp.definition?.color || "#d8ad48",
+          ring: false,
+        });
+      });
+      if (!markers.length) return;
+      const size = this.baseTile * this.camera.zoom;
+      ctx.save();
+      markers.forEach((marker) => {
+        const p = this.tileCenter(marker.tile);
+        const pulse = 0.5 + Math.sin(performance.now() * 0.006 + marker.tile.id) * 0.5;
+        ctx.globalAlpha = marker.active ? 0.9 : 0.35;
+        ctx.fillStyle = "rgba(5, 16, 25, 0.82)";
+        ctx.strokeStyle = marker.owner === this.state.humanId ? "#ffffff" : marker.color;
+        ctx.lineWidth = Math.max(1.2, size * 0.055);
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, Math.max(7, size * (marker.ring ? 0.31 + pulse * 0.05 : 0.26)), 0, Math.PI * 2);
+        ctx.fill();
+        ctx.stroke();
+        ctx.fillStyle = marker.color;
+        ctx.font = `900 ${Math.max(8, size * 0.23)}px Inter, sans-serif`;
+        ctx.textAlign = "center";
+        ctx.textBaseline = "middle";
+        ctx.fillText(marker.label, p.x, p.y + 0.5);
       });
       ctx.restore();
     }
@@ -726,6 +792,7 @@
         ctx.fillRect(tile.x * cellW, tile.y * cellH, Math.ceil(cellW), Math.ceil(cellH));
       });
       ctx.globalAlpha = 1;
+      this.drawMiniObjectives(ctx, cellW, cellH);
       const humanTiles = this.state.tiles.filter((tile) => tile.owner === this.state.humanId);
       if (humanTiles.length) {
         const minX = Math.min(...humanTiles.map((tile) => tile.x)) * cellW;
@@ -740,6 +807,29 @@
       this.drawMiniCamera(ctx, rect, cellW, cellH);
       ctx.strokeStyle = "rgba(255,255,255,0.36)";
       ctx.strokeRect(0.5, 0.5, rect.width - 1, rect.height - 1);
+    }
+
+    drawMiniObjectives(ctx, cellW, cellH) {
+      ctx.save();
+      (this.state.objectives || []).forEach((objective) => {
+        if (!objective.active) return;
+        const tile = this.tileMap.get(objective.tileId);
+        if (!tile) return;
+        ctx.fillStyle = objective.definition?.color || "#83dced";
+        ctx.strokeStyle = "#061019";
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.arc((tile.x + 0.5) * cellW, (tile.y + 0.5) * cellH, 3.4, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.stroke();
+      });
+      (this.state.camps || []).forEach((camp) => {
+        const tile = this.tileMap.get(camp.tileId);
+        if (!tile) return;
+        ctx.fillStyle = camp.definition?.color || "#d8ad48";
+        ctx.fillRect((tile.x + 0.5) * cellW - 2, (tile.y + 0.5) * cellH - 2, 4, 4);
+      });
+      ctx.restore();
     }
 
     drawMiniAttacks(ctx, cellW, cellH, options) {

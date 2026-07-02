@@ -62,6 +62,10 @@
         animalStat: document.querySelector("#animalStat"),
         timerStat: document.querySelector("#timerStat"),
         controlMeter: document.querySelector("#controlMeter"),
+        lakeEventBanner: document.querySelector("#lakeEventBanner"),
+        lakeEventTitle: document.querySelector("#lakeEventTitle"),
+        lakeEventDetails: document.querySelector("#lakeEventDetails"),
+        lakeEventTimer: document.querySelector("#lakeEventTimer"),
         tileTitle: document.querySelector("#tileTitle"),
         tileDetails: document.querySelector("#tileDetails"),
         tileOwner: document.querySelector("#tileOwner"),
@@ -76,6 +80,11 @@
         abilityPerk: document.querySelector("#abilityPerk"),
         cooldownBar: document.querySelector("#cooldownBar"),
         cooldownText: document.querySelector("#cooldownText"),
+        levelTitle: document.querySelector("#levelTitle"),
+        levelDetails: document.querySelector("#levelDetails"),
+        xpBar: document.querySelector("#xpBar"),
+        objectiveList: document.querySelector("#objectiveList"),
+        missionList: document.querySelector("#missionList"),
         leaderboard: document.querySelector("#leaderboard"),
         toast: document.querySelector("#toast"),
         percentButtons: [...document.querySelectorAll("[data-percent]")],
@@ -226,7 +235,7 @@
       this.nodes.energyStat.textContent = `${human.energy} / ${human.maxEnergy}`;
       this.nodes.incomeStat.textContent = `+${human.income}/s`;
       this.nodes.territoryStat.textContent = `${Math.round(human.territoryPct * 100)}%`;
-      this.nodes.animalStat.textContent = animal.label;
+      this.nodes.animalStat.textContent = `${animal.label} L${human.level || 1}`;
       this.nodes.timerStat.textContent = this.formatTime(state.timeLeft);
       this.nodes.controlMeter.style.transform = `scaleX(${Math.max(0, Math.min(1, human.territoryPct / state.winControl))})`;
 
@@ -244,9 +253,10 @@
           : cooldownLeft > 0
             ? `Cooldown: ${Math.ceil(cooldownLeft)}s`
             : "Ready";
-      this.nodes.cooldownBar.style.transform = `scaleX(${cooldownLeft > 0 ? Math.max(0, 1 - cooldownLeft / animal.cooldown) : 1})`;
+      const cooldownTotal = abilityStatus.cooldown || animal.cooldown;
+      this.nodes.cooldownBar.style.transform = `scaleX(${cooldownLeft > 0 ? Math.max(0, 1 - cooldownLeft / cooldownTotal) : 1})`;
       this.nodes.abilityButton.disabled = human.defeated || state.ended;
-      const progress = cooldownLeft > 0 ? Math.max(0, 1 - cooldownLeft / animal.cooldown) : 1;
+      const progress = cooldownLeft > 0 ? Math.max(0, 1 - cooldownLeft / cooldownTotal) : 1;
       this.nodes.abilityButton.style.setProperty("--cooldown-angle", `${Math.round(progress * 360)}deg`);
       this.nodes.abilityButton.classList.toggle("cooldown", cooldownLeft > 0);
       this.nodes.abilityButton.classList.toggle("ready", cooldownLeft <= 0 && activeLeft <= 0);
@@ -258,6 +268,10 @@
 
       this.updateSelectedTile(state, selectedTile, context);
       this.updatePlayerPanel(state, selectedPlayerId);
+      this.updateProgression(human);
+      this.updateObjectives(state);
+      this.updateMissions(state);
+      this.updateLakeEvent(state);
       this.updateLeaderboard(state);
       this.updateActionLabels(human);
       if (state.ended) this.showResult(state, human);
@@ -320,12 +334,73 @@
           return `<li class="${player.id === state.humanId ? "local" : ""}">
             <span class="leader-rank">#${index + 1}</span>
             <span class="leader-animal animal-${this.escape(player.animal)}" title="${this.escape(animal.label)}">${this.escape(animal.icon)}</span>
-            <span class="leader-name"><b>${this.escape(name)}</b><small>${this.escape(animal.label)}${ally ? " | Ally" : ""}</small></span>
+            <span class="leader-name"><b>${this.escape(name)}</b><small>${this.escape(animal.label)} L${player.level || 1}${ally ? " | Ally" : ""}</small></span>
             <span class="leader-territory">${Math.round(player.territoryPct * 100)}%</span>
             <span class="leader-energy">${player.energy}</span>
           </li>`;
         })
         .join("");
+    }
+
+    updateProgression(human) {
+      const progress = human.progression || { level: human.level || 1, xp: human.xp || 0, ratio: 0, title: "Starter", next: 30 };
+      this.nodes.levelTitle.textContent = `Level ${progress.level} ${progress.title || "Starter"}`;
+      this.nodes.levelDetails.textContent =
+        progress.level >= 5 ? "Evolution unlocked. Your animal passive is fully upgraded." : `${Math.round(progress.xp)} XP / ${progress.next} XP`;
+      this.nodes.xpBar.style.transform = `scaleX(${Math.max(0, Math.min(1, progress.ratio || 0))})`;
+    }
+
+    updateObjectives(state) {
+      const objectives = state.objectives || [];
+      const camps = state.camps || [];
+      const playerName = (id) => state.players.find((player) => player.id === id)?.name || "Neutral";
+      const objectiveRows = objectives
+        .map((objective) => {
+          const def = objective.definition || state.config.objectives?.LAKE_OBJECTIVES?.[objective.type] || {};
+          const owner = objective.owner ? playerName(objective.owner) : objective.active ? "Open" : `Appears ${Math.ceil(Math.max(0, objective.activeAt - state.serverTime))}s`;
+          return `<div class="compact-row ${objective.owner === state.humanId ? "owned" : ""}">
+            <i style="--item-color:${this.escape(def.color || "#83dced")}">${this.escape(def.short || "OB")}</i>
+            <span><b>${this.escape(def.label || objective.type)}</b><small>${this.escape(owner)}</small></span>
+          </div>`;
+        })
+        .join("");
+      const campRows = camps
+        .slice(0, 4)
+        .map((camp) => {
+          const def = camp.definition || state.config.objectives?.CRITTER_CAMPS?.[camp.type] || {};
+          const owner = camp.owner ? playerName(camp.owner) : "Neutral";
+          return `<div class="compact-row camp ${camp.owner === state.humanId ? "owned" : ""}">
+            <i style="--item-color:${this.escape(def.color || "#d8ad48")}">${this.escape(def.short || "CP")}</i>
+            <span><b>${this.escape(def.label || camp.type)}</b><small>${this.escape(owner)}</small></span>
+          </div>`;
+        })
+        .join("");
+      this.nodes.objectiveList.innerHTML = objectiveRows + campRows || `<p class="empty-list">Objectives appear soon.</p>`;
+    }
+
+    updateMissions(state) {
+      const missions = (state.missions || []).slice(0, 4);
+      this.nodes.missionList.innerHTML =
+        missions
+          .map((mission) => {
+            const ratio = mission.target ? Math.max(0, Math.min(1, mission.progress / mission.target)) : mission.done ? 1 : 0;
+            const value = mission.id === "reach10" ? `${Math.round(mission.progress * 100)}%` : `${Math.floor(mission.progress)}/${mission.target}`;
+            return `<div class="mission-row ${mission.done ? "done" : ""}">
+              <span><b>${this.escape(mission.label)}</b><small>${mission.done ? "Reward claimed" : this.escape(value)}</small></span>
+              <i><b style="transform:scaleX(${ratio})"></b></i>
+            </div>`;
+          })
+          .join("") || `<p class="empty-list">Missions loading.</p>`;
+    }
+
+    updateLakeEvent(state) {
+      const active = state.lakeEvent?.active;
+      this.nodes.lakeEventBanner.classList.toggle("hidden", !active);
+      if (!active) return;
+      this.nodes.lakeEventBanner.style.setProperty("--event-color", active.color || "#83dced");
+      this.nodes.lakeEventTitle.textContent = active.label;
+      this.nodes.lakeEventDetails.textContent = active.description;
+      this.nodes.lakeEventTimer.textContent = `${Math.ceil(active.remaining || 0)}s`;
     }
 
     updateActionLabels(human) {
@@ -382,14 +457,31 @@
           .slice()
           .sort((a, b) => b.territoryPct - a.territoryPct)
           .findIndex((player) => player.id === state.humanId) + 1;
+      const title = this.playstyleTitle(human);
       this.nodes.resultStats.innerHTML = `
+        <dt>Title</dt><dd>${this.escape(title)}</dd>
         <dt>Final Rank</dt><dd>#${rank}</dd>
         <dt>Territory</dt><dd>${Math.round(human.territoryPct * 100)}%</dd>
+        <dt>Level</dt><dd>${human.level || 1} ${this.escape(human.progression?.title || "")}</dd>
         <dt>Energy Used</dt><dd>${Math.round(human.stats.energyUsed)}</dd>
         <dt>Captured</dt><dd>${human.stats.tilesCaptured}</dd>
+        <dt>Objectives</dt><dd>${human.stats.objectivesCaptured || 0}</dd>
+        <dt>Camps</dt><dd>${human.stats.campsCaptured || 0}</dd>
+        <dt>Abilities</dt><dd>${human.stats.abilitiesUsed || 0}</dd>
+        <dt>Biggest Wave</dt><dd>${human.stats.bestAttackWave || 0}</dd>
+        <dt>Buildings</dt><dd>${human.stats.buildingsBuilt || 0}</dd>
         <dt>Defeated</dt><dd>${human.stats.playersDefeated}</dd>
         <dt>Animal</dt><dd>${state.config.animals[human.animal].label}</dd>
       `;
+    }
+
+    playstyleTitle(human) {
+      if ((human.stats.objectivesCaptured || 0) >= 2) return "Objective Master";
+      if ((human.stats.bestAttackWave || 0) >= 12 || (human.stats.damageDealt || 0) > 180) return "War King";
+      if ((human.stats.defenses || 0) >= 5) return "Defender";
+      if ((human.flags?.lastNestProtection || false) && human.territoryPct > 0.04) return "Comeback Player";
+      if ((human.stats.tilesCaptured || 0) >= 70) return "Fast Expander";
+      return "Pond Commander";
     }
 
     formatTime(seconds) {

@@ -167,6 +167,7 @@ class CombatManager {
     };
     this.nextAttackId += 1;
     this.activeAttacks.push(wave);
+    game.recordWar?.(player.id, defender.id, { attack: true, damage: spend });
 
     this.pushEvent({
       kind: "attackWave",
@@ -300,6 +301,8 @@ class CombatManager {
     tile.lastChanged = now;
 
     attacker.stats.tilesCaptured += 1;
+    attacker.stats.damageDealt = (attacker.stats.damageDealt || 0) + cost;
+    attacker.stats.bestAttackWave = Math.max(attacker.stats.bestAttackWave || 0, wave.capturedTiles.length + 1);
     wave.capturedTiles.push(tile.id);
     wave.distanceByTile[tile.id] = candidate.distance;
     wave.fromByTile[tile.id] = candidate.from;
@@ -320,6 +323,7 @@ class CombatManager {
       targetOwner: defender.id,
       at: now,
     });
+    game.recordWar?.(attacker.id, defender.id, { tilesCaptured: 1, damage: cost });
   }
 
   resistWave(game, wave, candidate, cost) {
@@ -396,13 +400,20 @@ class CombatManager {
       if (defender.animal === "snake" && (tile.type === "reeds" || tile.type === "mud")) cost *= 1.2;
       if (tile.type === "water" && defender.animal === "frog") cost *= 0.95;
       cost += this.reedGuardBonus(defender.id, tile);
+      cost += defender.flags?.objectiveDefenseBonus || 0;
+      if (game.now() < (defender.flags?.campDefenseUntil || 0)) cost += balance.campDefenseBonus || 4;
+      if (defender.flags?.lastNestProtection && this.nearCore(defender, tile)) cost += balance.lastNestProtectionDefense || 18;
     }
 
     if (attacker.animal === "duck" && tile.type === "water") cost *= 0.86;
     if (attacker.animal === "duck" && tile.type === "water" && game.now() < attacker.abilityActiveUntil) cost *= balance.flockRushOpenWaterCostMultiplier || 0.65;
+    if (attacker.animal === "duck" && tile.type === "water" && (attacker.level || 1) >= 5) cost *= balance.level5DuckWaterCostMultiplier || 0.9;
     if (attacker.animal === "snake" && (tile.type === "reeds" || tile.type === "mud")) cost *= 0.86;
+    if (attacker.animal === "snake" && (tile.type === "reeds" || tile.type === "mud") && (attacker.level || 1) >= 5) cost *= 1 / (balance.level5SnakeReedAttackMultiplier || 1.12);
     if (wave.ambushApplied) cost *= balance.snakeAmbushDefenseCostMultiplier || 0.8;
     if (attacker.animal === "frog" && tile.type === "lily") cost *= 0.92;
+    if (game.eventsManager?.isActive("mudslide") && tile.type === "mud") cost *= balance.mudslideDefenseMultiplier || 1.22;
+    cost += game.objectives?.tileCostBonus(tile) || 0;
     if (!rough && wave.remainingPower / Math.max(1, wave.spentEnergy) < 0.18) cost *= 1.06;
 
     return Math.max(4, cost);
@@ -440,14 +451,16 @@ class CombatManager {
     }
 
     if (player.animal === "duck") {
-      player.abilityActiveUntil = now + animal.duration;
-      player.abilityReadyAt = now + animal.cooldown;
+      const duration = animal.duration + ((player.level || 1) >= 3 ? balance.level3DuckDurationBonus || 4 : 0);
+      player.abilityActiveUntil = now + duration;
+      player.abilityReadyAt = now + this.abilityCooldown(player, animal);
+      player.stats.abilitiesUsed = (player.stats.abilitiesUsed || 0) + 1;
       const result = {
         ok: true,
-        message: "Flock Rush active: open-water expansion costs 35% less for 10s.",
-        cooldown: animal.cooldown,
+        message: `Flock Rush active: open-water expansion costs 35% less for ${duration}s.`,
+        cooldown: this.abilityCooldown(player, animal),
         activeEffect: "Flock Rush",
-        duration: animal.duration,
+        duration,
         effectApplied: true,
         gameplayChanges: ["Open-water neutral expansion cost x0.65", "Small temporary income boost"],
         affectedTiles: [],
@@ -468,11 +481,12 @@ class CombatManager {
     if (player.animal === "snake") {
       player.flags.ambushReady = true;
       player.abilityActiveUntil = now + animal.duration;
-      player.abilityReadyAt = now + animal.cooldown;
+      player.abilityReadyAt = now + this.abilityCooldown(player, animal);
+      player.stats.abilitiesUsed = (player.stats.abilitiesUsed || 0) + 1;
       const result = {
         ok: true,
         message: "Ambush ready: next attack from reeds or mud gets +40% attack power.",
-        cooldown: animal.cooldown,
+        cooldown: this.abilityCooldown(player, animal),
         activeEffect: "Ambush Ready",
         duration: animal.duration,
         effectApplied: true,
@@ -507,11 +521,12 @@ class CombatManager {
         this.debugAbility(game, player, animal.ability, beforeEnergy, cooldownBefore, result, options);
         return result;
       }
-      player.abilityReadyAt = now + animal.cooldown;
+      player.abilityReadyAt = now + this.abilityCooldown(player, animal);
+      player.stats.abilitiesUsed = (player.stats.abilitiesUsed || 0) + 1;
       const result = {
         ok: true,
         message: `Big Leap captured ${leap.captured} neutral tiles.`,
-        cooldown: animal.cooldown,
+        cooldown: this.abilityCooldown(player, animal),
         activeEffect: null,
         duration: 0,
         effectApplied: true,
@@ -552,7 +567,7 @@ class CombatManager {
       }
     });
 
-    const clusterSize = balance.frogBigLeapClusterSize || 5;
+    const clusterSize = (balance.frogBigLeapClusterSize || 5) + ((player.level || 1) >= 3 ? balance.level3FrogLeapBonus || 2 : 0);
     const unique = [...new Map(options.map((entry) => [entry.tile.id, entry])).values()]
       .sort((a, b) => b.score - a.score)
       .slice(0, clusterSize)
@@ -609,6 +624,10 @@ class CombatManager {
       territory: player.territory,
       distanceFromCore,
       nearbyEnemyBorders,
+      specialCostBonus: game.objectives?.tileCostBonus(target) || 0,
+      rainstorm: game.eventsManager?.isActive("rainstorm"),
+      evolved: (player.level || 1) >= 5,
+      comebackCore: this.nearCore(player, target) && this.territoryPct(game, player) < (balance.recoveryTerritoryPct || 0.06),
     });
   }
 
@@ -617,6 +636,10 @@ class CombatManager {
     let ambushApplied = false;
     if (player.energy / Math.max(1, player.maxEnergy) < 0.18) multiplier *= 0.72;
     if (player.animal === "snake" && source && (source.type === "reeds" || source.type === "mud")) multiplier *= 1.18;
+    if (player.animal === "snake" && source && (source.type === "reeds" || source.type === "mud") && (player.level || 1) >= 5) {
+      multiplier *= balance.level5SnakeReedAttackMultiplier || 1.12;
+    }
+    if (game.now() < (player.flags?.campAttackUntil || 0)) multiplier *= balance.campAttackMultiplier || 1.12;
     if (this.canApplyAmbush(game, player, source)) {
       multiplier *= balance.snakeAmbushAttackPowerMultiplier || 1.4;
       ambushApplied = true;
@@ -627,6 +650,24 @@ class CombatManager {
     if (player.animal === "frog" && target.type === "lily") multiplier *= 1.08;
     if (jumped) multiplier *= 0.94;
     return { multiplier, ambushApplied };
+  }
+
+  abilityCooldown(player, animal) {
+    let cooldown = animal.cooldown;
+    if (player.animal === "snake" && (player.level || 1) >= 3) cooldown *= balance.level3SnakeCooldownMultiplier || 0.82;
+    cooldown *= 1 - Math.min(0.35, player.flags?.abilityCooldownReduction || 0);
+    return Math.max(8, Math.round(cooldown));
+  }
+
+  nearCore(player, tile) {
+    const core = player.coreTileId != null ? this.tileManager.getById(player.coreTileId) : null;
+    if (!core || !tile) return false;
+    return Math.abs(core.x - tile.x) + Math.abs(core.y - tile.y) <= 3;
+  }
+
+  territoryPct(game, player) {
+    const playable = this.tileManager.playable().length || 1;
+    return (player.territory || 0) / playable;
   }
 
   canApplyAmbush(game, player, source) {
@@ -651,14 +692,16 @@ class CombatManager {
     if (!player || !animal) return { abilityName: "", ready: false, cooldownLeft: 0, activeLeft: 0, activeEffect: null, realModifier: "" };
     const cooldownLeft = Math.max(0, (player.abilityReadyAt || 0) - now);
     const activeLeft = Math.max(0, (player.abilityActiveUntil || 0) - now);
+    const cooldown = this.abilityCooldown(player, animal);
     if (player.animal === "duck") {
       return {
         abilityName: animal.ability,
         ready: cooldownLeft <= 0,
         cooldownLeft,
+        cooldown,
         activeLeft,
         activeEffect: activeLeft > 0 ? "Flock Rush Active" : null,
-        realModifier: "Open-water expansion cost x0.65 for 10s.",
+        realModifier: (player.level || 1) >= 3 ? "Open-water expansion cost x0.65 for 14s." : "Open-water expansion cost x0.65 for 10s.",
         targetNeeded: false,
       };
     }
@@ -668,9 +711,13 @@ class CombatManager {
         abilityName: animal.ability,
         ready: cooldownLeft <= 0,
         cooldownLeft,
+        cooldown,
         activeLeft,
         activeEffect: ambushReady ? "Ambush Ready" : null,
-        realModifier: "Next reeds/mud attack gets x1.40 power and enemy border cost x0.80.",
+        realModifier:
+          (player.level || 1) >= 5
+            ? "Next reeds/mud attack gets x1.40 power; Marsh Serpent adds stronger reed pressure."
+            : "Next reeds/mud attack gets x1.40 power and enemy border cost x0.80.",
         targetNeeded: false,
       };
     }
@@ -678,9 +725,10 @@ class CombatManager {
       abilityName: animal.ability,
       ready: cooldownLeft <= 0,
       cooldownLeft,
+      cooldown,
       activeLeft: 0,
       activeEffect: null,
-      realModifier: "Captures up to 5 nearby neutral leap tiles; never enemy tiles.",
+      realModifier: (player.level || 1) >= 3 ? "Captures up to 7 nearby neutral leap tiles; never enemy tiles." : "Captures up to 5 nearby neutral leap tiles; never enemy tiles.",
       targetNeeded: false,
     };
   }

@@ -45,6 +45,15 @@ class BotManager {
       if (this.tryDefend(bot)) return;
     }
 
+    const objectiveTarget = this.pickObjectiveTarget(bot, phase);
+    if (objectiveTarget) {
+      if (!objectiveTarget.owner && this.tryExpandNeutral(bot, objectiveTarget)) return;
+      if (objectiveTarget.owner && objectiveTarget.owner !== bot.id && !this.game.diplomacy.areAllied(bot.id, objectiveTarget.owner)) {
+        this.launchAttack(bot, objectiveTarget, phase);
+        return;
+      }
+    }
+
     const attackTarget = this.pickAttack(bot, enemy, phase);
     if (attackTarget && this.shouldAttack(bot, this.game.getPlayer(attackTarget.owner), phase)) {
       this.launchAttack(bot, attackTarget, phase);
@@ -88,10 +97,12 @@ class BotManager {
 
   shouldExpand(bot, phase) {
     const animalPush = bot.animal === "duck" ? 0.12 : bot.animal === "frog" ? 0.06 : -0.03;
-    if (phase === "early") return bot.territory < 68 || bot.energy < bot.maxEnergy * 0.72 || Math.random() < 0.42 + animalPush;
+    const eventPush = this.game.eventsManager?.isActive("rainstorm") ? 0.22 : this.game.eventsManager?.isActive("lilyBloom") && bot.animal === "frog" ? 0.16 : 0;
+    if (phase === "early") return bot.territory < 68 || bot.energy < bot.maxEnergy * 0.72 || Math.random() < 0.42 + animalPush + eventPush;
     if (bot.personality === "expander" && bot.territory < 110 && Math.random() < 0.55) return true;
+    if (bot.personality === "objectiveHunter" && phase !== "early" && Math.random() < 0.38) return true;
     if (bot.personality === "defensive" && bot.energy < bot.maxEnergy * 0.5) return true;
-    return Math.random() < (phase === "mid" ? 0.28 : 0.14) + animalPush * 0.5;
+    return Math.random() < (phase === "mid" ? 0.28 : 0.14) + animalPush * 0.5 + eventPush;
   }
 
   buildChance(bot, phase) {
@@ -117,6 +128,27 @@ class BotManager {
       .filter((tile) => (tile.captureProgress?.[bot.id] || 0) > 0)
       .sort((a, b) => (b.captureProgress?.[bot.id] || 0) - (a.captureProgress?.[bot.id] || 0))[0];
     return withProgress || (tiles.length ? this.bestTile(bot, tiles) : null);
+  }
+
+  pickObjectiveTarget(bot, phase) {
+    if (phase === "early" && !this.game.objectives?.objectives?.some((objective) => objective.active)) return null;
+    const capturable = this.game.tileManager
+      .capturable(bot.id)
+      .filter((tile) => tile.objectiveId || tile.campId)
+      .filter((tile) => !tile.owner || (tile.owner !== bot.id && !this.game.diplomacy.areAllied(bot.id, tile.owner)));
+    if (!capturable.length) return null;
+    const chance =
+      bot.personality === "objectiveHunter"
+        ? 0.78
+        : bot.personality === "peacefulFarmer"
+          ? 0.38
+          : bot.animal === "frog"
+            ? 0.58
+            : 0.48;
+    if (Math.random() > chance) return null;
+    return capturable
+      .map((tile) => ({ tile, score: this.tileScore(bot, tile) + (tile.objectiveId ? 18 : 9) - (tile.owner ? this.roughAttackCost(tile, this.game.getPlayer(tile.owner)) * 0.18 : 0) }))
+      .sort((a, b) => b.score - a.score)[0]?.tile || null;
   }
 
   tryExpandNeutral(bot, target) {
@@ -316,7 +348,11 @@ class BotManager {
     if (bot.animal === "duck" && tile.type === "water") score += 4;
     if (bot.animal === "snake" && (tile.type === "reeds" || tile.type === "mud")) score += 5;
     if (bot.animal === "frog" && tile.type === "lily") score += 6;
+    if (this.game.eventsManager?.isActive("lilyBloom") && tile.type === "lily") score += bot.animal === "frog" ? 9 : 4;
+    if (this.game.eventsManager?.isActive("mudslide") && tile.type === "mud" && bot.animal === "snake") score += 6;
     if (tile.type === "nest") score += 3;
+    if (tile.objectiveId) score += bot.personality === "objectiveHunter" ? 24 : 16;
+    if (tile.campId) score += 8;
     return score;
   }
 

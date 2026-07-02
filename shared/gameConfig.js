@@ -147,6 +147,18 @@
     if (playerAnimal === "duck" && tileType === "water" && modifiers.flockRush) {
       cost *= balance.flockRushOpenWaterCostMultiplier || 0.65;
     }
+    if (playerAnimal === "duck" && tileType === "water" && modifiers.evolved) {
+      cost *= balance.level5DuckWaterCostMultiplier || 0.9;
+    }
+    if (tileType === "water" && modifiers.rainstorm) {
+      cost *= balance.rainstormWaterCostMultiplier || 0.82;
+    }
+    if (modifiers.comebackCore) {
+      cost *= 1 - (balance.coreExpansionDiscountPct || 0.14);
+    }
+    if (modifiers.specialCostBonus) {
+      cost += Number(modifiers.specialCostBonus) || 0;
+    }
 
     return Math.max(1, Math.round(cost));
   }

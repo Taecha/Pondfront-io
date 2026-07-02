@@ -9,6 +9,12 @@ const EconomyManager = require("./server/EconomyManager");
 const CombatManager = require("./server/CombatManager");
 const BotManager = require("./server/BotManager");
 const DiplomacyManager = require("./server/DiplomacyManager");
+const ObjectiveManager = require("./server/ObjectiveManager");
+const EventManager = require("./server/EventManager");
+const ProgressionManager = require("./server/ProgressionManager");
+const MissionManager = require("./server/MissionManager");
+const objectives = require("./shared/objectives");
+const lakeEvents = require("./shared/lakeEvents");
 
 const ROOT = __dirname;
 const PUBLIC = path.join(ROOT, "public");
@@ -35,16 +41,27 @@ class PondFrontServerGame {
       builds: 0,
       defenses: 0,
       pings: 0,
+      objectives: 0,
+      camps: 0,
     };
+    this.wars = new Map();
     this.tileManager = new TileManager(Date.now() % 999999);
     this.tileManager.generate();
+    this.objectives = new ObjectiveManager(this.tileManager, (event) => this.pushEvent(event));
+    this.eventsManager = new EventManager((event) => this.pushEvent(event));
+    this.progression = new ProgressionManager((event) => this.pushEvent(event));
+    this.missions = new MissionManager((event) => this.pushEvent(event));
+    this.objectives.setup(this.now());
+    this.eventsManager.reset(this.now());
     this.economy = new EconomyManager(this.tileManager);
     this.diplomacy = new DiplomacyManager((event) => this.pushEvent(event));
     this.combat = new CombatManager(this.tileManager, (event) => this.pushEvent(event));
     this.players = this.createPlayers(animal, this.matchSettings.difficulty);
+    this.progression.setup(this.players);
+    this.missions.setup(this.players);
     this.diplomacy.attach(this.players);
     this.players.forEach((player, index) => this.tileManager.claimStart(player, index, this.now()));
-    this.economy.recalculate(this.players, this.now());
+    this.economy.recalculate(this.players, this.now(), this);
     this.botManager = new BotManager(this);
     this.pushEvent({ kind: "notice", message: "Match started. Expand from your border.", at: this.now() });
   }
@@ -76,7 +93,7 @@ class PondFrontServerGame {
   }
 
   createPlayers(humanAnimal, difficulty) {
-    const personalities = ["expander", "aggressive", "defensive", "opportunist", "betrayer"];
+    const personalities = ["expander", "aggressive", "defensive", "objectiveHunter", "opportunist", "peacefulFarmer", "leaderHunter", "betrayer"];
     const human = this.makePlayer(config.HUMAN_ID, this.matchSettings.playerName || "Player", humanAnimal, animals[humanAnimal].color, false, "human");
     const players = [human];
     const botCount = this.matchSettings.botCount || config.BOT_COUNT || 9;
@@ -90,6 +107,15 @@ class PondFrontServerGame {
         difficulty === "chaos" ? "smart" : difficulty === "smart" || difficulty === "easy" ? difficulty : i % 4 === 0 ? "smart" : "normal";
       const player = this.makePlayer(`b${i}`, name, animal, color, true, botDifficulty);
       player.personality = difficulty === "chaos" ? personalities[(i + Math.floor(Math.random() * personalities.length)) % personalities.length] : personalities[i % personalities.length];
+      player.favoriteTerrain = animal === "snake" ? "reeds" : animal === "frog" ? "lily" : "water";
+      player.aggression =
+        player.personality === "aggressive" || player.personality === "leaderHunter"
+          ? 0.78
+          : player.personality === "peacefulFarmer"
+            ? 0.22
+            : player.personality === "defensive"
+              ? 0.35
+              : 0.5;
       players.push(player);
     }
     return players;
@@ -129,6 +155,9 @@ class PondFrontServerGame {
       abilityActiveUntil: 0,
       attackCooldownUntil: 0,
       flags: {},
+      xp: 0,
+      level: 1,
+      evolutionTitle: "Starter",
       coreTileId: null,
       personality: "human",
       buildings: {},
@@ -139,6 +168,11 @@ class PondFrontServerGame {
         attacksLaunched: 0,
         defenses: 0,
         buildingsBuilt: 0,
+        abilitiesUsed: 0,
+        objectivesCaptured: 0,
+        campsCaptured: 0,
+        bestAttackWave: 0,
+        damageDealt: 0,
       },
     };
   }
@@ -147,7 +181,10 @@ class PondFrontServerGame {
     if (this.simTime != null) this.simTime += dt;
     if (this.ended) return;
     this.combat.update(this, dt);
-    this.economy.update(this.players, dt, this.now());
+    this.objectives.update(this);
+    this.eventsManager.update(this);
+    this.economy.update(this.players, dt, this.now(), this);
+    this.missions.update(this);
     this.botManager.update(dt);
     this.checkWin();
   }
@@ -293,11 +330,15 @@ class PondFrontServerGame {
       territoryPct: playable ? player.territory / playable : 0,
       defeated: player.defeated,
       isBot: player.isBot,
+      xp: Math.round(player.xp || 0),
+      level: player.level || 1,
+      evolutionTitle: player.evolutionTitle || "Starter",
       allies: [...player.allies],
       enemies: [...player.enemies],
       abilityReadyAt: player.abilityReadyAt,
       abilityActiveUntil: player.abilityActiveUntil,
       abilityStatus: this.combat.abilityStatus(player, this.now()),
+      progression: this.progression.progress(player),
       attackCooldownUntil: player.attackCooldownUntil || 0,
       buildings: player.buildings,
       flags: player.flags,
@@ -308,6 +349,11 @@ class PondFrontServerGame {
       serverTime: this.now(),
       timeLeft: this.timeLeft(),
       regions: this.tileManager.regions,
+      objectives: this.objectives.snapshot().objectives,
+      camps: this.objectives.snapshot().camps,
+      lakeEvent: this.eventsManager.snapshot(this.now()),
+      missions: this.missions.snapshot(config.HUMAN_ID),
+      wars: this.warSnapshot(),
       matchSettings: this.matchSettings,
       ended: this.ended,
       winnerId: this.winnerId,
@@ -327,6 +373,9 @@ class PondFrontServerGame {
         buildingActiveAt: tile.buildingActiveAt || 0,
         captureProgress: this.roundCaptureProgress(tile.captureProgress),
         defenseEnergy: Math.round(tile.defenseEnergy),
+        objectiveId: tile.objectiveId || null,
+        campId: tile.campId || null,
+        specialActive: Boolean(tile.specialActive),
         lastChanged: tile.lastChanged,
       })),
       players,
@@ -336,6 +385,8 @@ class PondFrontServerGame {
         tileTypes: config.TILE_TYPES,
         buildings: config.BUILDINGS,
         animals,
+        objectives,
+        lakeEvents,
         balance,
         buildingCosts: this.playerBuildingCosts(this.getPlayer(config.HUMAN_ID)),
       },
@@ -343,9 +394,12 @@ class PondFrontServerGame {
   }
 
   pushEvent(event) {
-    this.events.push({ id: this.eventId, ...event });
-    this.countMetric(event);
+    const stamped = { id: this.eventId, ...event };
     this.eventId += 1;
+    this.events.push(stamped);
+    this.progression?.handleEvent(this, stamped);
+    this.missions?.handleEvent(this, stamped);
+    this.countMetric(stamped);
     if (this.events.length > config.MAX_EVENTS) this.events.splice(0, this.events.length - config.MAX_EVENTS);
   }
 
@@ -367,8 +421,46 @@ class PondFrontServerGame {
       animal: Number((breakdown.animal || 0).toFixed(1)),
       recovery: Number((breakdown.recovery || 0).toFixed(1)),
       temporary: Number((breakdown.temporary || 0).toFixed(1)),
+      objectives: Number((breakdown.objectives || 0).toFixed(1)),
       total: Number(Object.values(breakdown).reduce((sum, value) => sum + (Number(value) || 0), 0).toFixed(1)),
     };
+  }
+
+  recordWar(attackerId, defenderId, data = {}) {
+    if (!attackerId || !defenderId || attackerId === defenderId) return;
+    const key = [attackerId, defenderId].sort().join(":");
+    const current =
+      this.wars.get(key) || {
+        id: key,
+        players: [attackerId, defenderId],
+        attacks: 0,
+        tilesCaptured: 0,
+        damage: 0,
+        lastAt: 0,
+        aggressorId: attackerId,
+      };
+    current.attacks += data.attack ? 1 : 0;
+    current.tilesCaptured += data.tilesCaptured || 0;
+    current.damage += data.damage || 0;
+    current.lastAt = this.now();
+    current.aggressorId = attackerId;
+    this.wars.set(key, current);
+    const attacker = this.getPlayer(attackerId);
+    const defender = this.getPlayer(defenderId);
+    attacker?.enemies?.add(defenderId);
+    defender?.enemies?.add(attackerId);
+  }
+
+  warSnapshot() {
+    const now = this.now();
+    return [...this.wars.values()]
+      .filter((war) => now - war.lastAt < 220)
+      .map((war) => ({
+        ...war,
+        atWar: now - war.lastAt < 90,
+        peacePossible: now - war.lastAt > 45,
+        damage: Math.round(war.damage),
+      }));
   }
 
   roundCaptureProgress(progress = {}) {
@@ -401,6 +493,8 @@ class PondFrontServerGame {
     if (event.kind === "buildComplete") this.metrics.builds += 1;
     if (event.kind === "defend") this.metrics.defenses += 1;
     if (event.kind === "ping") this.metrics.pings += 1;
+    if (event.kind === "objectiveCaptured") this.metrics.objectives += 1;
+    if (event.kind === "campCaptured") this.metrics.camps += 1;
   }
 }
 
@@ -487,7 +581,9 @@ const server = http.createServer(async (req, res) => {
   if (req.method === "POST" && url.pathname === "/api/action") {
     const body = await readJson(req);
     const result = game.handleAction(body);
-    game.economy.recalculate(game.players, game.now());
+    game.objectives.update(game);
+    game.economy.recalculate(game.players, game.now(), game);
+    game.missions.update(game);
     if (result.message) game.pushEvent({ kind: "notice", message: result.message, ok: result.ok, at: game.now() });
     sendJson(res, result.ok ? 200 : 400, { ...result, state: game.snapshot() });
     return;

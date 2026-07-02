@@ -28,6 +28,8 @@
     duckAbility: "Flock Rush: For 10s, open-water expansion costs 35% less.",
     snakeAbility: "Ambush: Your next attack from reeds or mud has +40% attack power and cuts enemy border cost by 20%.",
     frogAbility: "Big Leap: Capture up to 5 nearby neutral tiles by jumping over small obstacles.",
+    objectives: "Lake objectives turn on after the early game and give powerful map-wide bonuses while controlled.",
+    critterCamp: "Neutral critter camps are optional fights that give temporary defense, attack, income, or scouting bonuses.",
   };
 
   const TERRAIN_TIPS = {
@@ -73,6 +75,8 @@
     const type = state.config.tileTypes[tile.type];
     const owner = state.players.find((player) => player.id === tile.owner);
     const human = state.players.find((player) => player.id === state.humanId);
+    const objective = state.objectives?.find((entry) => entry.tileId === tile.id);
+    const camp = state.camps?.find((entry) => entry.tileId === tile.id);
     const ownerText = owner ? (owner.id === state.humanId ? "Your territory" : owner.name) : type.blocks ? "Blocked" : "Neutral";
     const defenseTotal = Math.round((tile.defenseEnergy || 0) + (type.defenseBonus || 0));
     const facts = [
@@ -88,6 +92,18 @@
       facts.push({ label: "Building", value: `${building?.label || tile.building} L${level}` });
       const activeLeft = Math.max(0, Math.ceil((tile.buildingActiveAt || 0) - state.serverTime));
       if (activeLeft > 0) facts.push({ label: "Active In", value: `${activeLeft}s` });
+    }
+
+    if (objective) {
+      const def = objective.definition || state.config.objectives?.LAKE_OBJECTIVES?.[objective.type] || {};
+      facts.push({ label: "Objective", value: def.label || objective.type });
+      facts.push({ label: "Status", value: objective.active ? "Active" : `Appears ${Math.ceil(Math.max(0, objective.activeAt - state.serverTime))}s` });
+    }
+
+    if (camp) {
+      const def = camp.definition || state.config.objectives?.CRITTER_CAMPS?.[camp.type] || {};
+      facts.push({ label: "Camp", value: def.label || camp.type });
+      facts.push({ label: "Reward", value: def.effect || "bonus" });
     }
 
     if (!tile.owner && !type.blocks && human) {
@@ -130,6 +146,16 @@
       warning = "Blocked by terrain";
     }
 
+    if (objective) {
+      const def = objective.definition || {};
+      title = objective.active ? def.label || "Lake Objective" : "Dormant Objective";
+      detail = objective.active ? def.description || TIPS.objectives : "This objective will activate after the early game.";
+    } else if (camp) {
+      const def = camp.definition || {};
+      title = def.label || "Critter Camp";
+      detail = def.description || TIPS.critterCamp;
+    }
+
     if (owner?.id === state.humanId && human?.incomeBreakdown) {
       facts.push(...incomeFacts(human).slice(0, 5));
     }
@@ -151,6 +177,8 @@
 
     const animal = state.config.animals[player.animal];
     const relation = human.allies.includes(player.id) ? "Alliance" : human.enemies.includes(player.id) ? "Marked enemy" : "Neutral";
+    const war = state.wars?.find((entry) => entry.players.includes(player.id) && entry.players.includes(state.humanId));
+    const warText = war?.atWar ? "At War" : war?.peacePossible ? "Peace Possible" : relation;
     const strength = strengthLabel(player.energy, player.maxEnergy);
     const suggested = human.allies.includes(player.id)
       ? "Coordinate with signals"
@@ -162,13 +190,16 @@
 
     return {
       title: `${animal.icon} ${player.name}`,
-      meta: `${animal.label} | ${Math.round(player.territoryPct * 100)}% territory | ${player.energy} energy | ${relation}`,
+      meta: `${animal.label} L${player.level || 1} | ${Math.round(player.territoryPct * 100)}% territory | ${player.energy} energy | ${warText}`,
       facts: [
         { label: "Animal", value: animal.label },
+        { label: "Level", value: player.progression?.levelText || `Level ${player.level || 1}` },
         { label: "Ability", value: animal.ability },
         { label: "Strength", value: strength },
         { label: "Income", value: `+${player.income}/s` },
-        { label: "Alliance", value: relation },
+        { label: "Status", value: warText },
+        { label: "War Tiles", value: war ? String(war.tilesCaptured || 0) : "0" },
+        { label: "Recent Hits", value: war ? String(war.attacks || 0) : "0" },
         { label: "Suggested", value: suggested },
       ],
     };
@@ -184,6 +215,7 @@
       { label: "Buildings", value: `+${breakdown.buildings || 0}` },
       { label: "Animal", value: `+${breakdown.animal || 0}` },
       { label: "Recovery", value: `+${breakdown.recovery || 0}` },
+      { label: "Objectives", value: `+${breakdown.objectives || 0}` },
       { label: "Total", value: `+${breakdown.total || player.income}/s` },
     ];
   }

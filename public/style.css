@@ -906,6 +906,56 @@ h1 {
     #0b202d;
 }
 
+.lake-event-banner {
+  position: absolute;
+  z-index: 6;
+  top: 12px;
+  left: 50%;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: center;
+  width: min(560px, calc(100% - 640px));
+  min-height: 42px;
+  padding: 8px 12px;
+  border: 1px solid color-mix(in srgb, var(--event-color, #83dced) 55%, transparent);
+  border-radius: 8px;
+  color: #eefbfe;
+  background:
+    linear-gradient(180deg, rgba(10, 29, 42, 0.94), rgba(5, 16, 25, 0.92)),
+    rgba(7, 19, 29, 0.86);
+  box-shadow: 0 16px 36px rgba(0, 0, 0, 0.28), 0 0 18px color-mix(in srgb, var(--event-color, #83dced) 22%, transparent);
+  transform: translateX(-50%);
+}
+
+.lake-event-banner strong,
+.lake-event-banner span,
+.lake-event-banner b {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.lake-event-banner strong {
+  color: var(--event-color, #83dced);
+  font-size: 0.86rem;
+}
+
+.lake-event-banner span {
+  color: #c4dde4;
+  font-size: 0.78rem;
+  font-weight: 750;
+}
+
+.lake-event-banner b {
+  color: #061019;
+  min-width: 38px;
+  padding: 4px 7px;
+  border-radius: 999px;
+  background: var(--event-color, #83dced);
+  text-align: center;
+}
+
 #mapCanvas {
   display: block;
   width: 100%;
@@ -1033,6 +1083,123 @@ h1 {
   color: var(--muted);
   font-size: 0.76rem;
   font-weight: 850;
+}
+
+.xp-bar {
+  overflow: hidden;
+  height: 7px;
+  margin-top: 10px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.xp-bar b {
+  display: block;
+  width: 100%;
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, #87d7ea, #d8ad48);
+  transform: scaleX(0);
+  transform-origin: left center;
+}
+
+.compact-list {
+  display: grid;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.compact-row,
+.mission-row {
+  display: grid;
+  gap: 8px;
+  align-items: center;
+  min-height: 38px;
+  padding: 6px 7px;
+  border-radius: 7px;
+  background: rgba(255, 255, 255, 0.045);
+}
+
+.compact-row {
+  grid-template-columns: 34px minmax(0, 1fr);
+}
+
+.compact-row.owned,
+.mission-row.done {
+  border: 1px solid rgba(135, 215, 234, 0.28);
+  background: rgba(98, 198, 223, 0.12);
+}
+
+.compact-row i {
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 24px;
+  border-radius: 7px;
+  color: #061019;
+  background: var(--item-color, #83dced);
+  font-size: 0.65rem;
+  font-style: normal;
+  font-weight: 950;
+}
+
+.compact-row.camp i {
+  border-radius: 50%;
+}
+
+.compact-row span,
+.mission-row span {
+  min-width: 0;
+}
+
+.compact-row b,
+.compact-row small,
+.mission-row b,
+.mission-row small {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.compact-row b,
+.mission-row b {
+  color: #e7f6fa;
+  font-size: 0.77rem;
+}
+
+.compact-row small,
+.mission-row small,
+.empty-list {
+  color: var(--muted);
+  font-size: 0.68rem;
+  font-weight: 800;
+}
+
+.mission-row {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.mission-row > i {
+  display: block;
+  overflow: hidden;
+  height: 5px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.mission-row > i b {
+  display: block;
+  width: 100%;
+  height: 100%;
+  background: linear-gradient(90deg, #5fbf83, #d8ad48);
+  transform: scaleX(0);
+  transform-origin: left center;
+}
+
+.empty-list {
+  margin: 0;
+  padding: 6px 2px;
 }
 
 #miniMap {
@@ -1625,6 +1792,19 @@ h1 {
 
   .leaderboard-panel {
     display: none;
+  }
+
+  .objective-panel,
+  .mission-panel,
+  .progression-panel {
+    display: none;
+  }
+
+  .lake-event-banner {
+    top: 8px;
+    width: min(420px, calc(100% - 320px));
+    min-height: 36px;
+    font-size: 0.72rem;
   }
 
   .panel {

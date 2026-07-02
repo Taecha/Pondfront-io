@@ -193,6 +193,11 @@
 
         <section class="play-area">
           <canvas id="mapCanvas" aria-label="PondFront strategy map"></canvas>
+          <div id="lakeEventBanner" class="lake-event-banner hidden">
+            <strong id="lakeEventTitle">Lake Event</strong>
+            <span id="lakeEventDetails">Strategic shift active.</span>
+            <b id="lakeEventTimer">0s</b>
+          </div>
 
           <aside class="left-panel">
             <div class="panel selected-panel">
@@ -228,10 +233,25 @@
               <div class="cooldown"><b id="cooldownBar"></b></div>
               <span id="cooldownText">Ready</span>
             </div>
+
+            <div class="panel progression-panel">
+              <span class="label">Animal Growth</span>
+              <strong id="levelTitle">Level 1 Starter</strong>
+              <p id="levelDetails">Capture, fight, build, and use abilities to evolve.</p>
+              <div class="xp-bar"><b id="xpBar"></b></div>
+            </div>
           </aside>
 
           <aside class="right-panel">
             <canvas id="miniMap" aria-label="Minimap"></canvas>
+            <div class="panel objective-panel">
+              <span class="label">Lake Objectives</span>
+              <div id="objectiveList" class="compact-list"></div>
+            </div>
+            <div class="panel mission-panel">
+              <span class="label">Missions</span>
+              <div id="missionList" class="compact-list"></div>
+            </div>
             <div class="panel leaderboard-panel">
               <span class="label">Leaderboard</span>
               <ol id="leaderboard"></ol>
@@ -309,6 +329,8 @@
     <script src="/shared/balanceConfig.js"></script>
     <script src="/shared/gameConfig.js"></script>
     <script src="/shared/animals.js"></script>
+    <script src="/shared/objectives.js"></script>
+    <script src="/shared/lakeEvents.js"></script>
     <script src="./infoPanel.js"></script>
     <script src="./contextMenu.js"></script>
     <script src="./tooltips.js"></script>

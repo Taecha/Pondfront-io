@@ -1,5 +1,6 @@
 const config = require("../shared/gameConfig");
 const animals = require("../shared/animals");
+const objectiveConfig = require("../shared/objectives");
 const balance = config.BALANCE;
 
 class EconomyManager {
@@ -7,8 +8,8 @@ class EconomyManager {
     this.tileManager = tileManager;
   }
 
-  update(players, dt, now = Date.now() / 1000) {
-    this.recalculate(players, now);
+  update(players, dt, now = Date.now() / 1000, game = null) {
+    this.recalculate(players, now, game);
     players.forEach((player) => {
       if (player.defeated) return;
       player.flags.warExhaustion = Math.max(0, (player.flags.warExhaustion || 0) - balance.warExhaustionDecayPerSecond * dt);
@@ -17,12 +18,18 @@ class EconomyManager {
     });
   }
 
-  recalculate(players, now = Date.now() / 1000) {
+  recalculate(players, now = Date.now() / 1000, game = null) {
     players.forEach((player) => {
       const preservedFlags = player.flags || {};
       player.territory = 0;
       player.maxEnergy = balance.maxEnergyBase;
-      player.flags = { ...preservedFlags, jumpPad: false, mudTunnel: false };
+      player.flags = {
+        ...preservedFlags,
+        jumpPad: false,
+        mudTunnel: false,
+        objectiveDefenseBonus: 0,
+        abilityCooldownReduction: 0,
+      };
       player.buildings = { nest: 0, lilyFarm: 0, reedGuard: 0, mudTunnel: 0, jumpPad: 0 };
       player.incomeBreakdown = {
         base: balance.baseIncome,
@@ -32,6 +39,7 @@ class EconomyManager {
         animal: 0,
         recovery: 0,
         temporary: 0,
+        objectives: 0,
       };
     });
 
@@ -47,9 +55,16 @@ class EconomyManager {
       player.incomeBreakdown.terrain += type.incomeBonus * balance.terrainIncomeMultiplier;
 
       if (player.animal === "duck") player.maxEnergy += balance.duckMaxEnergyPerTile;
-      if (player.animal === "frog" && tile.type === "lily") player.incomeBreakdown.animal += balance.frogLilyBonus;
+      if (player.animal === "frog" && tile.type === "lily") {
+        const evolved = (player.level || 1) >= 5 ? balance.level5FrogLilyIncomeMultiplier || 1.22 : 1;
+        player.incomeBreakdown.animal += balance.frogLilyBonus * evolved;
+      }
+      if (game?.eventsManager?.isActive("lilyBloom") && tile.type === "lily") {
+        player.incomeBreakdown.temporary += balance.lilyBloomIncomeBonus || 0.18;
+      }
 
       this.applyBuilding(player, tile, now);
+      this.applyObjective(player, tile);
     });
 
     players.forEach((player) => {
@@ -59,12 +74,22 @@ class EconomyManager {
         player.incomeBreakdown.recovery += balance.recoveryIncomeMax * (1 - territoryPct / balance.recoveryTerritoryPct);
       }
       if (player.animal === "duck" && player.abilityActiveUntil > now) player.incomeBreakdown.temporary += 0.25;
+      if (now < (player.flags?.campIncomeUntil || 0)) player.incomeBreakdown.temporary += balance.campIncomeBonus || 1.25;
+      if (territoryPct < (balance.lastNestProtectionTerritoryPct || 0.035) && player.territory > 0) {
+        player.flags.lastNestProtection = true;
+        player.incomeBreakdown.recovery += 0.35;
+        const core = player.coreTileId != null ? this.tileManager.getById(player.coreTileId) : null;
+        if (core?.owner === player.id) core.defenseEnergy = Math.max(core.defenseEnergy || 0, balance.lastNestProtectionDefense || 18);
+      } else {
+        player.flags.lastNestProtection = false;
+      }
       player.income = Object.values(player.incomeBreakdown).reduce((sum, value) => sum + value, 0);
       if (player.income > balance.empireIncomeSoftCap) {
         player.income =
           balance.empireIncomeSoftCap + (player.income - balance.empireIncomeSoftCap) * (1 - balance.empireIncomeDamping);
       }
       if (player.animal === "duck") player.maxEnergy *= 1.08;
+      if ((player.level || 1) >= 5 && player.animal === "duck") player.maxEnergy *= 1.04;
       player.energy = Math.min(player.energy, player.maxEnergy);
       if (player.territory <= 0 && !player.defeated) player.defeated = true;
     });
@@ -94,6 +119,16 @@ class EconomyManager {
       player.flags.jumpPad = true;
       player.maxEnergy += balance.jumpPadMaxEnergyBonus * boost;
     }
+  }
+
+  applyObjective(player, tile) {
+    if (!tile.specialActive || !tile.objectiveId) return;
+    const objective = objectiveConfig.LAKE_OBJECTIVES[tile.objectiveId];
+    if (!objective) return;
+    if (objective.incomeBonus) player.incomeBreakdown.objectives += objective.incomeBonus;
+    if (objective.maxEnergyBonus) player.maxEnergy += objective.maxEnergyBonus;
+    if (objective.defenseBonus) player.flags.objectiveDefenseBonus += objective.defenseBonus;
+    if (objective.cooldownReduction) player.flags.abilityCooldownReduction += objective.cooldownReduction;
   }
 
   buildingCost(player, buildingType) {

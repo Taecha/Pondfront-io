@@ -165,6 +165,20 @@
           const captured = event.captured || 0;
           this.ui.toast(captured > 0 ? `Frontline wave captured ${captured} tiles.` : event.message || "Attack wave stopped.", captured === 0);
         }
+        if (
+          [
+            "objectiveAppeared",
+            "objectiveCaptured",
+            "campCaptured",
+            "campMoved",
+            "lakeEventStarted",
+            "levelUp",
+            "missionComplete",
+          ].includes(event.kind) &&
+          (event.kind === "objectiveAppeared" || event.kind === "campMoved" || event.kind === "lakeEventStarted" || this.involvesHuman(event))
+        ) {
+          this.ui.toast(event.message || "Pond event updated.");
+        }
       });
     }
 
@@ -865,8 +879,25 @@
           territory: human?.territory || 0,
           distanceFromCore,
           nearbyEnemyBorders,
+          specialCostBonus: this.specialCostBonus(tile),
+          rainstorm: this.state?.lakeEvent?.active?.type === "rainstorm",
+          evolved: (human?.level || 1) >= 5,
+          comebackCore: core && this.distance(core, tile) <= 3 && (human?.territoryPct || 0) < 0.06,
         }) || type.captureCost
       );
+    }
+
+    specialCostBonus(tile) {
+      if (!tile) return 0;
+      if (tile.objectiveId) {
+        const objective = this.state.objectives?.find((entry) => entry.id === tile.objectiveId);
+        if (objective?.active) return objective.definition?.captureCostBonus || 0;
+      }
+      if (tile.campId) {
+        const camp = this.state.camps?.find((entry) => entry.id === tile.campId);
+        if (camp?.active) return camp.definition?.captureCostBonus || 0;
+      }
+      return 0;
     }
 
     buildingCost(buildingType, human = this.human()) {
@@ -957,15 +988,16 @@
 
       const energy = Math.round(human.energy * this.ui.percent);
       const estimate = this.estimateWave(tile, energy);
+      const fogged = this.state.lakeEvent?.active?.type === "foggyMarsh";
       return {
         ...context,
         kind: "attackBorder",
         canAttack: true,
         percent: Math.round(this.ui.percent * 100),
         strength: energy,
-        tiles: estimate.tiles,
-        nextCost: estimate.nextCost,
-        estimateText: `${estimate.tiles} tiles with ${Math.round(this.ui.percent * 100)}%`,
+        tiles: fogged ? "?" : estimate.tiles,
+        nextCost: fogged ? "?" : estimate.nextCost,
+        estimateText: fogged ? "Hidden by Foggy Marsh" : `${estimate.tiles} tiles with ${Math.round(this.ui.percent * 100)}%`,
       };
     }
 
@@ -1031,7 +1063,10 @@
       const type = this.state.config.tileTypes[tile.type];
       const base = tile.building ? 18 : tile.type === "water" ? 6 : tile.type === "lily" ? 8 : tile.type === "reeds" ? 12 : tile.type === "mud" ? 14 : 16;
       const energyRatio = defender.energy / Math.max(1, defender.maxEnergy);
-      return Math.max(4, (base + type.defenseBonus * 1.25 + tile.defenseEnergy * 0.8 + distance * 1.1 + Math.min(18, defender.energy * 0.035)) * (0.86 + energyRatio * 0.45));
+      let cost = base + type.defenseBonus * 1.25 + tile.defenseEnergy * 0.8 + distance * 1.1 + Math.min(18, defender.energy * 0.035);
+      if (this.state.lakeEvent?.active?.type === "mudslide" && tile.type === "mud") cost *= this.state.config.balance.mudslideDefenseMultiplier || 1.22;
+      cost += this.specialCostBonus(tile);
+      return Math.max(4, cost * (0.86 + energyRatio * 0.45));
     }
 
     distance(a, b) {
