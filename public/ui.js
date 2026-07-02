@@ -66,6 +66,11 @@
         lakeEventTitle: document.querySelector("#lakeEventTitle"),
         lakeEventDetails: document.querySelector("#lakeEventDetails"),
         lakeEventTimer: document.querySelector("#lakeEventTimer"),
+        zoomInButton: document.querySelector("#zoomInButton"),
+        zoomOutButton: document.querySelector("#zoomOutButton"),
+        centerMapButton: document.querySelector("#centerMapButton"),
+        collapseUiButton: document.querySelector("#collapseUiButton"),
+        openLeaderboardButton: document.querySelector("#openLeaderboardButton"),
         tileTitle: document.querySelector("#tileTitle"),
         tileDetails: document.querySelector("#tileDetails"),
         tileOwner: document.querySelector("#tileOwner"),
@@ -115,6 +120,7 @@
       this.helpMenu = root.PondHelpMenu ? new root.PondHelpMenu(this.nodes.helpButton) : null;
       this.bind();
       this.updateLobbyAnimal();
+      this.syncBotOptions(true);
       this.setPercent(this.percent);
     }
 
@@ -139,8 +145,9 @@
         this.emit("start", this.startPayload());
       });
       this.nodes.practiceButton?.addEventListener("click", () => {
-        this.emit("start", this.startPayload({ difficulty: "easy", botCount: 4, practice: true }));
+        this.emit("start", this.startPayload({ difficulty: "easy", mapSize: "small", botCount: 4, matchLength: "quick", practice: true }));
       });
+      this.nodes.mapSize?.addEventListener("change", () => this.syncBotOptions());
       this.nodes.lobbyHelpButton?.addEventListener("click", () => this.nodes.lobbyGuide?.classList.remove("hidden"));
       this.nodes.closeLobbyGuide?.addEventListener("click", () => this.nodes.lobbyGuide?.classList.add("hidden"));
       this.nodes.lobbyGuide?.addEventListener("click", (event) => {
@@ -172,6 +179,17 @@
       this.nodes.floatingText.addEventListener("change", () => this.emit("viewChanged"));
       this.nodes.attackArrows.addEventListener("change", () => this.emit("viewChanged"));
       this.nodes.reducedMotion.addEventListener("change", () => this.emit("viewChanged"));
+      this.nodes.zoomInButton?.addEventListener("click", () => this.emit("camera", { type: "zoomIn" }));
+      this.nodes.zoomOutButton?.addEventListener("click", () => this.emit("camera", { type: "zoomOut" }));
+      this.nodes.centerMapButton?.addEventListener("click", () => this.emit("camera", { type: "center" }));
+      this.nodes.collapseUiButton?.addEventListener("click", () => {
+        document.body.classList.toggle("ui-collapsed");
+        this.nodes.collapseUiButton.classList.toggle("active", document.body.classList.contains("ui-collapsed"));
+      });
+      this.nodes.openLeaderboardButton?.addEventListener("click", () => {
+        document.body.classList.toggle("leaderboard-open");
+        this.nodes.openLeaderboardButton.classList.toggle("active", document.body.classList.contains("leaderboard-open"));
+      });
     }
 
     startPayload(overrides = {}) {
@@ -185,6 +203,20 @@
         matchLength: this.nodes.matchLength?.value || "standard",
         ...overrides,
       };
+    }
+
+    syncBotOptions(initial = false) {
+      const mapSize = this.nodes.mapSize?.value || "medium";
+      const map = root.PondMapConfig?.[mapSize] || root.PondMapConfig?.medium;
+      if (!map || !this.nodes.botCount) return;
+      const current = Number(this.nodes.botCount.value || map.defaultBots);
+      const values = [];
+      for (let count = map.minBots; count <= map.maxBots; count += 1) values.push(count);
+      this.nodes.botCount.innerHTML = values
+        .map((count) => `<option value="${count}">${count}</option>`)
+        .join("");
+      const next = initial || current < map.minBots || current > map.maxBots ? map.defaultBots : current;
+      this.nodes.botCount.value = String(next);
     }
 
     updateLobbyAnimal() {

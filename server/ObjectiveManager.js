@@ -25,17 +25,25 @@ class ObjectiveManager {
   clearMarkers() {
     this.tileManager.tiles.forEach((tile) => {
       tile.objectiveId = null;
+      tile.objectiveType = null;
       tile.campId = null;
+      tile.campType = null;
       tile.specialActive = false;
     });
   }
 
   placeObjectives(now) {
-    Object.entries(objectiveConfig.LAKE_OBJECTIVES).forEach(([type, definition]) => {
-      const tile = this.bestTile(definition.spawn, definition.tilePreference);
-      if (!tile) return;
-      const id = type;
+    const objectiveCount = this.tileManager.map?.objectiveCount || Object.keys(objectiveConfig.LAKE_OBJECTIVES).length;
+    const definitions = Object.entries(objectiveConfig.LAKE_OBJECTIVES);
+    const centers = this.objectiveCenters(objectiveCount);
+    for (let i = 0; i < objectiveCount; i += 1) {
+      const [type, definition] = definitions[i % definitions.length];
+      const center = centers[i] || this.scaledCenter(definition.spawn);
+      const tile = this.bestTile(center, definition.tilePreference);
+      if (!tile) continue;
+      const id = i < definitions.length ? type : `${type}-${i + 1}`;
       tile.objectiveId = id;
+      tile.objectiveType = type;
       tile.specialActive = false;
       tile.defenseEnergy = Math.max(tile.defenseEnergy || 0, 16);
       this.objectives.push({
@@ -47,29 +55,33 @@ class ObjectiveManager {
         activeAt: now + config.BALANCE.objectiveSpawnTime,
         owner: null,
       });
-    });
+    }
   }
 
   placeCamps(now) {
-    Object.entries(objectiveConfig.CRITTER_CAMPS).forEach(([type, definition]) => {
-      definition.positions.forEach((position, index) => {
-        const tile = this.bestTile({ ...position, radius: 4 }, ["water", "lily", "reeds", "mud", "nest"]);
-        if (!tile || tile.objectiveId || tile.campId) return;
-        const id = `${type}-${index + 1}`;
-        tile.campId = id;
-        tile.specialActive = true;
-        tile.defenseEnergy = Math.max(tile.defenseEnergy || 0, 10);
-        this.camps.push({
-          id,
-          type,
-          tileId: tile.id,
-          active: true,
-          owner: null,
-          lastCapturedBy: null,
-          refreshedAt: now,
-        });
+    const campCount = this.tileManager.map?.campCount || 8;
+    const definitions = Object.entries(objectiveConfig.CRITTER_CAMPS);
+    const centers = this.campCenters(campCount);
+    for (let i = 0; i < campCount; i += 1) {
+      const [type, definition] = definitions[i % definitions.length];
+      const fallbackPosition = definition.positions[i % definition.positions.length] || { x: 42, y: 27 };
+      const tile = this.bestTile(centers[i] || this.scaledCenter({ ...fallbackPosition, radius: 4 }), ["water", "lily", "reeds", "mud", "nest"]);
+      if (!tile || tile.objectiveId || tile.campId) continue;
+      const id = `${type}-${i + 1}`;
+      tile.campId = id;
+      tile.campType = type;
+      tile.specialActive = true;
+      tile.defenseEnergy = Math.max(tile.defenseEnergy || 0, 10);
+      this.camps.push({
+        id,
+        type,
+        tileId: tile.id,
+        active: true,
+        owner: null,
+        lastCapturedBy: null,
+        refreshedAt: now,
       });
-    });
+    }
   }
 
   update(game) {
@@ -162,16 +174,24 @@ class ObjectiveManager {
     this.camps.forEach((camp, index) => {
       const oldTile = this.tileManager.getById(camp.tileId);
       if (oldTile?.owner) return;
-      if (oldTile) oldTile.campId = null;
+      if (oldTile) {
+        oldTile.campId = null;
+        oldTile.campType = null;
+      }
       const definition = this.campDefinition(camp.type);
       const base = definition.positions[index % definition.positions.length] || { x: 42, y: 27 };
       const drift = (this.campSeed++ % 5) - 2;
-      const next = this.bestTile({ x: base.x + drift * 2, y: base.y - drift, radius: 7 }, ["water", "lily", "reeds", "mud", "nest"]);
+      const scaled = this.scaledCenter({ x: base.x + drift * 2, y: base.y - drift, radius: 7 });
+      const next = this.bestTile(scaled, ["water", "lily", "reeds", "mud", "nest"]);
       if (!next || next.objectiveId || next.campId || next.owner) {
-        if (oldTile) oldTile.campId = camp.id;
+        if (oldTile) {
+          oldTile.campId = camp.id;
+          oldTile.campType = camp.type;
+        }
         return;
       }
       next.campId = camp.id;
+      next.campType = camp.type;
       next.specialActive = true;
       next.defenseEnergy = Math.max(next.defenseEnergy || 0, 10);
       camp.tileId = next.id;
@@ -201,6 +221,64 @@ class ObjectiveManager {
       }
     }
     return candidates.sort((a, b) => b.score - a.score)[0]?.tile || null;
+  }
+
+  objectiveCenters(count) {
+    const base = [
+      [0.5, 0.5],
+      [0.24, 0.24],
+      [0.76, 0.76],
+      [0.74, 0.25],
+      [0.28, 0.72],
+      [0.5, 0.22],
+      [0.5, 0.78],
+      [0.82, 0.52],
+    ];
+    return base.slice(0, count).map(([x, y]) => this.percentCenter(x, y, 6));
+  }
+
+  campCenters(count) {
+    const centers = [];
+    const rings = [
+      [0.16, 0.5],
+      [0.84, 0.5],
+      [0.34, 0.22],
+      [0.66, 0.78],
+      [0.34, 0.78],
+      [0.66, 0.22],
+      [0.5, 0.32],
+      [0.5, 0.68],
+      [0.18, 0.18],
+      [0.82, 0.82],
+      [0.18, 0.82],
+      [0.82, 0.18],
+      [0.42, 0.48],
+      [0.58, 0.52],
+      [0.25, 0.38],
+      [0.75, 0.62],
+      [0.25, 0.62],
+      [0.75, 0.38],
+      [0.42, 0.12],
+      [0.58, 0.88],
+    ];
+    for (let i = 0; i < count; i += 1) centers.push(this.percentCenter(...rings[i % rings.length], 5));
+    return centers;
+  }
+
+  percentCenter(px, py, radius = 5) {
+    return {
+      x: Math.max(3, Math.min(this.tileManager.cols - 4, Math.round(this.tileManager.cols * px))),
+      y: Math.max(3, Math.min(this.tileManager.rows - 4, Math.round(this.tileManager.rows * py))),
+      radius,
+    };
+  }
+
+  scaledCenter(center) {
+    return {
+      x: Math.max(3, Math.min(this.tileManager.cols - 4, Math.round((center.x / 84) * this.tileManager.cols))),
+      y: Math.max(3, Math.min(this.tileManager.rows - 4, Math.round((center.y / 54) * this.tileManager.rows))),
+      radius: center.radius || 5,
+    };
   }
 
   objectiveDefinition(type) {

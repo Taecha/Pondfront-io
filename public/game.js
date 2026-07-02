@@ -16,7 +16,13 @@
       this.rallyTileId = null;
       this.mode = "expand";
       this.pointer = null;
+      this.activePointers = new Map();
+      this.pinch = null;
+      this.lastTap = { tileId: null, at: 0 };
+      this.panVelocity = { x: 0, y: 0 };
+      this.inertiaFrame = null;
       this.longPressTimer = null;
+      this.minimapPointerId = null;
       this.pollTimer = null;
       this.fetching = false;
       this.seenEventIds = new Set();
@@ -27,6 +33,7 @@
     bind() {
       this.ui.on("start", (payload) => this.start(payload));
       this.ui.on("action", (payload) => this.handleAction(payload));
+      this.ui.on("camera", (payload) => this.handleCamera(payload));
       this.ui.on("diplomacy", (command) => this.handleDiplomacy(command));
       this.ui.on("viewChanged", () => this.updateUi());
       this.contextMenu?.on("action", (payload) => this.handleContextAction(payload));
@@ -44,7 +51,14 @@
       this.canvas.addEventListener("pointercancel", () => {
         this.clearLongPress();
         this.pointer = null;
+        this.activePointers.clear();
+        this.pinch = null;
+        this.stopInertia();
       });
+      this.miniMap.addEventListener("pointerdown", (event) => this.handleMiniMapPointer(event));
+      this.miniMap.addEventListener("pointermove", (event) => this.handleMiniMapPointer(event));
+      this.miniMap.addEventListener("pointerup", (event) => this.handleMiniMapPointer(event));
+      this.miniMap.addEventListener("pointercancel", (event) => this.handleMiniMapPointer(event));
       this.canvas.addEventListener("contextmenu", (event) => {
         event.preventDefault();
         if (!this.state) return;
@@ -320,9 +334,43 @@
       this.renderer.zoomAt(event.clientX, event.clientY, event.deltaY);
     }
 
+    handleCamera(payload) {
+      if (!this.state) return;
+      if (payload.type === "zoomIn") this.renderer.zoomBy(1.18);
+      if (payload.type === "zoomOut") this.renderer.zoomBy(0.84);
+      if (payload.type === "center") this.renderer.centerOnTile(this.human()?.coreTileId);
+    }
+
+    handleMiniMapPointer(event) {
+      if (!this.state) return;
+      event.preventDefault();
+      if (event.type === "pointerdown") {
+        this.minimapPointerId = event.pointerId;
+        this.miniMap.setPointerCapture?.(event.pointerId);
+        document.body.classList.add("minimap-active");
+      }
+      if (this.minimapPointerId !== event.pointerId) return;
+      this.renderer.centerOnMiniMap(event.clientX, event.clientY);
+      if (event.type === "pointerup" || event.type === "pointercancel") {
+        this.minimapPointerId = null;
+        document.body.classList.remove("minimap-active");
+      }
+    }
+
     handlePointerDown(event) {
       if (!this.state) return;
+      if (event.pointerType === "touch") event.preventDefault();
+      if (event.pointerType === "touch") this.stopInertia();
       const tile = this.renderer.screenToTile(event.clientX, event.clientY);
+      this.activePointers.set(event.pointerId, { x: event.clientX, y: event.clientY, startX: event.clientX, startY: event.clientY });
+
+      if (event.pointerType === "touch" && this.activePointers.size >= 2) {
+        this.clearLongPress();
+        this.contextMenu?.close();
+        this.pointer = null;
+        this.pinch = this.pinchState();
+        return;
+      }
 
       if (event.button === 2) {
         event.preventDefault();
@@ -351,7 +399,7 @@
 
       if (event.button !== 0) return;
       const humanId = this.state.humanId;
-      if (tile?.owner === humanId && this.isBorder(tile, humanId)) {
+      if (event.pointerType !== "touch" && tile?.owner === humanId && this.isBorder(tile, humanId)) {
         this.pointer.selecting = true;
         this.addSource(tile, event.shiftKey || event.ctrlKey || event.metaKey);
         this.selectTile(tile, { preserveSources: true });
@@ -360,6 +408,16 @@
 
     handlePointerMove(event) {
       if (!this.state) return;
+      if (event.pointerType === "touch") event.preventDefault();
+      if (this.activePointers.has(event.pointerId)) {
+        const point = this.activePointers.get(event.pointerId);
+        point.x = event.clientX;
+        point.y = event.clientY;
+      }
+      if (event.pointerType === "touch" && this.activePointers.size >= 2 && this.pinch) {
+        this.handlePinchMove();
+        return;
+      }
       const tile = this.renderer.screenToTile(event.clientX, event.clientY);
       const nextHover = tile?.id ?? null;
       if (nextHover !== this.hoverTileId) {
@@ -376,9 +434,10 @@
         this.clearLongPress();
       }
 
-      if (this.pointer.panning || (this.pointer.moved && !this.pointer.selecting)) {
+      if (event.pointerType === "touch" || this.pointer.panning || (this.pointer.moved && !this.pointer.selecting)) {
         this.pointer.panning = true;
         this.renderer.pan(dx, dy);
+        this.panVelocity = { x: dx, y: dy };
       } else if (this.pointer.selecting && tile?.owner === this.state.humanId && this.isBorder(tile, this.state.humanId)) {
         this.addSource(tile, true);
       }
@@ -388,6 +447,19 @@
     }
 
     handlePointerUp(event) {
+      const activeBeforeDelete = this.activePointers.size;
+      if (event.pointerType === "touch") event.preventDefault();
+      this.activePointers.delete(event.pointerId);
+      if (this.pinch) {
+        const wasTapCancel = !this.pinch.moved && performance.now() - this.pinch.startedAt < 320 && activeBeforeDelete >= 2;
+        if (this.activePointers.size < 2) {
+          this.pinch = null;
+          if (wasTapCancel) this.cancelSelection();
+        } else {
+          this.pinch = this.pinchState();
+        }
+        return;
+      }
       if (!this.state || !this.pointer || this.pointer.id !== event.pointerId) {
         this.pointer = null;
         return;
@@ -399,7 +471,91 @@
       this.clearLongPress();
 
       if (wasClick) this.selectTile(tile);
+      if (wasClick) this.handleTap(tile);
       if (wasSourceDrag) this.updateUi();
+      if (event.pointerType === "touch" && !wasClick && this.panVelocity && Math.hypot(this.panVelocity.x, this.panVelocity.y) > 1.8) {
+        this.startInertia(this.panVelocity.x, this.panVelocity.y);
+      }
+    }
+
+    pinchState() {
+      const points = [...this.activePointers.values()].slice(0, 2);
+      if (points.length < 2) return null;
+      const center = {
+        x: (points[0].x + points[1].x) / 2,
+        y: (points[0].y + points[1].y) / 2,
+      };
+      return {
+        distance: Math.max(1, Math.hypot(points[0].x - points[1].x, points[0].y - points[1].y)),
+        center,
+        moved: false,
+        startedAt: performance.now(),
+      };
+    }
+
+    handlePinchMove() {
+      const next = this.pinchState();
+      if (!next || !this.pinch) return;
+      const factor = Math.max(0.82, Math.min(1.22, next.distance / this.pinch.distance));
+      if (Math.abs(next.distance - this.pinch.distance) > 2) this.pinch.moved = true;
+      this.renderer.zoomAtFactor(next.center.x, next.center.y, factor);
+      this.pinch = { ...next, moved: this.pinch.moved };
+    }
+
+    handleTap(tile) {
+      if (!tile) return;
+      const now = performance.now();
+      const doubleTap = this.lastTap.tileId === tile.id && now - this.lastTap.at < 360;
+      this.lastTap = { tileId: tile.id, at: now };
+      if (doubleTap) this.quickAction(tile);
+    }
+
+    async quickAction(tile) {
+      if (!tile || !this.state || this.state.ended) return;
+      this.selectTile(tile);
+      const human = this.human();
+      if (!human) return;
+      if (!tile.owner && this.tileContext(tile).canExpand) {
+        await this.postAction({ type: "expand", tileId: tile.id, percent: this.ui.percent, sourceIds: this.validSourceTiles().map((source) => source.id) });
+        return;
+      }
+      if (tile.owner && tile.owner !== human.id && this.tileContext(tile).canAttack) {
+        await this.postAction({ type: "attack", tileId: tile.id, percent: this.ui.percent, sourceIds: this.validSourceTiles().map((source) => source.id) });
+        return;
+      }
+      if (tile.owner === human.id && this.isBorder(tile, human.id)) {
+        await this.postAction({ type: "defend", tileId: tile.id, percent: this.ui.percent });
+        return;
+      }
+      this.ui.toast("Double tap a valid border target.", true);
+    }
+
+    cancelSelection() {
+      this.contextMenu?.close();
+      this.preview = null;
+      this.resetSelection();
+      this.updateUi();
+      this.ui.toast("Selection cleared.");
+    }
+
+    startInertia(vx, vy) {
+      this.stopInertia();
+      const step = () => {
+        vx *= 0.88;
+        vy *= 0.88;
+        if (Math.hypot(vx, vy) < 0.25) {
+          this.inertiaFrame = null;
+          return;
+        }
+        this.renderer.pan(vx, vy);
+        this.inertiaFrame = requestAnimationFrame(step);
+      };
+      this.inertiaFrame = requestAnimationFrame(step);
+    }
+
+    stopInertia() {
+      if (this.inertiaFrame) cancelAnimationFrame(this.inertiaFrame);
+      this.inertiaFrame = null;
     }
 
     handleKey(event) {

@@ -56,8 +56,9 @@
       const mapW = this.state.cols * this.baseTile;
       const mapH = this.state.rows * this.baseTile;
       const zoom = Math.min(rect.width / (mapW * 1.08), rect.height / (mapH * 1.08));
-      this.camera = { x: mapW / 2, y: mapH / 2, zoom: Math.max(0.32, Math.min(1.8, zoom)) };
+      this.camera = { x: mapW / 2, y: mapH / 2, zoom: Math.max(this.minZoom(), Math.min(this.maxZoom(), zoom)) };
       this.fitted = true;
+      this.clampCamera();
     }
 
     addEvents(events) {
@@ -98,8 +99,12 @@
     }
 
     zoomAt(screenX, screenY, delta) {
+      this.zoomAtFactor(screenX, screenY, delta < 0 ? 1.12 : 0.9);
+    }
+
+    zoomAtFactor(screenX, screenY, factor) {
       const before = this.screenToWorld(screenX, screenY);
-      const next = Math.max(0.34, Math.min(2.2, this.camera.zoom * (delta < 0 ? 1.12 : 0.9)));
+      const next = Math.max(this.minZoom(), Math.min(this.maxZoom(), this.camera.zoom * factor));
       this.camera.zoom = next;
       const after = this.screenToWorld(screenX, screenY);
       this.camera.x += before.x - after.x;
@@ -107,13 +112,54 @@
       this.clampCamera();
     }
 
-    clampCamera() {
+    zoomBy(factor) {
+      const rect = this.canvas.getBoundingClientRect();
+      this.zoomAtFactor(rect.left + rect.width / 2, rect.top + rect.height / 2, factor);
+    }
+
+    centerOnTile(tileId) {
+      if (!this.state || tileId == null) return;
+      const tile = this.tileMap.get(tileId);
+      if (!tile) return;
+      this.camera.x = (tile.x + 0.5) * this.baseTile;
+      this.camera.y = (tile.y + 0.5) * this.baseTile;
+      this.clampCamera();
+    }
+
+    centerOnMiniMap(clientX, clientY) {
       if (!this.state) return;
-      const margin = 200 / this.camera.zoom;
+      const rect = this.miniMap.getBoundingClientRect();
+      const px = Math.max(0, Math.min(1, (clientX - rect.left) / Math.max(1, rect.width)));
+      const py = Math.max(0, Math.min(1, (clientY - rect.top) / Math.max(1, rect.height)));
+      this.camera.x = px * this.state.cols * this.baseTile;
+      this.camera.y = py * this.state.rows * this.baseTile;
+      this.clampCamera();
+    }
+
+    minZoom() {
+      if (!this.state) return 0.22;
+      const rect = this.canvas.getBoundingClientRect();
       const mapW = this.state.cols * this.baseTile;
       const mapH = this.state.rows * this.baseTile;
-      this.camera.x = Math.max(-margin, Math.min(mapW + margin, this.camera.x));
-      this.camera.y = Math.max(-margin, Math.min(mapH + margin, this.camera.y));
+      return Math.max(0.16, Math.min(rect.width / mapW, rect.height / mapH) * 0.86);
+    }
+
+    maxZoom() {
+      return 2.45;
+    }
+
+    clampCamera() {
+      if (!this.state) return;
+      const rect = this.canvas.getBoundingClientRect();
+      const mapW = this.state.cols * this.baseTile;
+      const mapH = this.state.rows * this.baseTile;
+      const halfW = rect.width / 2 / Math.max(0.001, this.camera.zoom);
+      const halfH = rect.height / 2 / Math.max(0.001, this.camera.zoom);
+      const margin = 24 / Math.max(0.001, this.camera.zoom);
+      if (mapW <= halfW * 2) this.camera.x = mapW / 2;
+      else this.camera.x = Math.max(halfW - margin, Math.min(mapW - halfW + margin, this.camera.x));
+      if (mapH <= halfH * 2) this.camera.y = mapH / 2;
+      else this.camera.y = Math.max(halfH - margin, Math.min(mapH - halfH + margin, this.camera.y));
     }
 
     screenToWorld(x, y) {
@@ -217,11 +263,12 @@
       ctx.fillRect(topLeft.x, topLeft.y, mapW, mapH);
 
       this.drawRegionUnderlays(ctx);
-      this.state.tiles.forEach((tile) => this.drawTile(ctx, tile, options));
-      this.state.tiles.forEach((tile) => this.drawBorders(ctx, tile));
+      const visibleTiles = this.visibleTiles(1);
+      visibleTiles.forEach((tile) => this.drawTile(ctx, tile, options));
+      visibleTiles.forEach((tile) => this.drawBorders(ctx, tile));
       this.drawLocalGlow(ctx);
       this.drawRegionNames(ctx);
-      this.drawDefense(ctx);
+      this.drawDefense(ctx, visibleTiles);
       this.drawSpecialMarkers(ctx);
       this.drawLegalHints(ctx, options);
       this.drawPreview(ctx, options);
@@ -230,6 +277,25 @@
       this.vfx?.draw(ctx);
       this.drawNames(ctx);
       ctx.restore();
+    }
+
+    visibleTiles(pad = 0) {
+      if (!this.state) return [];
+      const rect = this.canvas.getBoundingClientRect();
+      const topLeft = this.screenToWorld(rect.left, rect.top);
+      const bottomRight = this.screenToWorld(rect.right, rect.bottom);
+      const startX = Math.max(0, Math.floor(topLeft.x / this.baseTile) - pad);
+      const startY = Math.max(0, Math.floor(topLeft.y / this.baseTile) - pad);
+      const endX = Math.min(this.state.cols - 1, Math.ceil(bottomRight.x / this.baseTile) + pad);
+      const endY = Math.min(this.state.rows - 1, Math.ceil(bottomRight.y / this.baseTile) + pad);
+      const tiles = [];
+      for (let y = startY; y <= endY; y += 1) {
+        for (let x = startX; x <= endX; x += 1) {
+          const tile = this.tileMap.get(y * this.state.cols + x);
+          if (tile) tiles.push(tile);
+        }
+      }
+      return tiles;
     }
 
     drawRegionUnderlays(ctx) {
@@ -451,10 +517,10 @@
       ctx.restore();
     }
 
-    drawDefense(ctx) {
+    drawDefense(ctx, tiles = this.state.tiles) {
       const size = this.baseTile * this.camera.zoom;
       ctx.save();
-      this.state.tiles.forEach((tile) => {
+      tiles.forEach((tile) => {
         if (!tile.owner || tile.defenseEnergy < 10) return;
         if (!this.neighbors(tile).some((neighbor) => neighbor && neighbor.owner !== tile.owner)) return;
         const p = this.worldToScreen(tile.x * this.baseTile, tile.y * this.baseTile);

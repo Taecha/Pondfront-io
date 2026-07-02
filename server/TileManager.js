@@ -1,35 +1,20 @@
 const config = require("../shared/gameConfig");
 
 class TileManager {
-  constructor(seed = Date.now()) {
-    this.cols = config.GRID_COLS;
-    this.rows = config.GRID_ROWS;
+  constructor(seed = Date.now(), map = {}) {
+    this.map = {
+      id: map.id || "medium",
+      cols: Number(map.cols || config.GRID_COLS),
+      rows: Number(map.rows || config.GRID_ROWS),
+      terrainScale: Number(map.terrainScale || 1),
+      objectiveCount: Number(map.objectiveCount || 4),
+      campCount: Number(map.campCount || 8),
+    };
+    this.cols = this.map.cols;
+    this.rows = this.map.rows;
     this.seed = seed;
     this.tiles = [];
-    this.spawnPoints = [
-      [7, 7],
-      [76, 46],
-      [7, 46],
-      [76, 7],
-      [42, 7],
-      [42, 46],
-      [13, 27],
-      [70, 27],
-      [24, 13],
-      [59, 40],
-      [24, 40],
-      [59, 13],
-      [35, 20],
-      [49, 34],
-      [15, 16],
-      [68, 38],
-      [30, 7],
-      [54, 46],
-      [30, 47],
-      [54, 7],
-      [30, 27],
-      [54, 27],
-    ];
+    this.spawnPoints = this.createSpawnPoints();
     this.regions = this.createRegions();
   }
 
@@ -62,18 +47,45 @@ class TileManager {
   }
 
   createRegions() {
-    return [
-      { name: "Golden Lily Reach", x: 42, y: 27, radius: 9, type: "lily", tone: "#d8ad48" },
-      { name: "Ancient Reed Marsh", x: 19, y: 13, radius: 8, type: "reeds", tone: "#9bb66d" },
-      { name: "Misty Mud Basin", x: 65, y: 39, radius: 8, type: "mud", tone: "#a88255" },
-      { name: "North Rock Shoals", x: 65, y: 12, radius: 6, type: "rock", tone: "#a6b2ba" },
-      { name: "Stillwater Nests", x: 16, y: 42, radius: 6, type: "nest", tone: "#d4aa62" },
-      { name: "Delta Bloom", x: 42, y: 44, radius: 7, type: "lily", tone: "#73b982" },
-      { name: "Willow Reed Gate", x: 42, y: 14, radius: 6, type: "reeds", tone: "#86b66f" },
-      { name: "Bluewater Crossing", x: 28, y: 29, radius: 6, type: "water", tone: "#7ed6df" },
-      { name: "Pebble Crown", x: 11, y: 26, radius: 5, type: "rock", tone: "#b2bec6" },
-      { name: "Moonlit Mud Flats", x: 72, y: 27, radius: 5, type: "mud", tone: "#b28b5d" },
+    const min = Math.min(this.cols, this.rows);
+    const r = (ratio) => Math.max(4, Math.round(min * ratio * this.map.terrainScale));
+    const at = (name, px, py, radius, type, tone) => ({
+      name,
+      x: this.clamp(Math.round(this.cols * px), 4, this.cols - 5),
+      y: this.clamp(Math.round(this.rows * py), 4, this.rows - 5),
+      radius: r(radius),
+      type,
+      tone,
+    });
+    const regions = [
+      at("Golden Lily Basin", 0.5, 0.5, 0.14, "lily", "#d8ad48"),
+      at("North Reed Marsh", 0.23, 0.22, 0.13, "reeds", "#9bb66d"),
+      at("Mudfall Delta", 0.76, 0.73, 0.13, "mud", "#a88255"),
+      at("North Rock Shoals", 0.76, 0.2, 0.1, "rock", "#a6b2ba"),
+      at("Duck Bay", 0.18, 0.78, 0.1, "nest", "#d4aa62"),
+      at("Frog Hollow", 0.5, 0.82, 0.12, "lily", "#73b982"),
+      at("Willow Reed Gate", 0.5, 0.24, 0.1, "reeds", "#86b66f"),
+      at("Quiet Water", 0.34, 0.54, 0.1, "water", "#7ed6df"),
+      at("Pebble Crown", 0.13, 0.49, 0.08, "rock", "#b2bec6"),
+      at("Snake Channel", 0.86, 0.51, 0.08, "mud", "#b28b5d"),
     ];
+    if (this.cols >= 100) {
+      regions.push(
+        at("Silver Reed Reach", 0.13, 0.16, 0.085, "reeds", "#8fbf78"),
+        at("Lotus Crossing", 0.66, 0.56, 0.095, "lily", "#78c48b"),
+        at("Cattail Narrows", 0.37, 0.74, 0.085, "reeds", "#9bb66d"),
+        at("Deep Center Lake", 0.5, 0.38, 0.095, "water", "#7ed6df"),
+      );
+    }
+    if (this.cols >= 150) {
+      regions.push(
+        at("West Mud Flats", 0.22, 0.55, 0.09, "mud", "#b28b5d"),
+        at("Eastern Lily Shelf", 0.82, 0.28, 0.09, "lily", "#73b982"),
+        at("Broken Stone Run", 0.62, 0.18, 0.075, "rock", "#a6b2ba"),
+        at("South Reed Pocket", 0.71, 0.86, 0.085, "reeds", "#86b66f"),
+      );
+    }
+    return regions;
   }
 
   paintStrategicRegions(rand) {
@@ -105,25 +117,25 @@ class TileManager {
   carveWaterPaths() {
     const paths = [
       [
-        [7, 7],
-        [23, 15],
-        [42, 27],
-        [61, 38],
-        [76, 46],
+        this.point(0.08, 0.12),
+        this.point(0.28, 0.28),
+        this.point(0.5, 0.5),
+        this.point(0.72, 0.72),
+        this.point(0.92, 0.88),
       ],
       [
-        [76, 7],
-        [63, 14],
-        [42, 27],
-        [22, 39],
-        [7, 46],
+        this.point(0.92, 0.12),
+        this.point(0.74, 0.28),
+        this.point(0.5, 0.5),
+        this.point(0.26, 0.72),
+        this.point(0.08, 0.88),
       ],
       [
-        [42, 7],
-        [43, 18],
-        [42, 27],
-        [42, 44],
-        [42, 46],
+        this.point(0.5, 0.1),
+        this.point(0.52, 0.33),
+        this.point(0.5, 0.5),
+        this.point(0.48, 0.78),
+        this.point(0.5, 0.9),
       ],
     ];
 
@@ -164,9 +176,57 @@ class TileManager {
       buildingActiveAt: 0,
       captureProgress: {},
       defenseEnergy: 0,
+      objectiveId: null,
+      objectiveType: null,
+      campId: null,
+      campType: null,
+      specialActive: false,
       lastChanged: 0,
       neighbors: [],
     };
+  }
+
+  createSpawnPoints() {
+    const rings = [
+      [0.08, 0.12],
+      [0.92, 0.88],
+      [0.08, 0.88],
+      [0.92, 0.12],
+      [0.5, 0.1],
+      [0.5, 0.9],
+      [0.15, 0.5],
+      [0.85, 0.5],
+      [0.28, 0.2],
+      [0.72, 0.8],
+      [0.28, 0.8],
+      [0.72, 0.2],
+      [0.4, 0.35],
+      [0.6, 0.65],
+      [0.18, 0.28],
+      [0.82, 0.72],
+      [0.36, 0.12],
+      [0.64, 0.88],
+      [0.36, 0.88],
+      [0.64, 0.12],
+      [0.36, 0.5],
+      [0.64, 0.5],
+      [0.22, 0.66],
+      [0.78, 0.34],
+      [0.5, 0.28],
+      [0.5, 0.72],
+    ];
+    return rings.map(([x, y]) => this.point(x, y));
+  }
+
+  point(px, py) {
+    return [
+      this.clamp(Math.round(this.cols * px), 4, this.cols - 5),
+      this.clamp(Math.round(this.rows * py), 4, this.rows - 5),
+    ];
+  }
+
+  clamp(value, min, max) {
+    return Math.max(min, Math.min(max, value));
   }
 
   clearSpawnAreas() {

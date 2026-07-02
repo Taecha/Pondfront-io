@@ -956,6 +956,34 @@ h1 {
   text-align: center;
 }
 
+.mobile-map-controls {
+  position: absolute;
+  z-index: 7;
+  right: 12px;
+  top: 214px;
+  display: none;
+  grid-template-columns: repeat(5, 44px);
+  gap: 7px;
+  padding: 7px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: rgba(7, 19, 29, 0.78);
+  box-shadow: var(--shadow);
+}
+
+.mobile-map-controls button {
+  min-width: 44px;
+  min-height: 44px;
+  padding: 0;
+  border-radius: 9px;
+  font-size: 0.9rem;
+}
+
+.mobile-map-controls button.active {
+  color: #061019;
+  background: linear-gradient(180deg, #87d7ea, #4bb0ca);
+}
+
 #mapCanvas {
   display: block;
   width: 100%;
@@ -1205,6 +1233,7 @@ h1 {
 #miniMap {
   width: 300px;
   height: 190px;
+  touch-action: none;
   border: 1px solid rgba(160, 216, 231, 0.28);
   border-radius: 8px;
   background: #102635;
@@ -1800,11 +1829,44 @@ h1 {
     display: none;
   }
 
+  .mobile-map-controls {
+    top: auto;
+    right: 10px;
+    bottom: 166px;
+    display: grid;
+  }
+
+  body.ui-collapsed .left-panel,
+  body.ui-collapsed .right-panel,
+  body.ui-collapsed .lake-event-banner,
+  body.ui-collapsed .view-toggle {
+    display: none !important;
+  }
+
+  body.leaderboard-open .right-panel {
+    display: grid;
+    width: min(260px, calc(100vw - 20px));
+  }
+
+  body.leaderboard-open .right-panel .leaderboard-panel {
+    display: block;
+  }
+
+  body.leaderboard-open .right-panel #miniMap {
+    width: 100%;
+    height: 120px;
+  }
+
   .lake-event-banner {
     top: 8px;
     width: min(420px, calc(100% - 320px));
     min-height: 36px;
     font-size: 0.72rem;
+  }
+
+  body.minimap-active #miniMap {
+    width: min(260px, calc(100vw - 20px));
+    height: 156px;
   }
 
   .panel {
@@ -1832,6 +1894,7 @@ h1 {
     grid-template-columns: 1fr;
     gap: 8px;
     padding: 10px;
+    max-width: 100vw;
   }
 
   .percent-row,
@@ -1841,7 +1904,7 @@ h1 {
 
   .bottombar button,
   .bottombar select {
-    min-height: 42px;
+    min-height: 46px;
     font-size: 0.82rem;
   }
 
@@ -1898,5 +1961,89 @@ h1 {
 
   .start-card {
     padding: 20px;
+  }
+
+  .game-screen {
+    grid-template-rows: 86px minmax(0, 1fr) 174px;
+  }
+
+  .brand strong {
+    display: none;
+  }
+
+  .top-stats {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .top-stats .stat:nth-child(4),
+  .top-stats .stat:nth-child(5) {
+    display: none;
+  }
+
+  .left-panel {
+    top: 8px;
+    left: 8px;
+    width: min(210px, calc(100vw - 150px));
+    max-height: calc(100% - 188px);
+    overflow-y: auto;
+  }
+
+  .right-panel {
+    top: 8px;
+    right: 8px;
+  }
+
+  .mobile-map-controls {
+    right: 8px;
+    bottom: 184px;
+    grid-template-columns: repeat(5, 40px);
+    gap: 5px;
+    padding: 5px;
+  }
+
+  .mobile-map-controls button {
+    min-width: 40px;
+    min-height: 44px;
+  }
+
+  .percent-row {
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+  }
+
+  .action-row {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .action-row #buildButton,
+  .action-row #abilityButton {
+    grid-column: span 1;
+  }
+
+  #buildSelect {
+    width: 100%;
+  }
+}
+
+@media (max-width: 520px) and (orientation: portrait) {
+  .game-screen {
+    grid-template-rows: 82px minmax(0, 1fr) 188px;
+  }
+
+  .left-panel {
+    width: calc(100vw - 132px);
+  }
+
+  #miniMap {
+    width: 112px;
+    height: 76px;
+  }
+
+  .mobile-map-controls {
+    bottom: 198px;
+    grid-template-columns: repeat(3, 42px);
+  }
+
+  .toast {
+    bottom: 196px;
   }
 }

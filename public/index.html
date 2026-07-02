@@ -114,17 +114,16 @@
               </select>
               <label for="mapSize">Map size</label>
               <select id="mapSize">
-                <option value="small">Small</option>
-                <option value="medium">Medium</option>
-                <option value="large" selected>Large</option>
-                <option value="huge">Huge</option>
+                <option value="small">Small 60x36</option>
+                <option value="medium">Medium 90x54</option>
+                <option value="large" selected>Large 130x78</option>
+                <option value="huge">Huge 170x100</option>
               </select>
               <label for="botCount">Bot count</label>
               <select id="botCount">
-                <option value="4">4</option>
                 <option value="8">8</option>
-                <option value="12" selected>12</option>
-                <option value="16">16</option>
+                <option value="9" selected>9</option>
+                <option value="10">10</option>
               </select>
               <label for="matchLength">Match length</label>
               <select id="matchLength">
@@ -197,6 +196,13 @@
             <strong id="lakeEventTitle">Lake Event</strong>
             <span id="lakeEventDetails">Strategic shift active.</span>
             <b id="lakeEventTimer">0s</b>
+          </div>
+          <div class="mobile-map-controls" aria-label="Mobile map controls">
+            <button id="zoomInButton" type="button" title="Zoom in">+</button>
+            <button id="zoomOutButton" type="button" title="Zoom out">-</button>
+            <button id="centerMapButton" type="button" title="Center on your pond">C</button>
+            <button id="collapseUiButton" type="button" title="Collapse panels">UI</button>
+            <button id="openLeaderboardButton" type="button" title="Toggle leaderboard">#</button>
           </div>
 
           <aside class="left-panel">
@@ -327,6 +333,7 @@
     </main>
 
     <script src="/shared/balanceConfig.js"></script>
+    <script src="/shared/mapConfig.js"></script>
     <script src="/shared/gameConfig.js"></script>
     <script src="/shared/animals.js"></script>
     <script src="/shared/objectives.js"></script>

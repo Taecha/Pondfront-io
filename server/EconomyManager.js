@@ -123,7 +123,7 @@ class EconomyManager {
 
   applyObjective(player, tile) {
     if (!tile.specialActive || !tile.objectiveId) return;
-    const objective = objectiveConfig.LAKE_OBJECTIVES[tile.objectiveId];
+    const objective = objectiveConfig.LAKE_OBJECTIVES[tile.objectiveType || tile.objectiveId];
     if (!objective) return;
     if (objective.incomeBonus) player.incomeBreakdown.objectives += objective.incomeBonus;
     if (objective.maxEnergyBonus) player.maxEnergy += objective.maxEnergyBonus;

@@ -45,7 +45,7 @@ class PondFrontServerGame {
       camps: 0,
     };
     this.wars = new Map();
-    this.tileManager = new TileManager(Date.now() % 999999);
+    this.tileManager = new TileManager(Date.now() % 999999, this.matchSettings.map);
     this.tileManager.generate();
     this.objectives = new ObjectiveManager(this.tileManager, (event) => this.pushEvent(event));
     this.eventsManager = new EventManager((event) => this.pushEvent(event));
@@ -63,25 +63,42 @@ class PondFrontServerGame {
     this.players.forEach((player, index) => this.tileManager.claimStart(player, index, this.now()));
     this.economy.recalculate(this.players, this.now(), this);
     this.botManager = new BotManager(this);
+    this.logMatchStart();
     this.pushEvent({ kind: "notice", message: "Match started. Expand from your border.", at: this.now() });
   }
 
   sanitizeMatchSettings(settings = {}) {
     const difficulty = ["easy", "normal", "smart", "chaos"].includes(settings.difficulty) ? settings.difficulty : "normal";
-    const requestedBots = Number(settings.botCount || config.BOT_COUNT || 11);
-    const botCount = Math.max(4, Math.min(16, requestedBots));
+    const mapSize = ["small", "medium", "large", "huge"].includes(settings.mapSize) ? settings.mapSize : "medium";
+    const map = config.MAP_SIZES[mapSize] || config.MAP_SIZES.medium;
+    const requestedBots = Number(settings.botCount || map.defaultBots || config.BOT_COUNT || 9);
+    const botCount = Math.max(map.minBots, Math.min(map.maxBots, requestedBots));
     const matchLength = ["quick", "standard", "long"].includes(settings.matchLength) ? settings.matchLength : "standard";
+    const lengthMultiplier = matchLength === "quick" ? 0.8 : matchLength === "long" ? 1.2 : 1;
     const matchSeconds =
-      matchLength === "quick" ? Math.round(config.MATCH_SECONDS * 0.66) : matchLength === "long" ? Math.round(config.MATCH_SECONDS * 1.35) : config.MATCH_SECONDS;
+      settings.practice && mapSize === "small" ? Math.round(map.matchSeconds * 0.75) : Math.round(map.matchSeconds * lengthMultiplier);
     return {
       difficulty,
       botCount,
       matchLength,
       matchSeconds,
-      mapSize: ["small", "medium", "large", "huge"].includes(settings.mapSize) ? settings.mapSize : "large",
+      mapSize,
+      map: { ...map, id: mapSize },
       playerName: this.cleanPlayerName(settings.playerName),
       practice: Boolean(settings.practice),
     };
+  }
+
+  logMatchStart() {
+    const map = this.matchSettings.map;
+    console.log(
+      [
+        `Map size selected: ${map.label}`,
+        `Grid: ${this.tileManager.cols} x ${this.tileManager.rows}`,
+        `Bot count: ${this.matchSettings.botCount}`,
+        `Spawn points: ${this.tileManager.spawnPoints.length >= this.players.length ? "valid" : "short"} (${this.tileManager.spawnPoints.length})`,
+      ].join(" | "),
+    );
   }
 
   cleanPlayerName(value) {
@@ -374,7 +391,9 @@ class PondFrontServerGame {
         captureProgress: this.roundCaptureProgress(tile.captureProgress),
         defenseEnergy: Math.round(tile.defenseEnergy),
         objectiveId: tile.objectiveId || null,
+        objectiveType: tile.objectiveType || null,
         campId: tile.campId || null,
+        campType: tile.campType || null,
         specialActive: Boolean(tile.specialActive),
         lastChanged: tile.lastChanged,
       })),
@@ -387,6 +406,7 @@ class PondFrontServerGame {
         animals,
         objectives,
         lakeEvents,
+        mapSizes: config.MAP_SIZES,
         balance,
         buildingCosts: this.playerBuildingCosts(this.getPlayer(config.HUMAN_ID)),
       },

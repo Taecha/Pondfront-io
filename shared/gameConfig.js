@@ -7,6 +7,10 @@
     typeof require === "function"
       ? require("./balanceConfig")
       : (typeof globalThis !== "undefined" ? globalThis.PondBalance : window.PondBalance);
+  const mapSizes =
+    typeof require === "function"
+      ? require("./mapConfig")
+      : (typeof globalThis !== "undefined" ? globalThis.PondMapConfig : window.PondMapConfig);
 
   const TILE_TYPES = {
     water: {
@@ -164,14 +168,15 @@
   }
 
   return {
-    GRID_COLS: 84,
-    GRID_ROWS: 54,
+    GRID_COLS: mapSizes.medium.cols,
+    GRID_ROWS: mapSizes.medium.rows,
+    MAP_SIZES: mapSizes,
     WIN_CONTROL: 0.7,
     MATCH_SECONDS: balance.maxMatchTime,
     TICK_RATE_MS: 250,
     MAX_EVENTS: 180,
     HUMAN_ID: "p0",
-    BOT_COUNT: 12,
+    BOT_COUNT: mapSizes.medium.defaultBots,
     TILE_TYPES,
     BUILDINGS,
     getNeutralTileExpansionCost,
