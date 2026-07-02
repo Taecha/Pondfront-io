@@ -1,0 +1,22 @@
+{
+  "name": "pondfront-io",
+  "version": "0.1.0",
+  "description": "PondFront.io, an animal-themed real-time pond territory strategy prototype.",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node server.js",
+    "check": "node --check server.js && node --check server/TileManager.js && node --check server/EconomyManager.js && node --check server/CombatManager.js && node --check server/BotManager.js && node --check server/DiplomacyManager.js && node --check public/game.js && node --check public/render.js && node --check public/ui.js && node --check public/vfx.js",
+    "simulate:balance": "node scripts/simulateBalance.js"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "keywords": [
+    "strategy",
+    "io-game",
+    "canvas",
+    "pondfront"
+  ],
+  "license": "UNLICENSED"
+}

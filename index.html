@@ -1,0 +1,163 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>PondFront.io</title>
+    <link rel="stylesheet" href="./css/styles.css" />
+  </head>
+  <body>
+    <main id="app" class="app">
+      <section id="startScreen" class="start-screen" aria-label="PondFront.io setup">
+        <div class="start-hero">
+          <p class="eyebrow">Lake Territory Strategy</p>
+          <h1>PondFront.io</h1>
+          <p class="start-copy">Pick an animal, claim the shoreline, and control 70% of the pond.</p>
+
+          <div class="animal-picker" role="list" aria-label="Choose animal">
+            <button class="animal-card selected" data-animal="duck" type="button">
+              <span class="animal-mark duck-mark" aria-hidden="true"></span>
+              <span class="animal-title">Duck</span>
+              <span class="animal-text">Fast water expansion, nests, Flock Rush.</span>
+            </button>
+            <button class="animal-card" data-animal="snake" type="button">
+              <span class="animal-mark snake-mark" aria-hidden="true"></span>
+              <span class="animal-title">Snake</span>
+              <span class="animal-text">Reed ambushes, camouflage, mud tunnels.</span>
+            </button>
+            <button class="animal-card" data-animal="frog" type="button">
+              <span class="animal-mark frog-mark" aria-hidden="true"></span>
+              <span class="animal-title">Frog</span>
+              <span class="animal-text">Lily income, leap captures, jump pads.</span>
+            </button>
+          </div>
+
+          <div class="setup-row">
+            <label for="difficulty">Bots</label>
+            <select id="difficulty">
+              <option value="normal" selected>Normal</option>
+              <option value="easy">Easy</option>
+              <option value="smart">Smart</option>
+            </select>
+            <label class="practice-toggle">
+              <input id="practiceMode" type="checkbox" checked />
+              <span>Private practice</span>
+            </label>
+          </div>
+
+          <button id="startGame" class="start-button" type="button">Start Match</button>
+        </div>
+      </section>
+
+      <section id="gameScreen" class="game-screen hidden" aria-label="PondFront.io match">
+        <header class="top-bar">
+          <div class="brand-lockup">
+            <span class="brand-dot"></span>
+            <span>PondFront.io</span>
+          </div>
+          <div class="stat-strip">
+            <div class="stat">
+              <span>Animal Energy</span>
+              <strong id="energyStat">0 / 0</strong>
+            </div>
+            <div class="stat">
+              <span>Territory</span>
+              <strong id="territoryStat">0%</strong>
+              <div class="goal-meter" aria-hidden="true">
+                <span id="controlFill"></span>
+              </div>
+            </div>
+            <div class="stat">
+              <span>Income</span>
+              <strong id="incomeStat">+0/s</strong>
+            </div>
+            <div class="stat">
+              <span>Animal</span>
+              <strong id="animalStat">Duck</strong>
+            </div>
+          </div>
+        </header>
+
+        <div id="boardWrap" class="board-wrap">
+          <canvas id="gameCanvas" aria-label="Pond lake map"></canvas>
+
+          <aside class="side-panel">
+            <div class="panel-block">
+              <span class="panel-label">Ability</span>
+              <strong id="abilityName">Flock Rush</strong>
+              <div class="cooldown-track">
+                <span id="cooldownFill"></span>
+              </div>
+              <span id="cooldownText" class="tiny-text">Ready</span>
+            </div>
+
+            <div class="panel-block tile-panel">
+              <span class="panel-label">Tile</span>
+              <strong id="tileTypeInfo">Open Water</strong>
+              <span id="tileOwnerInfo" class="tiny-text">Neutral pond</span>
+              <div class="tile-value-row">
+                <span id="tileIncomeInfo">+0</span>
+                <span id="tileDefenseInfo">0</span>
+              </div>
+            </div>
+
+            <div id="buildPanel" class="panel-block build-panel hidden">
+              <span class="panel-label">Build</span>
+              <button data-building="duckNest" type="button">Duck Nest</button>
+              <button data-building="reedGuard" type="button">Reed Guard</button>
+              <button data-building="lilyFarm" type="button">Lily Farm</button>
+              <button data-building="mudTunnel" type="button">Mud Tunnel</button>
+              <button data-building="jumpPad" type="button">Jump Pad</button>
+            </div>
+
+            <div class="panel-block">
+              <span class="panel-label">Selected Borders</span>
+              <strong id="selectedCount">0</strong>
+            </div>
+          </aside>
+
+          <aside class="map-panel">
+            <canvas id="miniMap" aria-label="Mini map"></canvas>
+            <div class="leaderboard">
+              <span class="panel-label">Lake Leaders</span>
+              <ol id="leaderboard"></ol>
+            </div>
+          </aside>
+
+          <div id="toast" class="toast hidden" role="status"></div>
+          <div id="radialMenu" class="radial-menu hidden" aria-label="Diplomacy menu">
+            <button data-action="ally" type="button">Ally</button>
+            <button data-action="attack" type="button">Attack</button>
+            <button data-action="warn" type="button">Warning</button>
+            <button data-action="break" type="button">Break</button>
+          </div>
+        </div>
+
+        <footer class="bottom-bar">
+          <div class="energy-buttons" aria-label="Energy amount">
+            <button data-send="0.1" type="button">10%</button>
+            <button class="active" data-send="0.25" type="button">Expand 25%</button>
+            <button data-send="0.5" type="button">Expand 50%</button>
+            <button data-send="0.75" type="button">75%</button>
+            <button data-send="1" type="button">100%</button>
+          </div>
+          <div class="command-buttons" aria-label="Commands">
+            <button id="defendButton" type="button">Defend</button>
+            <button id="buildButton" type="button">Build</button>
+            <button id="abilityButton" type="button">Ability</button>
+          </div>
+        </footer>
+
+        <section id="matchResult" class="result-modal hidden" aria-live="assertive">
+          <div class="result-card">
+            <h2 id="resultTitle">Pond Secured</h2>
+            <p id="resultText">The lake belongs to the winner.</p>
+            <button id="restartGame" type="button">Play Again</button>
+          </div>
+        </section>
+      </section>
+    </main>
+
+    <script src="./js/PondFront.bundle.js"></script>
+  </body>
+</html>
