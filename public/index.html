@@ -82,6 +82,32 @@
                   <b>Medium</b>
                 </span>
               </button>
+              <button class="animal-choice" data-animal="turtle" title="Turtle: slower expansion, stronger borders, and Shell Guard defense.">
+                <span class="animal-disc turtle">T</span>
+                <span class="animal-card-copy">
+                  <strong>Turtle</strong>
+                  <em>Defense Tank</em>
+                  <small>Shell Guard</small>
+                </span>
+                <span class="perk-list">
+                  <b>Strong borders</b>
+                  <b>Hard to invade</b>
+                  <b>Easy/Medium</b>
+                </span>
+              </button>
+              <button class="animal-choice" data-animal="carp" title="Carp: economy scaling, water income, and Golden Current.">
+                <span class="animal-disc carp">C</span>
+                <span class="animal-card-copy">
+                  <strong>Carp</strong>
+                  <em>Economy Growth</em>
+                  <small>Golden Current</small>
+                </span>
+                <span class="perk-list">
+                  <b>Better income</b>
+                  <b>Lily control</b>
+                  <b>Medium</b>
+                </span>
+              </button>
             </div>
           </section>
 
@@ -161,7 +187,7 @@
             </header>
             <div class="guide-grid">
               <article><strong>Basics</strong><p>Expand into neutral pond tiles and grow Animal Energy from territory.</p></article>
-              <article><strong>Animals</strong><p>Duck expands fast, Snake controls reeds and mud, Frog jumps toward objectives.</p></article>
+              <article><strong>Animals</strong><p>Duck expands fast, Snake controls reeds and mud, Frog jumps, Turtle defends, and Carp scales economy.</p></article>
               <article><strong>Combat</strong><p>Attack connected enemy borders with energy waves and reinforce your own fronts.</p></article>
               <article><strong>Buildings</strong><p>Build farms, nests, guards, tunnels, and jump pads to shape your economy.</p></article>
               <article><strong>Diplomacy</strong><p>Request alliances, mark enemies, send signals, and break deals when the lake changes.</p></article>
@@ -201,8 +227,20 @@
             <button id="zoomInButton" type="button" title="Zoom in">+</button>
             <button id="zoomOutButton" type="button" title="Zoom out">-</button>
             <button id="centerMapButton" type="button" title="Center on your pond">C</button>
+            <button id="resetZoomButton" type="button" title="Reset zoom">R</button>
+            <button id="mobileStrategicButton" type="button" title="Toggle strategic view">SV</button>
             <button id="collapseUiButton" type="button" title="Collapse panels">UI</button>
             <button id="openLeaderboardButton" type="button" title="Toggle leaderboard">#</button>
+          </div>
+          <div id="mobileActionCard" class="mobile-action-card hidden">
+            <div>
+              <strong id="mobileActionTitle">Select Tile</strong>
+              <span id="mobileActionMeta">Tap a border target.</span>
+              <small id="mobileActionDetail">Ready</small>
+            </div>
+            <button id="mobileMainAction" type="button">Action</button>
+            <button id="mobileInfoAction" type="button">Info</button>
+            <button id="mobileCancelAction" type="button">X</button>
           </div>
 
           <aside class="left-panel">
@@ -224,11 +262,16 @@
               <p id="selectedPlayerMeta">Choose an enemy border.</p>
               <div id="selectedPlayerFacts" class="info-grid"></div>
               <div id="diplomacyButtons" class="diplo-grid">
-                <button data-diplomacy="requestAlliance" title="Ask this player to become allies.">Alliance</button>
-                <button data-diplomacy="sendPeace" title="Offer peace and avoid attacks.">Peace</button>
+                <button data-diplomacy="requestAlliance" title="Ask this player to become allies.">Request</button>
+                <button data-diplomacy="acceptAlliance" title="Accept this player's alliance request.">Accept</button>
+                <button data-diplomacy="rejectAlliance" title="Reject this player's pending request.">Reject</button>
+                <button data-diplomacy="offerTruce" title="Offer a short truce that blocks attacks.">Truce</button>
+                <button data-diplomacy="declareWar" title="Declare war and clear peace states safely.">War</button>
                 <button data-diplomacy="breakAlliance" title="End alliance with this player.">Break</button>
                 <button data-diplomacy="markEnemy" title="Mark this player as a target.">Enemy</button>
-                <button data-diplomacy="signal" title="Send a pond signal.">Signal</button>
+                <button data-diplomacy="pingAlly" title="Send a small ally signal.">Ping</button>
+                <button data-diplomacy="requestHelp" title="Ask an ally for help.">Help</button>
+                <button data-diplomacy="sendWarning" title="Send a public warning.">Warning</button>
               </div>
             </div>
 
@@ -265,8 +308,10 @@
           </aside>
 
           <div id="toast" class="toast hidden"></div>
+          <div id="toastStack" class="toast-stack" aria-live="polite"></div>
           <div class="view-toggle">
             <label><input id="strategicView" type="checkbox" checked /> Strategic view</label>
+            <label><input id="autoStrategicView" type="checkbox" checked /> Auto strategic</label>
             <label><input id="showIcons" type="checkbox" /> Tile icons</label>
             <label>
               Effects
@@ -279,6 +324,7 @@
             <label><input id="floatingText" type="checkbox" checked /> Text</label>
             <label><input id="attackArrows" type="checkbox" checked /> Arrows</label>
             <label><input id="reducedMotion" type="checkbox" /> Reduced motion</label>
+            <label><input id="autoLowPerformance" type="checkbox" checked /> Auto low</label>
           </div>
         </section>
 
@@ -329,12 +375,40 @@
             <button id="playAgain" class="primary">Play Again</button>
           </div>
         </section>
+
+        <section id="mobileSheet" class="mobile-sheet hidden" aria-modal="true" role="dialog">
+          <div>
+            <header>
+              <div>
+                <span class="label" id="mobileSheetLabel">Info</span>
+                <h2 id="mobileSheetTitle">Tile Info</h2>
+              </div>
+              <button id="closeMobileSheet" class="icon-button" type="button">X</button>
+            </header>
+            <div id="mobileSheetBody" class="mobile-sheet-body"></div>
+          </div>
+        </section>
+
+        <section id="buildSheet" class="mobile-sheet hidden" aria-modal="true" role="dialog">
+          <div>
+            <header>
+              <div>
+                <span class="label">Build</span>
+                <h2>Choose Building</h2>
+              </div>
+              <button id="closeBuildSheet" class="icon-button" type="button">X</button>
+            </header>
+            <div id="buildSheetList" class="build-sheet-list"></div>
+          </div>
+        </section>
       </section>
     </main>
 
     <script src="/shared/balanceConfig.js"></script>
     <script src="/shared/mapConfig.js"></script>
     <script src="/shared/gameConfig.js"></script>
+    <script src="/shared/diplomacyConfig.js"></script>
+    <script src="/shared/combatConfig.js"></script>
     <script src="/shared/animals.js"></script>
     <script src="/shared/objectives.js"></script>
     <script src="/shared/lakeEvents.js"></script>

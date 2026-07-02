@@ -132,6 +132,10 @@
     "#8fb2e8",
     "#c99a5c",
     "#7bc7a6",
+    "#6fc5d8",
+    "#e0bd64",
+    "#83b6a5",
+    "#f0cc74",
   ];
 
   function getNeutralTileExpansionCost(tileType, playerAnimal, modifiers = {}) {
@@ -148,6 +152,7 @@
     if (type.strategic) cost += balance.expansionStrategicPenalty;
 
     if (modifiers.jumped) cost *= 1.1;
+    if (playerAnimal === "turtle") cost *= balance.turtleExpansionCostMultiplier || 1.12;
     if (playerAnimal === "duck" && tileType === "water" && modifiers.flockRush) {
       cost *= balance.flockRushOpenWaterCostMultiplier || 0.65;
     }
@@ -156,6 +161,12 @@
     }
     if (tileType === "water" && modifiers.rainstorm) {
       cost *= balance.rainstormWaterCostMultiplier || 0.82;
+    }
+    if (playerAnimal === "carp" && modifiers.goldenCurrent && tileType === "water") {
+      cost *= balance.goldenCurrentWaterCostMultiplier || 0.8;
+    }
+    if (playerAnimal === "carp" && modifiers.goldenCurrent && tileType === "lily") {
+      cost *= balance.goldenCurrentLilyCostMultiplier || 0.7;
     }
     if (modifiers.comebackCore) {
       cost *= 1 - (balance.coreExpansionDiscountPct || 0.14);
@@ -203,6 +214,16 @@
       "Bluewater Snap",
       "Cedar Marsh",
       "Silverdelta",
+      "Tahoe Shell",
+      "Baikal Guard",
+      "Delta Shield",
+      "Mudbank Elder",
+      "Reedback",
+      "Golden Mekong",
+      "Amazon Scale",
+      "Lotus Current",
+      "Rivergold",
+      "Lilyfin",
     ],
   };
 });

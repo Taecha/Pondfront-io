@@ -2,70 +2,44 @@
 
 Date: 2026-07-02
 
-## Summary
+## Current Read
 
-This pass tuned PondFront.io toward longer, more strategic matches. The main goal was to reduce fast farming/snowballing and make bots fight more like real opponents after the opening expansion phase.
+PondFront.io is more playable than the earlier prototype. Expansion, economy, buildings, abilities, bots, map sizes, and win rules are functional. The biggest design issue is not broken mechanics; it is pacing pressure. The game can still reach timer endings without anyone controlling 70% of the pond, so future work should make objectives and late-game conflict more decisive.
 
-## Major Changes
+## QA Simulation Result
 
-- Added `shared/balanceConfig.js` so pacing numbers are easy to tune.
-- Increased neutral expansion cost with territory size, distance from core, enemy-border pressure, and strategic terrain.
-- Slowed income and max-energy growth from territory.
-- Added a recovery income bonus for small players.
-- Added Lily Farm dynamic cost, territory-based farm limit, nearby lily/nest support requirement, and 20-second activation delay.
-- Reduced Lily Farm income from the previous immediate large boost to a slower +1.0/s style economy upgrade.
-- Added bot personalities: expander, aggressive, defensive, opportunist, and betrayer.
-- Added bot phases: early, mid, late, and surge.
-- Added leader pressure so bots value attacks against high-threat leaders.
-- Added bot attack cooldowns and war exhaustion to reduce endless tiny attack spam.
-- Made defending more meaningful by improving defense energy gained per spend.
-- Exported the server game class and added `scripts/simulateBalance.js` for accelerated bot simulations.
+`scripts/qaPlaytest.js` ran repeated 600 second all-bot matches on a small standard map after the bot update.
 
-## Simulation Results
+- Attacks: 204 to 253
+- Wave captures: 30+
+- Expansions: 850+
+- Buildings: 55 in the full captured run
+- Defenses: 600+
+- Ability uses: 16 to 20
+- Camps captured: 2 to 4
+- Objectives captured: 1 to 2
+- Active bot personalities: aggressive, defensive, expander, objectiveHunter, leaderHunter, betrayer, farmer
 
-Quick accelerated sample after tuning: 5 bot-only matches.
+## Balance Findings
 
-- Average match duration: `1200s`
-- Average winner territory: `20.04%`
-- Average attacks per match: `1148.6`
-- Average wave captures per match: `888`
-- Average builds per match: `200.4`
-- Average Lily Farms alive at end: `8`
-- Average active-player income: `11.01/s`
+- Duck is still the easiest beginner animal because water expansion is efficient and Flock Rush is simple.
+- Snake has a clear border identity after Ambush, but it depends on reed/mud positioning.
+- Frog has the trickiest but most interesting mobility. Big Leap is useful and verified.
+- Farming is useful without instantly taking over because Lily Farms require support, cost scaling, and activation time.
+- Bots fight enough after this pass. 314 attacks in 600 simulated seconds is active, maybe even slightly noisy.
+- Defending is common and useful, but the UI could better show when defense actually stopped an attack.
 
-Interpretation:
+## Tuning Changes This Pass
 
-- Matches now reliably last to the timer instead of ending from fast expansion.
-- Bots attack much more than before and pressure borders throughout the match.
-- Farming exists, but the delayed activation and farm cap stop it from becoming an immediate runaway.
-- Current tuning may now lean slightly toward long stalemates, so future passes should add objective zones or late-game pressure to help convert conflict into wins.
+- Reduced default bot attack energy threshold from 0.38 to 0.34.
+- Added stronger Leader Hunter and Betrayer behavior.
+- Added recent-attacker retaliation.
+- Added active-objective pull scoring so bots expand toward objectives more reliably.
+- Kept Farmer behavior less aggressive so bot personalities feel different.
 
-## Files Changed
+## Next Balance Work
 
-- `shared/balanceConfig.js`
-- `shared/gameConfig.js`
-- `server.js`
-- `server/TileManager.js`
-- `server/EconomyManager.js`
-- `server/CombatManager.js`
-- `server/BotManager.js`
-- `public/index.html`
-- `public/game.js`
-- `public/infoPanel.js`
-- `scripts/simulateBalance.js`
-
-## Verification
-
-- Browser reload succeeded with no console errors.
-- Browser match start succeeded with map canvas and UI visible.
-- Duck, Snake, and Frog server starts all initialized cleanly.
-- Syntax checks passed for touched server, shared, public, and simulation files.
-- `/api/state` responded successfully after restart.
-
-## Next Balance Ideas
-
-- Add objective zones that activate at 2, 4, 6, and 8 minutes.
-- Increase late-game capture pressure if too many matches end by timer.
-- Add visible contested-border warnings.
-- Make alliances react more strongly to threat score.
-- Add a detailed match telemetry screen for attack waves, captures, and economy timings.
+- Add stronger objective comeback and leader-pressure bonuses.
+- Add late-game pond pressure after 70% is unlikely, such as shrinking safe water, objective surges, or higher attack power near the timer.
+- Reduce defense spam if live play feels noisy.
+- Add clearer player feedback for "this attack failed because defense was too high."

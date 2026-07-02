@@ -15,6 +15,8 @@ const ProgressionManager = require("./server/ProgressionManager");
 const MissionManager = require("./server/MissionManager");
 const objectives = require("./shared/objectives");
 const lakeEvents = require("./shared/lakeEvents");
+const diplomacyConfig = require("./shared/diplomacyConfig");
+const combatConfig = require("./shared/combatConfig");
 
 const ROOT = __dirname;
 const PUBLIC = path.join(ROOT, "public");
@@ -110,8 +112,9 @@ class PondFrontServerGame {
   }
 
   createPlayers(humanAnimal, difficulty) {
-    const personalities = ["expander", "aggressive", "defensive", "objectiveHunter", "opportunist", "peacefulFarmer", "leaderHunter", "betrayer"];
-    const human = this.makePlayer(config.HUMAN_ID, this.matchSettings.playerName || "Player", humanAnimal, animals[humanAnimal].color, false, "human");
+    const personalities = ["aggressive", "defensive", "expander", "objectiveHunter", "leaderHunter", "betrayer", "farmer", "peaceful", "loyalAlly", "opportunist"];
+    const safeHumanAnimal = animals[humanAnimal] ? humanAnimal : "duck";
+    const human = this.makePlayer(config.HUMAN_ID, this.matchSettings.playerName || "Player", safeHumanAnimal, animals[safeHumanAnimal].color, false, "human");
     const players = [human];
     const botCount = this.matchSettings.botCount || config.BOT_COUNT || 9;
     const botNames = this.shuffled(config.BOT_NAMES).filter((name) => name !== "You");
@@ -124,7 +127,7 @@ class PondFrontServerGame {
         difficulty === "chaos" ? "smart" : difficulty === "smart" || difficulty === "easy" ? difficulty : i % 4 === 0 ? "smart" : "normal";
       const player = this.makePlayer(`b${i}`, name, animal, color, true, botDifficulty);
       player.personality = difficulty === "chaos" ? personalities[(i + Math.floor(Math.random() * personalities.length)) % personalities.length] : personalities[i % personalities.length];
-      player.favoriteTerrain = animal === "snake" ? "reeds" : animal === "frog" ? "lily" : "water";
+      player.favoriteTerrain = animal === "snake" ? "reeds" : animal === "frog" || animal === "carp" ? "lily" : animal === "turtle" ? "mud" : "water";
       player.aggression =
         player.personality === "aggressive" || player.personality === "leaderHunter"
           ? 0.78
@@ -139,9 +142,11 @@ class PondFrontServerGame {
   }
 
   mixedBotAnimals(count) {
-    const base = [];
-    while (base.length < count) base.push("duck", "snake", "frog");
-    return this.shuffled(base).slice(0, count);
+    const species = ["duck", "snake", "frog", "turtle", "carp"];
+    if (count <= species.length) return this.shuffled(species).slice(0, count);
+    const base = species.slice();
+    while (base.length < count) base.push(...this.shuffled(species));
+    return this.shuffled(base.slice(0, count));
   }
 
   shuffled(items) {
@@ -198,6 +203,7 @@ class PondFrontServerGame {
     if (this.simTime != null) this.simTime += dt;
     if (this.ended) return;
     this.combat.update(this, dt);
+    this.diplomacy.update(this);
     this.objectives.update(this);
     this.eventsManager.update(this);
     this.economy.update(this.players, dt, this.now(), this);
@@ -214,7 +220,7 @@ class PondFrontServerGame {
     if (body.type === "expand" || body.type === "attack") {
       return this.combat.expandOrAttack(this, player, Number(body.tileId), percent, body.sourceIds || []);
     }
-    if (body.type === "defend") return this.combat.defend(player, Number(body.tileId), percent);
+    if (body.type === "defend") return this.combat.defend(player, Number(body.tileId), percent, this.now());
     if (body.type === "build") {
       const tile = this.tileManager.getById(Number(body.tileId));
       const result = this.economy.build(player, tile, body.buildingType, this.now());
@@ -273,13 +279,17 @@ class PondFrontServerGame {
   }
 
   handlePing(player, body) {
-    const allowed = new Set(["attack", "defend", "weak", "danger", "help", "peace", "good", "warning"]);
+    const allowed = new Set(Object.keys(diplomacyConfig.pingTypes));
     const tile = this.tileManager.getById(Number(body.tileId));
     const pingType = allowed.has(body.pingType) ? body.pingType : "warning";
     if (!tile) return { ok: false, message: "Select a valid tile first." };
 
     const target = body.targetId ? this.getPlayer(body.targetId) : tile.owner ? this.getPlayer(tile.owner) : null;
-    const visibility = target && player.allies.has(target.id) ? "allies" : pingType === "warning" || pingType === "peace" ? "public" : "self";
+    const ping = diplomacyConfig.pingTypes[pingType] || diplomacyConfig.pingTypes.warning;
+    if (ping.visibility === "allies" && target && !this.diplomacy.areAllied(player.id, target.id) && target.id !== player.id) {
+      return { ok: false, message: "Private ally pings require an alliance." };
+    }
+    const visibility = ping.visibility === "public" ? "public" : target && player.allies.has(target.id) ? "allies" : player.allies.size ? "allies" : "self";
     this.pushEvent({
       kind: "ping",
       pingType,
@@ -293,16 +303,7 @@ class PondFrontServerGame {
   }
 
   pingLabel(type) {
-    return {
-      attack: "Attack Here",
-      defend: "Defend Here",
-      weak: "Enemy Weak",
-      danger: "Danger",
-      help: "Help",
-      peace: "Peace",
-      good: "Good Job",
-      warning: "Warning",
-    }[type] || "Signal";
+    return diplomacyConfig.pingTypes[type]?.label || "Signal";
   }
 
   checkWin() {
@@ -371,6 +372,7 @@ class PondFrontServerGame {
       lakeEvent: this.eventsManager.snapshot(this.now()),
       missions: this.missions.snapshot(config.HUMAN_ID),
       wars: this.warSnapshot(),
+      relationships: this.diplomacy.snapshot(config.HUMAN_ID, this.now()),
       matchSettings: this.matchSettings,
       ended: this.ended,
       winnerId: this.winnerId,
@@ -399,13 +401,15 @@ class PondFrontServerGame {
       })),
       players,
       activeAttacks: this.combat.snapshot(),
-      events: this.events.slice(-config.MAX_EVENTS),
+      events: this.visibleEventsFor(config.HUMAN_ID).slice(-config.MAX_EVENTS),
       config: {
         tileTypes: config.TILE_TYPES,
         buildings: config.BUILDINGS,
         animals,
         objectives,
         lakeEvents,
+        diplomacy: diplomacyConfig,
+        combat: combatConfig,
         mapSizes: config.MAP_SIZES,
         balance,
         buildingCosts: this.playerBuildingCosts(this.getPlayer(config.HUMAN_ID)),
@@ -465,10 +469,16 @@ class PondFrontServerGame {
     current.lastAt = this.now();
     current.aggressorId = attackerId;
     this.wars.set(key, current);
+    this.diplomacy?.recordAttack(attackerId, defenderId, data, this.now());
     const attacker = this.getPlayer(attackerId);
     const defender = this.getPlayer(defenderId);
     attacker?.enemies?.add(defenderId);
     defender?.enemies?.add(attackerId);
+    if (defender) {
+      defender.flags = defender.flags || {};
+      defender.flags.lastAttackerId = attackerId;
+      defender.flags.underAttackUntil = this.now() + 28;
+    }
   }
 
   warSnapshot() {
@@ -481,6 +491,16 @@ class PondFrontServerGame {
         peacePossible: now - war.lastAt > 45,
         damage: Math.round(war.damage),
       }));
+  }
+
+  visibleEventsFor(viewerId) {
+    return this.events.filter((event) => {
+      if (event.kind !== "ping" && event.kind !== "signal") return true;
+      if (event.visibility === "public") return true;
+      if (event.playerId === viewerId || event.targetId === viewerId) return true;
+      if (event.visibility === "allies") return this.diplomacy?.areAllied(event.playerId, viewerId);
+      return false;
+    });
   }
 
   roundCaptureProgress(progress = {}) {

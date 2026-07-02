@@ -81,6 +81,8 @@ class ProgressionManager {
     if (player.animal === "duck") return "Royal Duck";
     if (player.animal === "snake") return "Marsh Serpent";
     if (player.animal === "frog") return "Lotus Frog";
+    if (player.animal === "turtle") return "Ancient Shell";
+    if (player.animal === "carp") return "Golden Carp";
     return "Evolved";
   }
 }

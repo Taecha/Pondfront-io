@@ -59,6 +59,14 @@ class EconomyManager {
         const evolved = (player.level || 1) >= 5 ? balance.level5FrogLilyIncomeMultiplier || 1.22 : 1;
         player.incomeBreakdown.animal += balance.frogLilyBonus * evolved;
       }
+      if (player.animal === "carp") {
+        if (tile.type === "water") {
+          player.incomeBreakdown.animal += balance.carpWaterIncomeBonus || 0.012;
+          const waterLinks = tile.neighbors?.filter((neighbor) => neighbor.owner === player.id && neighbor.type === "water").length || 0;
+          player.incomeBreakdown.animal += waterLinks * (balance.carpConnectedWaterIncomeBonus || 0.004);
+        }
+        if (tile.type === "lily") player.incomeBreakdown.animal += balance.carpLilyBonus || 0.12;
+      }
       if (game?.eventsManager?.isActive("lilyBloom") && tile.type === "lily") {
         player.incomeBreakdown.temporary += balance.lilyBloomIncomeBonus || 0.18;
       }
@@ -74,6 +82,10 @@ class EconomyManager {
         player.incomeBreakdown.recovery += balance.recoveryIncomeMax * (1 - territoryPct / balance.recoveryTerritoryPct);
       }
       if (player.animal === "duck" && player.abilityActiveUntil > now) player.incomeBreakdown.temporary += 0.25;
+      if (player.animal === "carp" && player.abilityActiveUntil > now) {
+        const current = Object.values(player.incomeBreakdown).reduce((sum, value) => sum + value, 0);
+        player.incomeBreakdown.temporary += current * (balance.goldenCurrentIncomeMultiplier || 0.3);
+      }
       if (now < (player.flags?.campIncomeUntil || 0)) player.incomeBreakdown.temporary += balance.campIncomeBonus || 1.25;
       if (territoryPct < (balance.lastNestProtectionTerritoryPct || 0.035) && player.territory > 0) {
         player.flags.lastNestProtection = true;
@@ -110,7 +122,10 @@ class EconomyManager {
       player.incomeBreakdown.buildings += Math.max(0.35, (balance.farmIncomeBonus + (tile.type === "lily" ? balance.farmLilyBonus : 0) - nearEnemy) * boost);
       if (player.animal === "frog") player.incomeBreakdown.animal += balance.farmFrogBonus * level;
     }
-    if (tile.building === "reedGuard") player.incomeBreakdown.buildings += balance.reedGuardIncomeBonus * level;
+    if (tile.building === "reedGuard") {
+      const turtleBoost = player.animal === "turtle" ? balance.turtleReedGuardMultiplier || 1.28 : 1;
+      player.incomeBreakdown.buildings += balance.reedGuardIncomeBonus * level * turtleBoost;
+    }
     if (tile.building === "mudTunnel") {
       player.flags.mudTunnel = true;
       player.incomeBreakdown.buildings += balance.mudTunnelIncomeBonus * level;
@@ -136,7 +151,8 @@ class EconomyManager {
     if (!building) return Infinity;
     if (buildingType !== "lilyFarm") return building.cost;
     const farms = player.buildings?.lilyFarm || 0;
-    return Math.round(balance.farmBaseCost * Math.pow(1 + balance.farmCostGrowth, farms));
+    const carpDiscount = player.animal === "carp" ? balance.carpLilyFarmCostMultiplier || 0.9 : 1;
+    return Math.round(balance.farmBaseCost * Math.pow(1 + balance.farmCostGrowth, farms) * carpDiscount);
   }
 
   maxLilyFarms(player) {

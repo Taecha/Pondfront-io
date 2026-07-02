@@ -188,47 +188,80 @@
     }
 
     draw(options) {
-      this.vfx?.configure(options.effects || {});
+      const drawOptions = this.effectiveOptions(options);
+      this.vfx?.configure(drawOptions.effects || {});
       const rect = this.canvas.getBoundingClientRect();
       const ctx = this.ctx;
       ctx.clearRect(0, 0, rect.width, rect.height);
       this.drawWater(ctx, rect);
       if (!this.state) return;
-      this.drawMap(ctx, options);
-      this.drawEvents(ctx);
-      this.drawMiniMap(options);
+      this.drawMap(ctx, drawOptions);
+      this.drawEvents(ctx, drawOptions);
+      this.drawMiniMap(drawOptions);
+    }
+
+    effectiveOptions(options = {}) {
+      const effects = { ...(options.effects || {}) };
+      const mobile = Boolean(options.isMobile);
+      const autoStrategic = Boolean(options.autoStrategicView) && this.camera.zoom < (mobile ? 0.78 : 0.48);
+      const lowPower = Boolean(effects.autoLowPerformance) && (mobile || this.camera.zoom < 0.5);
+      const next = {
+        ...options,
+        strategicView: Boolean(options.strategicView || autoStrategic),
+        showIcons: autoStrategic ? false : options.showIcons,
+        effects,
+      };
+      if (lowPower) {
+        if (effects.level === "high") effects.level = mobile || this.camera.zoom < 0.5 ? "low" : "medium";
+        if (mobile && this.camera.zoom < 0.72) effects.floatingText = false;
+      }
+      if (effects.reducedMotion) {
+        effects.floatingText = false;
+      }
+      return next;
     }
 
     drawWater(ctx, rect) {
       const gradient = ctx.createLinearGradient(0, 0, rect.width, rect.height);
-      gradient.addColorStop(0, "#0b2635");
-      gradient.addColorStop(0.45, "#16465a");
-      gradient.addColorStop(1, "#08202e");
+      gradient.addColorStop(0, "#061724");
+      gradient.addColorStop(0.42, "#123f52");
+      gradient.addColorStop(0.78, "#0c2a3b");
+      gradient.addColorStop(1, "#05121d");
       ctx.fillStyle = gradient;
       ctx.fillRect(0, 0, rect.width, rect.height);
       const now = performance.now();
-      ctx.globalAlpha = 0.11;
-      for (let i = 0; i < 34; i += 1) {
-        const x = (i * 97 + now * 0.012) % (rect.width + 120) - 60;
-        const y = (i * 53 + Math.sin(now * 0.0008 + i) * 18) % (rect.height + 80) - 40;
-        const r = 16 + (i % 5) * 7;
-        ctx.strokeStyle = i % 3 === 0 ? "#b8edf5" : "#7ed6df";
-        ctx.lineWidth = 1;
-        ctx.beginPath();
-        ctx.arc(x, y, r, 0, Math.PI * 2);
-        ctx.stroke();
-      }
-      ctx.globalAlpha = 0.16;
-      ctx.strokeStyle = "#9ee7f4";
+      ctx.save();
+      ctx.globalAlpha = 0.08;
+      ctx.strokeStyle = "#b8edf5";
       ctx.lineWidth = 1;
-      for (let y = 28; y < rect.height; y += 58) {
+      for (let y = -24; y < rect.height + 42; y += 34) {
         ctx.beginPath();
-        for (let x = -20; x <= rect.width + 20; x += 28) {
-          ctx.lineTo(x, y + Math.sin((x + now * 0.025 + y) * 0.02) * 3);
+        for (let x = -34; x <= rect.width + 34; x += 22) {
+          const drift = now * 0.018 + y * 0.7;
+          ctx.lineTo(x, y + Math.sin((x + drift) * 0.026) * 2.2);
         }
         ctx.stroke();
       }
-      ctx.globalAlpha = 1;
+      ctx.globalAlpha = 0.05;
+      ctx.strokeStyle = "#5ec9dc";
+      ctx.lineWidth = 1.4;
+      for (let i = 0; i < 16; i += 1) {
+        const y = (i * 71 + now * 0.009) % (rect.height + 90) - 45;
+        const xOffset = ((i * 113 + now * 0.014) % 180) - 90;
+        ctx.beginPath();
+        for (let x = -80; x <= rect.width + 80; x += 36) {
+          ctx.lineTo(x + xOffset, y + Math.sin((x + now * 0.02 + i * 17) * 0.018) * 6);
+        }
+        ctx.stroke();
+      }
+      ctx.globalAlpha = 0.18;
+      const sheen = ctx.createLinearGradient(0, rect.height * 0.12, rect.width, rect.height * 0.82);
+      sheen.addColorStop(0, "rgba(255,255,255,0)");
+      sheen.addColorStop(0.48, "rgba(255,255,255,0.09)");
+      sheen.addColorStop(0.55, "rgba(255,255,255,0)");
+      ctx.fillStyle = sheen;
+      ctx.fillRect(0, 0, rect.width, rect.height);
+      ctx.restore();
       this.drawLakeEventOverlay(ctx, rect);
     }
 
@@ -248,20 +281,27 @@
       const topLeft = this.worldToScreen(0, 0);
       const mapW = this.state.cols * s;
       const mapH = this.state.rows * s;
+      const radius = Math.max(8, Math.min(20, 12 * this.camera.zoom));
       ctx.save();
       ctx.shadowColor = "rgba(0,0,0,0.32)";
-      ctx.shadowBlur = 24;
-      ctx.fillStyle = "rgba(7,19,29,0.38)";
-      this.roundRect(ctx, topLeft.x - 8, topLeft.y - 8, mapW + 16, mapH + 16, 14);
+      ctx.shadowBlur = 28;
+      ctx.shadowOffsetY = 10;
+      ctx.fillStyle = "rgba(3,12,19,0.48)";
+      this.roundRect(ctx, topLeft.x - 10, topLeft.y - 10, mapW + 20, mapH + 20, radius + 8);
       ctx.fill();
       ctx.shadowColor = "transparent";
+      ctx.shadowOffsetY = 0;
       const lake = ctx.createLinearGradient(topLeft.x, topLeft.y, topLeft.x + mapW, topLeft.y + mapH);
-      lake.addColorStop(0, "#224f60");
-      lake.addColorStop(0.5, "#2b6473");
-      lake.addColorStop(1, "#173b4d");
+      lake.addColorStop(0, "#1a4c5f");
+      lake.addColorStop(0.5, "#286477");
+      lake.addColorStop(1, "#12384b");
       ctx.fillStyle = lake;
-      ctx.fillRect(topLeft.x, topLeft.y, mapW, mapH);
+      this.roundRect(ctx, topLeft.x, topLeft.y, mapW, mapH, radius);
+      ctx.fill();
 
+      ctx.save();
+      this.roundRect(ctx, topLeft.x, topLeft.y, mapW, mapH, radius);
+      ctx.clip();
       this.drawRegionUnderlays(ctx);
       const visibleTiles = this.visibleTiles(1);
       visibleTiles.forEach((tile) => this.drawTile(ctx, tile, options));
@@ -276,6 +316,11 @@
       this.drawActiveAttacks(ctx);
       this.vfx?.draw(ctx);
       this.drawNames(ctx);
+      ctx.restore();
+      ctx.strokeStyle = "rgba(210, 242, 247, 0.28)";
+      ctx.lineWidth = Math.max(1, 1.4 * this.camera.zoom);
+      this.roundRect(ctx, topLeft.x + 0.5, topLeft.y + 0.5, mapW - 1, mapH - 1, radius);
+      ctx.stroke();
       ctx.restore();
     }
 
@@ -333,31 +378,41 @@
         if (transitionAlpha <= 0) this.ownerTransitions.delete(tile.id);
       }
 
-      ctx.fillStyle = owner ? this.withAlpha(owner.color, 0.76) : type.neutralColor;
-      if (type.blocks) ctx.fillStyle = "#5f6d76";
-
       const isSpecial = type.strategic || type.blocks;
+      if (!owner && isSpecial && options.strategicView && this.camera.zoom < 0.78 && !type.blocks && options.selectedTileId !== tile.id) {
+        return;
+      }
       if (owner) {
-        ctx.fillRect(p.x - 0.15, p.y - 0.15, size + 0.3, size + 0.3);
+        const alpha = tile.owner === this.state.humanId ? 0.84 : 0.78;
+        const overlap = Math.max(0.35, size * 0.018);
+        ctx.fillStyle = this.withAlpha(owner.color, alpha);
+        ctx.fillRect(p.x - overlap, p.y - overlap, size + overlap * 2, size + overlap * 2);
         if (transitionAlpha > 0 && transition.oldColor) {
-          ctx.fillStyle = this.withAlpha(transition.oldColor, transitionAlpha * 0.55);
-          ctx.fillRect(p.x - 0.15, p.y - 0.15, size + 0.3, size + 0.3);
+          ctx.fillStyle = this.withAlpha(transition.oldColor, transitionAlpha * 0.58);
+          ctx.fillRect(p.x - overlap, p.y - overlap, size + overlap * 2, size + overlap * 2);
         }
-        if (isSpecial && this.camera.zoom > 0.62) {
-          ctx.fillStyle = "rgba(255,255,255,0.045)";
-          this.roundRect(ctx, p.x + size * 0.22, p.y + size * 0.22, size * 0.56, size * 0.56, Math.max(2, size * 0.18));
-          ctx.fill();
+        if (this.camera.zoom > 0.92) {
+          const sheen = this.tileNoise(tile.id, 0.03, 0.075);
+          ctx.fillStyle = `rgba(255,255,255,${sheen})`;
+          ctx.fillRect(p.x + size * 0.08, p.y + size * 0.08, size * 0.18, size * 0.18);
+        }
+        if (isSpecial && this.camera.zoom > 0.7) {
+          this.drawSpecialWash(ctx, tile, p.x, p.y, size, true);
         }
       } else if (!isSpecial) {
+        ctx.fillStyle = type.neutralColor;
         this.roundRect(ctx, p.x + 0.6, p.y + 0.6, size - 1.2, size - 1.2, Math.max(2, size * 0.12));
         ctx.fill();
       } else {
-        this.roundRect(ctx, p.x + 0.5, p.y + 0.5, size - 1, size - 1, Math.max(2, size * 0.16));
+        ctx.fillStyle = type.blocks ? "#55636c" : type.neutralColor;
+        const inset = Math.max(0.6, Math.min(3.2, size * 0.08));
+        this.roundRect(ctx, p.x + inset, p.y + inset, size - inset * 2, size - inset * 2, Math.max(2, size * 0.18));
         ctx.fill();
-        ctx.strokeStyle = "rgba(226, 244, 247, 0.12)";
+        ctx.strokeStyle = type.blocks ? "rgba(236,247,249,0.22)" : "rgba(226, 244, 247, 0.14)";
         ctx.lineWidth = 1;
-        this.roundRect(ctx, p.x + 2, p.y + 2, size - 4, size - 4, Math.max(2, size * 0.08));
+        this.roundRect(ctx, p.x + inset + 1, p.y + inset + 1, size - inset * 2 - 2, size - inset * 2 - 2, Math.max(2, size * 0.12));
         ctx.stroke();
+        this.drawSpecialWash(ctx, tile, p.x, p.y, size, false);
       }
 
       const showIcon =
@@ -369,43 +424,105 @@
       }
     }
 
+    drawSpecialWash(ctx, tile, x, y, size, owned) {
+      const alpha = owned ? 0.11 : 0.22;
+      ctx.save();
+      ctx.globalAlpha = alpha;
+      const cx = x + size / 2;
+      const cy = y + size / 2;
+      if (tile.type === "lily") {
+        ctx.fillStyle = "#a6e6a6";
+        ctx.beginPath();
+        ctx.ellipse(cx - size * 0.05, cy, size * 0.28, size * 0.16, -0.35, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.strokeStyle = "#d9ffcf";
+        ctx.lineWidth = Math.max(1, size * 0.025);
+        ctx.beginPath();
+        ctx.moveTo(cx, cy);
+        ctx.lineTo(cx + size * 0.18, cy - size * 0.04);
+        ctx.stroke();
+      } else if (tile.type === "reeds") {
+        ctx.strokeStyle = "#d3df8c";
+        ctx.lineWidth = Math.max(1, size * 0.05);
+        for (let i = -2; i <= 2; i += 1) {
+          const lean = (this.tileNoise(tile.id + i * 7, -0.08, 0.08) || 0) * size;
+          ctx.beginPath();
+          ctx.moveTo(cx + i * size * 0.08, y + size * 0.78);
+          ctx.quadraticCurveTo(cx + i * size * 0.08 + lean, cy, cx + i * size * 0.09 + size * 0.05, y + size * 0.22);
+          ctx.stroke();
+        }
+      } else if (tile.type === "mud" || tile.type === "nest") {
+        ctx.fillStyle = tile.type === "nest" ? "#f0c16f" : "#c79662";
+        ctx.beginPath();
+        ctx.ellipse(cx, cy, size * 0.28, size * 0.18, 0.2, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.strokeStyle = "rgba(3, 10, 15, 0.5)";
+        ctx.lineWidth = Math.max(1, size * 0.025);
+        ctx.beginPath();
+        ctx.arc(cx, cy, size * 0.13, 0.2, Math.PI * 1.8);
+        ctx.stroke();
+      } else if (tile.type === "rock") {
+        ctx.fillStyle = "#d2dbe0";
+        ctx.beginPath();
+        ctx.moveTo(cx - size * 0.26, cy + size * 0.16);
+        ctx.lineTo(cx - size * 0.16, cy - size * 0.16);
+        ctx.lineTo(cx + size * 0.08, cy - size * 0.26);
+        ctx.lineTo(cx + size * 0.28, cy + size * 0.06);
+        ctx.lineTo(cx + size * 0.08, cy + size * 0.24);
+        ctx.closePath();
+        ctx.fill();
+      }
+      ctx.restore();
+    }
+
     drawSpecial(ctx, tile, x, y, size) {
       const cx = x + size / 2;
       const cy = y + size / 2;
       ctx.save();
-      ctx.globalAlpha = 0.9;
+      ctx.globalAlpha = 0.92;
       if (tile.type === "rock") {
-        ctx.fillStyle = "#a6b2ba";
+        ctx.fillStyle = "#b9c5cc";
+        ctx.strokeStyle = "rgba(3, 10, 15, 0.42)";
+        ctx.lineWidth = Math.max(1, size * 0.035);
         ctx.beginPath();
-        ctx.moveTo(cx - size * 0.22, cy + size * 0.16);
-        ctx.lineTo(cx - size * 0.08, cy - size * 0.22);
-        ctx.lineTo(cx + size * 0.22, cy + size * 0.12);
+        ctx.moveTo(cx - size * 0.24, cy + size * 0.18);
+        ctx.lineTo(cx - size * 0.12, cy - size * 0.2);
+        ctx.lineTo(cx + size * 0.1, cy - size * 0.25);
+        ctx.lineTo(cx + size * 0.27, cy + size * 0.07);
+        ctx.lineTo(cx + size * 0.05, cy + size * 0.22);
         ctx.closePath();
         ctx.fill();
+        ctx.stroke();
       } else if (tile.type === "lily") {
-        ctx.fillStyle = "#73b982";
+        ctx.fillStyle = "#9ce39d";
         ctx.beginPath();
-        ctx.ellipse(cx, cy, size * 0.22, size * 0.14, -0.4, 0, Math.PI * 2);
+        ctx.ellipse(cx - size * 0.03, cy, size * 0.24, size * 0.15, -0.35, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillStyle = "rgba(7, 19, 29, 0.45)";
+        ctx.beginPath();
+        ctx.moveTo(cx, cy);
+        ctx.lineTo(cx + size * 0.16, cy - size * 0.05);
+        ctx.lineTo(cx + size * 0.09, cy + size * 0.04);
+        ctx.closePath();
         ctx.fill();
       } else if (tile.type === "reeds") {
-        ctx.strokeStyle = "#9bb66d";
-        ctx.lineWidth = Math.max(1, size * 0.06);
-        for (let i = -1; i <= 1; i += 1) {
+        ctx.strokeStyle = "#c6d778";
+        ctx.lineWidth = Math.max(1, size * 0.045);
+        for (let i = -2; i <= 2; i += 1) {
           ctx.beginPath();
-          ctx.moveTo(cx + i * size * 0.1, cy + size * 0.24);
-          ctx.lineTo(cx + i * size * 0.1 + size * 0.06, cy - size * 0.24);
+          ctx.moveTo(cx + i * size * 0.07, cy + size * 0.25);
+          ctx.quadraticCurveTo(cx + i * size * 0.08, cy, cx + i * size * 0.07 + size * 0.04, cy - size * 0.25);
           ctx.stroke();
         }
       } else if (tile.type === "mud" || tile.type === "nest") {
-        ctx.strokeStyle = tile.type === "nest" ? "#d4aa62" : "#a88255";
-        ctx.lineWidth = Math.max(1, size * 0.06);
+        ctx.fillStyle = tile.type === "nest" ? "#cfa35d" : "#9c7650";
         ctx.beginPath();
-        ctx.arc(cx, cy, size * 0.18, 0, Math.PI * 2);
-        ctx.save();
-        ctx.strokeStyle = "rgba(3, 10, 15, 0.72)";
-        ctx.lineWidth = Math.max(2, size * 0.09);
-        ctx.stroke();
-        ctx.restore();
+        ctx.ellipse(cx, cy, size * 0.25, size * 0.16, 0.12, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.strokeStyle = tile.type === "nest" ? "#f2d87a" : "#c29a68";
+        ctx.lineWidth = Math.max(1, size * 0.04);
+        ctx.beginPath();
+        ctx.arc(cx, cy, size * 0.14, 0.2, Math.PI * 1.85);
         ctx.stroke();
       }
       ctx.restore();
@@ -414,15 +531,43 @@
     drawBuilding(ctx, tile, x, y, size) {
       const cx = x + size / 2;
       const cy = y + size / 2;
-      ctx.fillStyle = "rgba(236,247,249,0.9)";
+      const icon = {
+        nest: "N",
+        lilyFarm: "L",
+        reedGuard: "G",
+        mudTunnel: "M",
+        jumpPad: "J",
+      }[tile.building] || tile.building[0].toUpperCase();
+      const colors = {
+        nest: "#f2d87a",
+        lilyFarm: "#8ee6a2",
+        reedGuard: "#cddf83",
+        mudTunnel: "#c79662",
+        jumpPad: "#87d7ea",
+      };
+      const color = colors[tile.building] || "#edf8fb";
+      ctx.save();
+      ctx.shadowColor = this.withAlpha(color, 0.38);
+      ctx.shadowBlur = Math.max(3, size * 0.18);
+      ctx.fillStyle = "rgba(5, 16, 25, 0.82)";
       ctx.beginPath();
-      ctx.arc(cx, cy, Math.max(3, size * 0.13), 0, Math.PI * 2);
+      ctx.arc(cx, cy, Math.max(5, size * 0.18), 0, Math.PI * 2);
       ctx.fill();
-      ctx.fillStyle = "#07131d";
-      ctx.font = `900 ${Math.max(7, size * 0.22)}px Inter, sans-serif`;
+      ctx.shadowBlur = 0;
+      ctx.strokeStyle = color;
+      ctx.lineWidth = Math.max(1, size * 0.035);
+      ctx.stroke();
+      ctx.fillStyle = color;
+      ctx.font = `950 ${Math.max(8, size * 0.22)}px Inter, sans-serif`;
       ctx.textAlign = "center";
       ctx.textBaseline = "middle";
-      ctx.fillText(tile.building[0].toUpperCase(), cx, cy + 0.5);
+      ctx.fillText(icon, cx, cy + 0.5);
+      if (tile.buildingLevel > 1 && size > 16) {
+        ctx.fillStyle = "#edf8fb";
+        ctx.font = `900 ${Math.max(6, size * 0.13)}px Inter, sans-serif`;
+        ctx.fillText(String(tile.buildingLevel), cx + size * 0.18, cy - size * 0.16);
+      }
+      ctx.restore();
     }
 
     drawBorders(ctx, tile) {
@@ -432,9 +577,10 @@
       const size = this.baseTile * this.camera.zoom;
       const p = this.worldToScreen(tile.x * this.baseTile, tile.y * this.baseTile);
       const color = tile.owner === this.state.humanId ? "#edf8fb" : this.withAlpha(player.color, 0.98);
-      const width = Math.max(1.1, size * (tile.owner === this.state.humanId ? 0.066 : 0.052));
+      const width = Math.max(1.05, size * (tile.owner === this.state.humanId ? 0.052 : 0.044));
       this.neighbors(tile).forEach((neighbor, index) => {
         if (neighbor && neighbor.owner === tile.owner) return;
+        const contested = Boolean(neighbor?.owner && neighbor.owner !== tile.owner);
         const points =
           index === 0
             ? [p.x, p.y, p.x + size, p.y]
@@ -443,19 +589,27 @@
               : index === 2
                 ? [p.x, p.y + size, p.x + size, p.y + size]
                 : [p.x, p.y, p.x, p.y + size];
-        this.strokeBorderEdge(ctx, points, color, width);
+        this.strokeBorderEdge(ctx, points, color, width, contested);
       });
     }
 
-    strokeBorderEdge(ctx, points, color, width) {
-      ctx.lineCap = "round";
-      ctx.lineJoin = "round";
-      ctx.strokeStyle = "rgba(3, 10, 15, 0.58)";
-      ctx.lineWidth = width + 1.35;
+    strokeBorderEdge(ctx, points, color, width, contested = false) {
+      ctx.lineCap = "square";
+      ctx.lineJoin = "miter";
+      ctx.strokeStyle = contested ? "rgba(2, 8, 13, 0.88)" : "rgba(3, 10, 15, 0.62)";
+      ctx.lineWidth = width + (contested ? 2 : 1.25);
       ctx.beginPath();
       ctx.moveTo(points[0], points[1]);
       ctx.lineTo(points[2], points[3]);
       ctx.stroke();
+      if (contested) {
+        ctx.strokeStyle = "rgba(255, 255, 255, 0.22)";
+        ctx.lineWidth = width + 0.7;
+        ctx.beginPath();
+        ctx.moveTo(points[0], points[1]);
+        ctx.lineTo(points[2], points[3]);
+        ctx.stroke();
+      }
       ctx.strokeStyle = color;
       ctx.lineWidth = width;
       ctx.beginPath();
@@ -465,16 +619,17 @@
     }
 
     drawLocalGlow(ctx) {
+      if (this.camera.zoom < 0.42) return;
       const size = this.baseTile * this.camera.zoom;
       ctx.save();
-      ctx.globalAlpha = 0.22 + Math.sin(performance.now() * 0.004) * 0.05;
+      ctx.globalAlpha = 0.14 + Math.sin(performance.now() * 0.004) * 0.04;
       ctx.strokeStyle = "#edf8fb";
-      ctx.lineWidth = Math.max(1, size * 0.035);
+      ctx.lineWidth = Math.max(1, size * 0.026);
       this.state.tiles.forEach((tile) => {
         if (tile.owner !== this.state.humanId) return;
         if (!this.neighbors(tile).some((neighbor) => neighbor && neighbor.owner !== tile.owner)) return;
         const p = this.worldToScreen(tile.x * this.baseTile, tile.y * this.baseTile);
-        this.roundRect(ctx, p.x + size * 0.12, p.y + size * 0.12, size * 0.76, size * 0.76, Math.max(3, size * 0.18));
+        this.roundRect(ctx, p.x + size * 0.18, p.y + size * 0.18, size * 0.64, size * 0.64, Math.max(3, size * 0.16));
         ctx.stroke();
       });
       ctx.restore();
@@ -504,14 +659,16 @@
       const size = this.baseTile * this.camera.zoom;
       ctx.save();
       ctx.strokeStyle = options.mode === "attack" ? "#e9857c" : options.mode === "build" ? "#77d99e" : "#d8c66f";
-      ctx.lineWidth = Math.max(1, size * 0.045);
-      ctx.globalAlpha = 0.82;
+      ctx.fillStyle = options.mode === "attack" ? "rgba(233, 133, 124, 0.08)" : options.mode === "build" ? "rgba(119, 217, 158, 0.08)" : "rgba(216, 198, 111, 0.08)";
+      ctx.lineWidth = Math.max(1, size * 0.035);
+      ctx.globalAlpha = 0.72;
       ids.slice(0, 180).forEach((id) => {
         const tile = this.tileMap.get(id);
         if (!tile) return;
         const p = this.worldToScreen(tile.x * this.baseTile, tile.y * this.baseTile);
-        ctx.beginPath();
-        ctx.arc(p.x + size / 2, p.y + size / 2, size * 0.2, 0, Math.PI * 2);
+        this.roundRect(ctx, p.x + size * 0.18, p.y + size * 0.18, size * 0.64, size * 0.64, Math.max(2, size * 0.16));
+        ctx.fill();
+        this.roundRect(ctx, p.x + size * 0.22, p.y + size * 0.22, size * 0.56, size * 0.56, Math.max(2, size * 0.14));
         ctx.stroke();
       });
       ctx.restore();
@@ -685,15 +842,7 @@
         if (source && target) {
           const from = this.tileCenter(source);
           const to = this.tileCenter(target);
-          ctx.save();
-          ctx.globalAlpha = 0.18 + pulse * 0.22;
-          ctx.strokeStyle = color;
-          ctx.lineWidth = Math.max(2, size * 0.08);
-          ctx.beginPath();
-          ctx.moveTo(from.x, from.y);
-          ctx.lineTo(to.x, to.y);
-          ctx.stroke();
-          ctx.restore();
+          this.drawStrategicFlow(ctx, from, to, color, now, 0.75 + pulse * 0.35);
         }
 
         wave.capturedTiles.slice(-18).forEach((id, index) => {
@@ -722,6 +871,59 @@
           ctx.restore();
         });
       });
+    }
+
+    drawStrategicFlow(ctx, from, to, color, now, strength = 1, label = "") {
+      const dx = to.x - from.x;
+      const dy = to.y - from.y;
+      const distance = Math.max(1, Math.hypot(dx, dy));
+      const normal = { x: -dy / distance, y: dx / distance };
+      const lift = Math.min(34, distance * 0.18);
+      const c1 = { x: from.x + dx * 0.34 + normal.x * lift, y: from.y + dy * 0.34 + normal.y * lift };
+      const c2 = { x: from.x + dx * 0.66 + normal.x * lift, y: from.y + dy * 0.66 + normal.y * lift };
+      const size = this.baseTile * this.camera.zoom;
+      ctx.save();
+      ctx.globalAlpha = Math.min(0.82, 0.32 * strength);
+      ctx.strokeStyle = this.withAlpha(color, 0.88);
+      ctx.lineWidth = Math.max(2, size * 0.06);
+      ctx.lineCap = "round";
+      ctx.beginPath();
+      ctx.moveTo(from.x, from.y);
+      ctx.bezierCurveTo(c1.x, c1.y, c2.x, c2.y, to.x, to.y);
+      ctx.stroke();
+
+      ctx.globalAlpha = Math.min(1, 0.68 * strength);
+      ctx.fillStyle = color;
+      const dotCount = Math.max(2, Math.min(5, Math.floor(distance / Math.max(22, size * 1.2))));
+      for (let i = 0; i < dotCount; i += 1) {
+        const t = ((now * 0.0016 + i / dotCount) % 1);
+        const p = this.cubicPoint(from, c1, c2, to, t);
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, Math.max(2.2, size * 0.075) * (1 - t * 0.22), 0, Math.PI * 2);
+        ctx.fill();
+      }
+
+      const head = this.cubicPoint(from, c1, c2, to, 0.92);
+      const angle = Math.atan2(to.y - head.y, to.x - head.x);
+      ctx.beginPath();
+      ctx.moveTo(to.x, to.y);
+      ctx.lineTo(to.x - Math.cos(angle - 0.52) * Math.max(8, size * 0.34), to.y - Math.sin(angle - 0.52) * Math.max(8, size * 0.34));
+      ctx.lineTo(to.x - Math.cos(angle + 0.52) * Math.max(8, size * 0.34), to.y - Math.sin(angle + 0.52) * Math.max(8, size * 0.34));
+      ctx.closePath();
+      ctx.fill();
+      if (label) {
+        const mid = this.cubicPoint(from, c1, c2, to, 0.55);
+        this.drawPillText(ctx, label, mid.x, mid.y - size * 0.28, color);
+      }
+      ctx.restore();
+    }
+
+    cubicPoint(a, b, c, d, t) {
+      const mt = 1 - t;
+      return {
+        x: mt ** 3 * a.x + 3 * mt ** 2 * t * b.x + 3 * mt * t ** 2 * c.x + t ** 3 * d.x,
+        y: mt ** 3 * a.y + 3 * mt ** 2 * t * b.y + 3 * mt * t ** 2 * c.y + t ** 3 * d.y,
+      };
     }
 
     drawNames(ctx) {
@@ -767,11 +969,12 @@
       });
     }
 
-    drawEvents(ctx) {
+    drawEvents(ctx, options = {}) {
+      if (options.effects?.reducedMotion && this.camera.zoom < 0.58) return;
       const now = performance.now();
-      this.eventAnims = this.eventAnims.filter((event) => now - event.atMs < 1800);
+      this.eventAnims = this.eventAnims.filter((event) => now - event.atMs < (event.kind === "ping" ? 6000 : 1800));
       this.eventAnims.forEach((event) => {
-        const life = event.kind === "attackWave" ? 1800 : 1450;
+        const life = event.kind === "ping" ? 6000 : event.kind === "attackWave" ? 1800 : 1450;
         const t = Math.min(1, (now - event.atMs) / life);
         const to = this.tileMap.get(event.to);
         if (!to) return;
@@ -802,16 +1005,8 @@
           const from = this.tileMap.get(event.from) || to;
           const fromP = this.tileCenter(from);
           const mid = { x: fromP.x + (toP.x - fromP.x) * t, y: fromP.y + (toP.y - fromP.y) * t };
-          ctx.strokeStyle = color;
-          ctx.lineWidth = 2;
-          ctx.beginPath();
-          ctx.moveTo(fromP.x, fromP.y);
-          ctx.lineTo(mid.x, mid.y);
-          ctx.stroke();
+          this.drawStrategicFlow(ctx, fromP, toP, color, now, 0.45 + (1 - t) * 0.45);
           if (event.amount) {
-            ctx.fillStyle = "#edf8fb";
-            ctx.font = "900 12px Inter, sans-serif";
-            ctx.textAlign = "center";
             const label =
               event.kind === "waveCapture"
                 ? "Captured"
@@ -819,10 +1014,10 @@
                   ? `${event.progress}/${event.cost}`
                 : event.kind === "waveResist"
                   ? "Blocked"
-                  : event.kind === "attackWave"
-                    ? `-${event.amount}`
-                    : String(event.amount);
-            ctx.fillText(label, mid.x, mid.y - 10);
+                : event.kind === "attackWave"
+                  ? `-${event.amount}`
+                  : String(event.amount);
+            this.drawPillText(ctx, label, mid.x, mid.y - 12, color);
           }
         }
         ctx.strokeStyle = color;
@@ -848,17 +1043,21 @@
       const cellW = rect.width / this.state.cols;
       const cellH = rect.height / this.state.rows;
       ctx.clearRect(0, 0, rect.width, rect.height);
-      ctx.fillStyle = "#143747";
+      const bg = ctx.createLinearGradient(0, 0, rect.width, rect.height);
+      bg.addColorStop(0, "#0f3345");
+      bg.addColorStop(1, "#071d2b");
+      ctx.fillStyle = bg;
       ctx.fillRect(0, 0, rect.width, rect.height);
       this.state.tiles.forEach((tile) => {
         const type = this.state.config.tileTypes[tile.type];
         const owner = tile.owner ? this.playerMap.get(tile.owner) : null;
-        ctx.fillStyle = owner ? owner.color : type.blocks ? "#53606a" : "#234f5e";
-        ctx.globalAlpha = owner ? 0.92 : type.blocks ? 0.75 : 0.35;
+        ctx.fillStyle = owner ? owner.color : type.blocks ? "#66717a" : "#276072";
+        ctx.globalAlpha = owner ? 0.94 : type.blocks ? 0.68 : type.strategic ? 0.32 : 0.18;
         ctx.fillRect(tile.x * cellW, tile.y * cellH, Math.ceil(cellW), Math.ceil(cellH));
       });
       ctx.globalAlpha = 1;
       this.drawMiniObjectives(ctx, cellW, cellH);
+      this.drawMiniPings(ctx, cellW, cellH);
       const humanTiles = this.state.tiles.filter((tile) => tile.owner === this.state.humanId);
       if (humanTiles.length) {
         const minX = Math.min(...humanTiles.map((tile) => tile.x)) * cellW;
@@ -871,7 +1070,14 @@
       }
       this.drawMiniAttacks(ctx, cellW, cellH, options);
       this.drawMiniCamera(ctx, rect, cellW, cellH);
-      ctx.strokeStyle = "rgba(255,255,255,0.36)";
+      const shine = ctx.createLinearGradient(0, 0, rect.width, rect.height);
+      shine.addColorStop(0, "rgba(255,255,255,0.12)");
+      shine.addColorStop(0.42, "rgba(255,255,255,0)");
+      shine.addColorStop(1, "rgba(255,255,255,0.06)");
+      ctx.fillStyle = shine;
+      ctx.fillRect(0, 0, rect.width, rect.height);
+      ctx.strokeStyle = "rgba(223,248,252,0.42)";
+      ctx.lineWidth = 1;
       ctx.strokeRect(0.5, 0.5, rect.width - 1, rect.height - 1);
     }
 
@@ -923,6 +1129,32 @@
       ctx.restore();
     }
 
+    drawMiniPings(ctx, cellW, cellH) {
+      const now = performance.now();
+      const pings = this.eventAnims.filter((event) => event.kind === "ping" && now - event.atMs < 6000);
+      if (!pings.length) return;
+      ctx.save();
+      pings.forEach((event) => {
+        const tile = this.tileMap.get(event.to);
+        const player = this.playerMap.get(event.playerId);
+        if (!tile) return;
+        const t = Math.min(1, (now - event.atMs) / 6000);
+        const x = (tile.x + 0.5) * cellW;
+        const y = (tile.y + 0.5) * cellH;
+        ctx.globalAlpha = 1 - t;
+        ctx.strokeStyle = player?.color || "#f0cc74";
+        ctx.fillStyle = player?.color || "#f0cc74";
+        ctx.lineWidth = 1.4;
+        ctx.beginPath();
+        ctx.arc(x, y, 2.5 + t * 8, 0, Math.PI * 2);
+        ctx.stroke();
+        ctx.beginPath();
+        ctx.arc(x, y, 2.2, 0, Math.PI * 2);
+        ctx.fill();
+      });
+      ctx.restore();
+    }
+
     drawMiniCamera(ctx, rect, cellW, cellH) {
       const main = this.canvas.getBoundingClientRect();
       const viewW = main.width / this.camera.zoom / this.baseTile;
@@ -934,6 +1166,29 @@
       ctx.lineWidth = 1;
       ctx.strokeRect(left, top, Math.max(4, viewW * cellW), Math.max(4, viewH * cellH));
       ctx.restore();
+    }
+
+    drawPillText(ctx, label, x, y, color = "#87d7ea") {
+      ctx.save();
+      ctx.font = "950 12px Inter, sans-serif";
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+      const width = ctx.measureText(label).width + 18;
+      const height = 20;
+      ctx.fillStyle = "rgba(4, 13, 20, 0.82)";
+      ctx.strokeStyle = this.withAlpha(color, 0.56);
+      ctx.lineWidth = 1;
+      this.roundRect(ctx, x - width / 2, y - height / 2, width, height, 999);
+      ctx.fill();
+      ctx.stroke();
+      ctx.fillStyle = "#edf8fb";
+      ctx.fillText(label, x, y + 0.5);
+      ctx.restore();
+    }
+
+    tileNoise(seed, min = 0, max = 1) {
+      const value = Math.sin(seed * 12.9898 + 78.233) * 43758.5453;
+      return min + (value - Math.floor(value)) * (max - min);
     }
 
     tileCenter(tile) {

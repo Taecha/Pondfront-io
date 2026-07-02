@@ -15,6 +15,8 @@
       this.preview = null;
       this.rallyTileId = null;
       this.mode = "expand";
+      this.pendingAbilityTarget = false;
+      this.pendingBuildType = null;
       this.pointer = null;
       this.activePointers = new Map();
       this.pinch = null;
@@ -23,6 +25,7 @@
       this.inertiaFrame = null;
       this.longPressTimer = null;
       this.minimapPointerId = null;
+      this.minimapShrinkTimer = null;
       this.pollTimer = null;
       this.fetching = false;
       this.seenEventIds = new Set();
@@ -156,15 +159,19 @@
           const actor = this.player(event.playerId);
           const target = this.player(event.targetId);
           const names = `${actor?.name || "Player"} and ${target?.name || "Player"}`;
-          const message =
-            event.subtype === "alliance"
-              ? `Alliance formed: ${names}.`
-              : event.subtype === "broken"
-                ? `Alliance broken: ${names}.`
-                : event.subtype === "enemy"
-                  ? `${actor?.name || "Player"} marked ${target?.name || "Player"} as enemy.`
-                  : `${target?.name || "Player"} declined for now.`;
-          this.ui.toast(message, event.subtype === "declined");
+          const message = {
+            alliance: `Alliance formed: ${names}.`,
+            allianceAccepted: `Alliance accepted: ${names}.`,
+            requested: `${actor?.name || "Player"} sent an alliance request.`,
+            rejected: `${target?.name || "Player"} rejected the request.`,
+            broken: `Alliance broken: ${names}.`,
+            truce: `Truce active: ${names}.`,
+            truceRequested: `${actor?.name || "Player"} offered a truce.`,
+            truceRejected: `${target?.name || "Player"} refused the truce.`,
+            war: `${actor?.name || "Player"} declared war on ${target?.name || "Player"}.`,
+            enemy: `${actor?.name || "Player"} marked ${target?.name || "Player"} as enemy.`,
+          }[event.subtype] || "Diplomacy updated.";
+          this.ui.toast(message, ["rejected", "truceRejected", "broken", "war"].includes(event.subtype));
         }
         if (event.kind === "signal" && this.involvesHuman(event)) {
           const actor = this.player(event.playerId);
@@ -227,12 +234,25 @@
       if (!this.state || this.state.ended) return;
       const type = payload.type;
       if (type === "ability") {
-        await this.postAction({ type, tileId: this.selectedTile()?.id });
+        await this.handleAbilityAction(payload);
         return;
       }
 
       const tile = this.selectedTile();
       const human = this.human();
+      if (type === "build" && this.shouldWaitForBuildTarget(payload.buildingType, tile, human)) {
+        this.pendingBuildType = payload.buildingType || this.ui.nodes.buildSelect.value;
+        this.pendingAbilityTarget = false;
+        this.mode = "build";
+        this.preview = {
+          mode: "build",
+          tileIds: this.state.tiles.filter((candidate) => this.canBuildHere(human, candidate, this.pendingBuildType)).map((candidate) => candidate.id),
+          label: this.state.config.buildings[this.pendingBuildType]?.label || "Build",
+        };
+        this.ui.toast("Choose a glowing owned tile to build.");
+        this.updateUi();
+        return;
+      }
       if (!tile || !human) {
         this.ui.toast("Choose a target tile first.", true);
         this.renderer.vfx?.spawnScreenNotice("Invalid Target", "#d96b61");
@@ -245,9 +265,17 @@
         this.renderer.vfx?.spawnBlockedEffect(tile.id, "Invalid");
         return;
       }
-      if (type === "attack" && (!tile.owner || tile.owner === human.id || this.isAllied(tile.owner))) {
+      if (type === "attack") {
+        const relation = tile?.owner ? this.relationship(tile.owner) : null;
+        if (!tile.owner || tile.owner === human.id || (relation && !relation.canAttack)) {
+          this.ui.toast(relation?.blockReason || "Attack needs a connected enemy border.", true);
+          this.renderer.vfx?.spawnBlockedEffect(tile.id, relation?.state === "allied" ? "Ally" : relation?.state === "truce" ? "Truce" : "Invalid");
+          return;
+        }
+      }
+      if (type === "attack" && (!tile.owner || tile.owner === human.id)) {
         this.ui.toast("Attack needs a connected enemy border.", true);
-        this.renderer.vfx?.spawnBlockedEffect(tile.id, this.isAllied(tile.owner) ? "Ally" : "Invalid");
+        this.renderer.vfx?.spawnBlockedEffect(tile.id, "Invalid");
         return;
       }
       if (type === "defend" && tile.owner !== human.id) {
@@ -282,6 +310,44 @@
       };
       if (type === "expand" || type === "attack") action.sourceIds = this.validSourceTiles().map((source) => source.id);
       await this.postAction(action);
+    }
+
+    async handleAbilityAction(payload = {}) {
+      const human = this.human();
+      if (!human) return;
+      const selected = payload.tileId != null ? this.tileMap.get(payload.tileId) : this.selectedTile();
+      const status = human.abilityStatus || {};
+      if (status.cooldownLeft > 0 || this.state.serverTime < human.abilityReadyAt) {
+        const left = Math.ceil(status.cooldownLeft || human.abilityReadyAt - this.state.serverTime);
+        this.ui.toast(`Ability cooldown ${left}s.`, true);
+        this.ui.pulseAbility(true);
+        return;
+      }
+
+      if (human.animal === "frog" && !this.isLeapTarget(selected)) {
+        this.pendingAbilityTarget = true;
+        this.pendingBuildType = null;
+        this.mode = "ability";
+        this.preview = {
+          mode: "expand",
+          tileIds: this.leapTargetIds(),
+          label: "Big Leap target",
+        };
+        this.ui.toast("Big Leap ready. Tap a glowing neutral tile.");
+        this.updateUi();
+        return;
+      }
+
+      this.pendingAbilityTarget = false;
+      this.preview = null;
+      this.mode = "expand";
+      await this.postAction({ type: "ability", tileId: selected?.id });
+    }
+
+    shouldWaitForBuildTarget(buildingType, tile, human) {
+      if (!human || !this.isTouchLayout()) return false;
+      const type = buildingType || this.ui.nodes.buildSelect.value;
+      return !tile || !this.canBuildHere(human, tile, type);
     }
 
     async handleDiplomacy(command) {
@@ -339,6 +405,8 @@
       if (payload.type === "zoomIn") this.renderer.zoomBy(1.18);
       if (payload.type === "zoomOut") this.renderer.zoomBy(0.84);
       if (payload.type === "center") this.renderer.centerOnTile(this.human()?.coreTileId);
+      if (payload.type === "reset") this.renderer.fit(true);
+      if (payload.type === "cancel") this.cancelSelection();
     }
 
     handleMiniMapPointer(event) {
@@ -347,13 +415,15 @@
       if (event.type === "pointerdown") {
         this.minimapPointerId = event.pointerId;
         this.miniMap.setPointerCapture?.(event.pointerId);
+        clearTimeout(this.minimapShrinkTimer);
         document.body.classList.add("minimap-active");
       }
       if (this.minimapPointerId !== event.pointerId) return;
       this.renderer.centerOnMiniMap(event.clientX, event.clientY);
       if (event.type === "pointerup" || event.type === "pointercancel") {
         this.minimapPointerId = null;
-        document.body.classList.remove("minimap-active");
+        clearTimeout(this.minimapShrinkTimer);
+        this.minimapShrinkTimer = setTimeout(() => document.body.classList.remove("minimap-active"), 5000);
       }
     }
 
@@ -446,7 +516,7 @@
       this.pointer.lastY = event.clientY;
     }
 
-    handlePointerUp(event) {
+    async handlePointerUp(event) {
       const activeBeforeDelete = this.activePointers.size;
       if (event.pointerType === "touch") event.preventDefault();
       this.activePointers.delete(event.pointerId);
@@ -470,8 +540,11 @@
       this.pointer = null;
       this.clearLongPress();
 
-      if (wasClick) this.selectTile(tile);
-      if (wasClick) this.handleTap(tile);
+      if (wasClick) {
+        this.selectTile(tile);
+        if (await this.handlePendingTap(tile)) return;
+        this.handleTap(tile);
+      }
       if (wasSourceDrag) this.updateUi();
       if (event.pointerType === "touch" && !wasClick && this.panVelocity && Math.hypot(this.panVelocity.x, this.panVelocity.y) > 1.8) {
         this.startInertia(this.panVelocity.x, this.panVelocity.y);
@@ -533,9 +606,41 @@
     cancelSelection() {
       this.contextMenu?.close();
       this.preview = null;
+      this.pendingAbilityTarget = false;
+      this.pendingBuildType = null;
       this.resetSelection();
       this.updateUi();
       this.ui.toast("Selection cleared.");
+    }
+
+    async handlePendingTap(tile) {
+      if (!tile || !this.state || this.state.ended) return false;
+      if (this.pendingAbilityTarget) {
+        if (!this.isLeapTarget(tile)) {
+          this.ui.toast("Tap a glowing neutral leap target.", true);
+          this.renderer.vfx?.spawnBlockedEffect(tile.id, "Invalid");
+          return true;
+        }
+        this.pendingAbilityTarget = false;
+        this.preview = null;
+        this.mode = "expand";
+        await this.postAction({ type: "ability", tileId: tile.id });
+        return true;
+      }
+      if (this.pendingBuildType) {
+        const buildingType = this.pendingBuildType;
+        if (!this.canBuildHere(this.human(), tile, buildingType)) {
+          this.ui.toast("That tile cannot hold this building.", true);
+          this.renderer.vfx?.spawnBlockedEffect(tile.id, "Invalid");
+          return true;
+        }
+        this.pendingBuildType = null;
+        this.preview = null;
+        this.mode = "build";
+        await this.postAction({ type: "build", tileId: tile.id, buildingType });
+        return true;
+      }
+      return false;
     }
 
     startInertia(vx, vy) {
@@ -643,9 +748,12 @@
         return { title: "Your Territory", subtitle: type.label, items };
       }
 
-      if (this.isAllied(tile.owner)) {
-        add("Send Signal", { action: "ping", pingType: "good", targetId: tile.owner }, { icon: "P", hint: "Ally-visible signal" });
+      const relation = this.relationship(tile.owner);
+      if (relation?.allied) {
+        add("Ping Good Job", { action: "ping", pingType: "good", targetId: tile.owner }, { icon: "P", hint: "Ally-visible signal" });
         add("Request Help", { action: "ping", pingType: "help", targetId: tile.owner }, { icon: "H", hint: "Ask ally to support this area" });
+        add("Ping Defend Here", { action: "ping", pingType: "defend", targetId: tile.owner }, { icon: "D", hint: "Ask ally to defend here" });
+        add("Ping Attack Here", { action: "ping", pingType: "attack", targetId: tile.owner }, { icon: "A", hint: "Coordinate an ally attack" });
         add("Ping Danger", { action: "ping", pingType: "danger", targetId: tile.owner }, { icon: "!", hint: "Warn your ally" });
         add("View Ally Info", { action: "viewPlayer", targetId: tile.owner }, { icon: "i", hint: "Open player details" });
         add("Break Alliance", { action: "diplomacy", command: "breakAlliance", targetId: tile.owner }, { icon: "B", danger: true, hint: "End friendly status" });
@@ -658,12 +766,18 @@
           add(`Attack ${Math.round(percent * 100)}%`, { action: "attack", percent, targetId: tile.owner }, { icon: "A", danger: percent >= 0.75, hint: "Launch frontline wave" }),
         );
       } else {
-        add("Too Far To Attack", { action: "viewPlayer", targetId: tile.owner }, { icon: "X", disabled: true, hint: "Need a connected enemy border" });
+        add(relation && !relation.canAttack ? relation.blockReason : "Too Far To Attack", { action: "viewPlayer", targetId: tile.owner }, { icon: "X", disabled: true, hint: relation?.blockReason || "Need a connected enemy border" });
       }
 
       sep();
-      add("Request Alliance", { action: "diplomacy", command: "requestAlliance", targetId: tile.owner }, { icon: "A", hint: "Ask for friendly borders" });
-      add("Send Peace", { action: "diplomacy", command: "sendPeace", targetId: tile.owner }, { icon: "P", hint: "Lower tension" });
+      if (relation?.pendingForViewer) {
+        add("Accept Alliance", { action: "diplomacy", command: "acceptAlliance", targetId: tile.owner }, { icon: "A", hint: "Accept pending request" });
+        add("Reject Request", { action: "diplomacy", command: "rejectAlliance", targetId: tile.owner }, { icon: "R", danger: true, hint: "Decline pending request" });
+      } else {
+        add("Request Alliance", { action: "diplomacy", command: "requestAlliance", targetId: tile.owner }, { icon: "A", disabled: relation?.state === "requested" || relation?.state === "truce" || relation?.betrayalLeft > 0, hint: relation?.state === "requested" ? "Request pending" : "Ask for friendly borders" });
+      }
+      add("Offer Truce", { action: "diplomacy", command: "offerTruce", targetId: tile.owner }, { icon: "T", disabled: relation?.state === "truce", hint: relation?.truceLeft > 0 ? `${relation.truceLeft}s left` : "Temporarily block attacks" });
+      add("Declare War", { action: "diplomacy", command: "declareWar", targetId: tile.owner }, { icon: "W", danger: true, disabled: relation?.betrayalByViewer && relation?.betrayalLeft > 0, hint: relation?.betrayalLeft > 0 ? "Betrayal cooldown active" : "Clear peace and mark war" });
       add("Mark Enemy", { action: "diplomacy", command: "markEnemy", targetId: tile.owner }, { icon: "M", danger: true, hint: "Track this rival" });
       add("View Enemy Info", { action: "viewPlayer", targetId: tile.owner }, { icon: "i", hint: "Show strength and relation" });
       add("Send Warning", { action: "ping", pingType: "warning", targetId: tile.owner }, { icon: "!", danger: true, hint: "Public warning signal" });
@@ -738,7 +852,7 @@
         return;
       }
       if (payload.action === "ability") {
-        await this.postAction({ type: "ability", tileId: tile?.id });
+        await this.handleAbilityAction({ tileId: tile?.id });
         return;
       }
       if (payload.action === "upgradeBuilding" || payload.action === "removeBuilding") {
@@ -845,7 +959,9 @@
     }
 
     isAttackableBorder(tile) {
-      if (!tile?.owner || tile.owner === this.state.humanId || this.isAllied(tile.owner)) return false;
+      if (!tile?.owner || tile.owner === this.state.humanId) return false;
+      const relation = this.relationship(tile.owner);
+      if (relation && !relation.canAttack) return false;
       const source = this.closestSource(tile);
       return Boolean(source && this.neighbors(source).some((neighbor) => neighbor.id === tile.id));
     }
@@ -867,13 +983,19 @@
         this.mode = this.isBorder(tile, humanId) ? "defend" : "build";
         if (this.isBorder(tile, humanId) && !options.preserveSources) this.sourceIds = [tile.id];
       } else if (tile.owner) {
-        this.mode = this.isAllied(tile.owner) ? "diplomacy" : "attack";
+        const relation = this.relationship(tile.owner);
+        this.mode = relation && !relation.canAttack ? "diplomacy" : "attack";
         if (!options.preserveSources) this.ensureSourceFor(tile);
       } else if (this.isBlocked(tile)) {
         this.mode = "blocked";
       } else {
         this.mode = "expand";
         if (!options.preserveSources) this.ensureSourceFor(tile);
+      }
+      if (this.pendingAbilityTarget) this.mode = "ability";
+      if (this.pendingBuildType) {
+        this.mode = "build";
+        this.ui.nodes.buildSelect.value = this.pendingBuildType;
       }
       this.updateUi();
     }
@@ -907,7 +1029,11 @@
       if (!this.state) return [];
       const human = this.human();
       if (!human) return [];
-      const buildingType = this.ui.nodes.buildSelect.value;
+      const buildingType = this.pendingBuildType || this.ui.nodes.buildSelect.value;
+
+      if (this.mode === "ability" && human.animal === "frog") {
+        return this.leapTargetIds();
+      }
 
       if (this.mode === "build") {
         return this.state.tiles
@@ -949,10 +1075,32 @@
     }
 
     canBuildHere(human, tile, buildingType) {
+      if (!human || !tile) return false;
       const building = this.state.config.buildings[buildingType];
       if (!building || tile.owner !== human.id || tile.building) return false;
       if (building.animal && building.animal !== human.animal) return false;
-      return building.validTiles.includes(tile.type);
+      if (!building.validTiles.includes(tile.type)) return false;
+      if (human.energy < this.buildingCost(buildingType, human)) return false;
+      if (buildingType === "lilyFarm") {
+        if ((human.buildings?.lilyFarm || 0) >= this.maxLilyFarms(human)) return false;
+        if (!this.hasLilyFarmSupport(tile)) return false;
+      }
+      return true;
+    }
+
+    leapTargetIds() {
+      if (!this.state) return [];
+      return this.state.tiles.filter((tile) => this.isLeapTarget(tile)).map((tile) => tile.id);
+    }
+
+    isLeapTarget(tile) {
+      const human = this.human();
+      if (!tile || !human || human.animal !== "frog" || tile.owner || this.isBlocked(tile)) return false;
+      return this.humanBorders().some((source) => {
+        const range = human.flags?.jumpPad || human.buildings?.jumpPad ? 3 : 2;
+        const d = this.distance(source, tile);
+        return d >= 2 && d <= range;
+      });
     }
 
     pruneSelection() {
@@ -974,6 +1122,8 @@
       this.hoverTileId = null;
       this.sourceIds = [];
       this.preview = null;
+      this.pendingAbilityTarget = false;
+      this.pendingBuildType = null;
       this.mode = "expand";
     }
 
@@ -1015,6 +1165,10 @@
       return Boolean(this.human()?.allies.includes(playerId));
     }
 
+    relationship(playerId) {
+      return this.state?.relationships?.find((entry) => entry.playerId === playerId) || null;
+    }
+
     isBlocked(tile) {
       return Boolean(tile && this.state.config.tileTypes[tile.type]?.blocks);
     }
@@ -1030,6 +1184,7 @@
         root.PondConfig?.getNeutralTileExpansionCost?.(tile.type, human?.animal, {
           jumped,
           flockRush: human?.animal === "duck" && this.state.serverTime < human.abilityActiveUntil,
+          goldenCurrent: human?.animal === "carp" && this.state.serverTime < human.abilityActiveUntil,
           mudTunnel: Boolean(human?.flags?.mudTunnel),
           jumpPad: Boolean(human?.flags?.jumpPad),
           territory: human?.territory || 0,
@@ -1064,7 +1219,8 @@
       if (buildingType !== "lilyFarm") return building.cost;
       const balance = this.state.config.balance || root.PondBalance || {};
       const farms = human?.buildings?.lilyFarm || 0;
-      return Math.round((balance.farmBaseCost || building.cost) * Math.pow(1 + (balance.farmCostGrowth || 0.2), farms));
+      const carpDiscount = human?.animal === "carp" ? balance.carpLilyFarmCostMultiplier || 0.9 : 1;
+      return Math.round((balance.farmBaseCost || building.cost) * Math.pow(1 + (balance.farmCostGrowth || 0.2), farms) * carpDiscount);
     }
 
     maxLilyFarms(human = this.human()) {
@@ -1121,6 +1277,10 @@
         canExpand: !tile.owner && !this.isBlocked(tile) && Boolean(this.closestSource(tile)),
         canDefend: tile.owner === human.id && this.isBorder(tile, human.id),
         canBuild: tile.owner === human.id && !tile.building,
+        pendingAbility: this.pendingAbilityTarget,
+        pendingBuildType: this.pendingBuildType,
+        validAbilityTarget: this.isLeapTarget(tile),
+        validBuildTarget: this.pendingBuildType ? this.canBuildHere(human, tile, this.pendingBuildType) : false,
       };
       if (!tile.owner && !this.isBlocked(tile)) {
         const source = this.closestSource(tile);
@@ -1131,13 +1291,15 @@
           ...context,
           jumped,
           flockRush: human.animal === "duck" && this.state.serverTime < human.abilityActiveUntil,
+          goldenCurrent: human.animal === "carp" && this.state.serverTime < human.abilityActiveUntil,
           expansionCost,
           expansionProgress,
           estimateText: `${Math.round(expansionProgress)}/${expansionCost} capture`,
         };
       }
       if (!tile.owner || tile.owner === human.id) return context;
-      if (this.isAllied(tile.owner)) return { kind: "blockedAttack", reason: "Cannot attack ally" };
+      const relation = this.relationship(tile.owner);
+      if (relation && !relation.canAttack) return { ...context, kind: "blockedAttack", reason: relation.blockReason, relationship: relation };
       const source = this.closestSource(tile);
       const connected = Boolean(source && this.neighbors(source).some((neighbor) => neighbor.id === tile.id));
       if (!connected) return { kind: "blockedAttack", reason: "Too far from border" };
@@ -1217,16 +1379,27 @@
 
     estimateTileCost(tile, distance, defender) {
       const type = this.state.config.tileTypes[tile.type];
-      const base = tile.building ? 18 : tile.type === "water" ? 6 : tile.type === "lily" ? 8 : tile.type === "reeds" ? 12 : tile.type === "mud" ? 14 : 16;
+      const formula = this.state.config.combat?.formula || root.PondCombat?.formula || {};
+      const baseByTile = formula.baseCostByTile || {};
+      const base = tile.building ? formula.buildingBaseCost || 18 : baseByTile[tile.type] || (tile.type === "water" ? 6 : tile.type === "lily" ? 8 : tile.type === "reeds" ? 12 : tile.type === "mud" ? 14 : 16);
       const energyRatio = defender.energy / Math.max(1, defender.maxEnergy);
-      let cost = base + type.defenseBonus * 1.25 + tile.defenseEnergy * 0.8 + distance * 1.1 + Math.min(18, defender.energy * 0.035);
+      let cost =
+        base * (this.state.config.balance.attackCostMultiplier || 1) +
+        type.defenseBonus * (formula.terrainDefenseMultiplier || 1.25) +
+        tile.defenseEnergy * (formula.defenseEnergyMultiplier || 0.82) +
+        distance * (formula.distanceCost || 1.1) +
+        Math.min(formula.defenderEnergyFlatCap || 18, defender.energy * (formula.defenderEnergyFlatMultiplier || 0.035));
       if (this.state.lakeEvent?.active?.type === "mudslide" && tile.type === "mud") cost *= this.state.config.balance.mudslideDefenseMultiplier || 1.22;
       cost += this.specialCostBonus(tile);
-      return Math.max(4, cost * (0.86 + energyRatio * 0.45));
+      return Math.max(4, cost * ((formula.defenderEnergyRatioBase || 0.86) + energyRatio * (formula.defenderEnergyRatioMultiplier || 0.45)));
     }
 
     distance(a, b) {
       return Math.abs(a.x - b.x) + Math.abs(a.y - b.y);
+    }
+
+    isTouchLayout() {
+      return window.matchMedia?.("(max-width: 900px), (pointer: coarse)")?.matches || false;
     }
   }
 

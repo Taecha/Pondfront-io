@@ -5,7 +5,10 @@
     { id: "terrain", label: "Terrain" },
     { id: "buildings", label: "Buildings" },
     { id: "combat", label: "Combat" },
+    { id: "abilities", label: "Abilities" },
     { id: "diplomacy", label: "Diplomacy" },
+    { id: "objectives", label: "Objectives" },
+    { id: "mobile", label: "Mobile" },
     { id: "winning", label: "Winning" },
   ];
 
@@ -63,6 +66,8 @@
           ["Duck", "Fast open-water expansion, slightly higher max energy, and Flock Rush for quick growth."],
           ["Snake", "Strong around reeds and mud. Ambush makes a prepared reed or mud attack hit harder."],
           ["Frog", "Gains extra lily income and can jump short gaps. Big Leap captures nearby neutral clusters."],
+          ["Turtle", "Defensive tank. Slower expansion, stronger borders, better Reed Guards, and Shell Guard under pressure."],
+          ["Carp", "Economy scaler. Better water and lily income, cheaper Lily Farms, and Golden Current for growth pushes."],
         ]);
       }
       if (tab === "terrain") {
@@ -92,12 +97,39 @@
           "Right-click an enemy border for quick 10%, 25%, 50%, 75%, and 100% attacks.",
         ]);
       }
+      if (tab === "abilities") {
+        return cards([
+          ["Duck Flock Rush", "One tap. Open-water expansion gets cheaper for a short burst, so use it before claiming big neutral fronts."],
+          ["Snake Ambush", "One tap prepares the next reed or mud attack. Strike from the right border to spend the bonus."],
+          ["Frog Big Leap", "Tap Ability, then tap a glowing neutral leap target. Big Leap never captures enemy tiles."],
+          ["Turtle Shell Guard", "One tap. Turtle borders become much harder to capture for a short defensive window."],
+          ["Carp Golden Current", "One tap. Income rises and water or lily expansion becomes cheaper for a short economy surge."],
+        ]);
+      }
       if (tab === "diplomacy") {
         return list([
-          "Alliances stop friendly attacks.",
-          "Allies can use pings to request help or mark danger.",
-          "You can break alliances later if the board changes.",
-          "Right-click another player to request alliance, mark enemy, or send a signal.",
+          "Alliances stop friendly attacks and unlock private ally pings.",
+          "Alliance requests expire if they are not accepted.",
+          "Truces temporarily block attacks without making players allies.",
+          "Breaking an alliance creates betrayal cooldown before the betrayer can attack.",
+          "Right-click or long-press another player to request alliance, offer truce, declare war, mark enemy, or ping.",
+        ]);
+      }
+      if (tab === "objectives") {
+        return cards([
+          ["Lake Objectives", "Timed map goals that give strong economy, defense, or cooldown bonuses while you hold them."],
+          ["Critter Camps", "Neutral camps are optional fights that grant temporary attack, defense, income, or scouting power."],
+          ["Minimap", "Objectives and camps appear as clean markers on the minimap so you can pan there quickly."],
+        ]);
+      }
+      if (tab === "mobile") {
+        return list([
+          "One finger drags the camera; two fingers pinch to zoom.",
+          "Double tap a valid border target to quick expand, attack, or defend.",
+          "Long press a territory tile to open combat and diplomacy actions.",
+          "Long press an ally to ping help, danger, attack, or defend.",
+          "Tap the minimap or drag on it to jump the camera.",
+          "Use the bottom action card for the clearest next command.",
         ]);
       }
       if (tab === "winning") {

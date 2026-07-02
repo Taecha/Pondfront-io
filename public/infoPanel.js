@@ -9,7 +9,7 @@
     defend: "Reinforces your border and makes enemy attacks cost more energy.",
     build: "Build compact economy or defense upgrades on your territory. Buildings stay clean and only show clearly when useful.",
     ability: "Use your animal ability when it is ready. Each animal has a different timing window and role.",
-    diplomacy: "Alliances prevent friendly attacks. Allies can signal each other and can be broken later.",
+    diplomacy: "Alliances prevent friendly attacks. Truces block combat temporarily, and breaking alliances creates betrayal cooldown.",
     wave: "Attacks move as a wave from connected borders. Defense, terrain, and enemy energy can stop the wave.",
     alliances: "Allied players cannot attack each other and can share useful map signals.",
     bots: "Bot animals expand, build, ally, and attack based on their difficulty and nearby threats.",
@@ -28,6 +28,12 @@
     duckAbility: "Flock Rush: For 10s, open-water expansion costs 35% less.",
     snakeAbility: "Ambush: Your next attack from reeds or mud has +40% attack power and cuts enemy border cost by 20%.",
     frogAbility: "Big Leap: Capture up to 5 nearby neutral tiles by jumping over small obstacles.",
+    turtleAbility: "Shell Guard: Turtle borders become much harder for enemy waves to capture for 12s.",
+    carpAbility: "Golden Current: Carp gains bonus income and cheaper water/lily expansion for 10s.",
+    turtleAnimal:
+      "Turtle is a defensive animal. It expands slower, but its borders are harder to capture. Shell Guard temporarily makes enemy attacks much weaker.",
+    carpAnimal:
+      "Carp is an economy animal. It gains stronger income from water and lily pads. Golden Current boosts income and water expansion for a short time.",
     objectives: "Lake objectives turn on after the early game and give powerful map-wide bonuses while controlled.",
     critterCamp: "Neutral critter camps are optional fights that give temporary defense, attack, income, or scouting bonuses.",
   };
@@ -54,8 +60,10 @@
     defend: "Defend Here",
     weak: "Enemy Weak",
     danger: "Danger",
-    help: "Help",
+    help: "Help Me",
     peace: "Peace",
+    strong: "Enemy Strong",
+    objective: "Capture Objective",
     good: "Good Job",
     warning: "Warning",
   };
@@ -112,6 +120,7 @@
         root.PondConfig?.getNeutralTileExpansionCost?.(tile.type, human.animal, {
           jumped: Boolean(context.jumped),
           flockRush: Boolean(context.flockRush),
+          goldenCurrent: Boolean(context.goldenCurrent),
         }) ||
         type.captureCost;
       const progress = Number(tile.captureProgress?.[human.id] || 0);
@@ -176,11 +185,14 @@
     if (!player || player.id === state.humanId || !human) return null;
 
     const animal = state.config.animals[player.animal];
-    const relation = human.allies.includes(player.id) ? "Alliance" : human.enemies.includes(player.id) ? "Marked enemy" : "Neutral";
+    const relation = relationshipFor(state, player.id);
+    const relationText = relation?.label || (human.allies.includes(player.id) ? "Alliance" : human.enemies.includes(player.id) ? "Marked enemy" : "Neutral");
     const war = state.wars?.find((entry) => entry.players.includes(player.id) && entry.players.includes(state.humanId));
-    const warText = war?.atWar ? "At War" : war?.peacePossible ? "Peace Possible" : relation;
+    const warText = relationText || (war?.atWar ? "At War" : war?.peacePossible ? "Peace Possible" : relationText);
     const strength = strengthLabel(player.energy, player.maxEnergy);
-    const suggested = human.allies.includes(player.id)
+    const suggested = relation && !relation.canAttack
+      ? relation.blockReason || "Protected by diplomacy"
+      : relation?.allied
       ? "Coordinate with signals"
       : player.energy < human.energy * 0.72
         ? "Attack if connected"
@@ -198,11 +210,28 @@
         { label: "Strength", value: strength },
         { label: "Income", value: `+${player.income}/s` },
         { label: "Status", value: warText },
-        { label: "War Tiles", value: war ? String(war.tilesCaptured || 0) : "0" },
-        { label: "Recent Hits", value: war ? String(war.attacks || 0) : "0" },
+        { label: "Can Attack", value: relation?.canAttack ? "Yes" : relation?.blockReason || "No" },
+        { label: "War Tiles", value: String(relation?.tilesCaptured ?? war?.tilesCaptured ?? 0) },
+        { label: "Recent Hits", value: String(relation?.attacks ?? war?.attacks ?? 0) },
+        { label: "Damage", value: String(relation?.damage ?? war?.damage ?? 0) },
+        { label: "Last Attack", value: relation?.lastAttackAgo == null ? "None" : `${relation.lastAttackAgo}s ago` },
+        { label: "Timer", value: relationTimer(relation) },
         { label: "Suggested", value: suggested },
       ],
     };
+  }
+
+  function relationshipFor(state, playerId) {
+    return state.relationships?.find((entry) => entry.playerId === playerId) || null;
+  }
+
+  function relationTimer(relation) {
+    if (!relation) return "-";
+    if (relation.truceLeft > 0) return `Truce ${relation.truceLeft}s`;
+    if (relation.betrayalLeft > 0) return `Cooldown ${relation.betrayalLeft}s`;
+    if (relation.requestExpiresIn > 0) return `Request ${relation.requestExpiresIn}s`;
+    if (relation.warLeft > 0) return `War ${relation.warLeft}s`;
+    return "-";
   }
 
   function incomeFacts(player) {
@@ -231,6 +260,8 @@
   function abilityTip(animalId) {
     if (animalId === "snake") return TIPS.snakeAbility;
     if (animalId === "frog") return TIPS.frogAbility;
+    if (animalId === "turtle") return TIPS.turtleAbility;
+    if (animalId === "carp") return TIPS.carpAbility;
     return TIPS.duckAbility;
   }
 
@@ -255,6 +286,7 @@
     PING_LABELS,
     tileSummary,
     playerSummary,
+    relationshipFor,
     incomeFacts,
     terrainText,
     buildingText,

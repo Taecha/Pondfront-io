@@ -2,7 +2,7 @@ const { PondFrontServerGame } = require("../server");
 const config = require("../shared/gameConfig");
 
 function runMatch(index, difficulty = "smart") {
-  const animals = ["duck", "snake", "frog"];
+  const animals = ["duck", "snake", "frog", "turtle", "carp"];
   const game = new PondFrontServerGame();
   game.reset(animals[index % animals.length], difficulty);
   game.simTime = 0;

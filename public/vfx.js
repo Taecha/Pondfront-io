@@ -57,6 +57,10 @@
         this.spawnDefendEffect([event.to]);
       } else if (event.kind === "ability") {
         this.spawnSkillEffect(event.playerId, event.skillType || player?.animal || event.ability, event.ability, player?.name);
+        if ((event.skillType || player?.animal) === "turtle" && event.affectedTiles?.length) this.spawnDefendEffect(event.affectedTiles);
+        if ((event.skillType || player?.animal) === "carp" && event.affectedTiles?.length) {
+          event.affectedTiles.slice(0, 20).forEach((tileId) => this.spawnRipple(tileId, "#f0cc74", 0.9));
+        }
         if (player?.isBot) this.spawnScreenNotice(`${player.name}: ${event.ability}`, color);
       } else if (event.kind === "abilityUsed") {
         this.spawnPulse(event.to, color, 1.35);
@@ -149,12 +153,14 @@
       const normalized = String(skillType || "").toLowerCase();
       const isSnake = normalized.includes("snake") || normalized.includes("ambush");
       const isFrog = normalized.includes("frog") || normalized.includes("leap");
-      const color = isSnake ? "#5fbf83" : isFrog ? "#bc6ca2" : "#f2d87a";
-      const text = isSnake ? "Ambush Ready!" : isFrog ? "Big Leap!" : "Flock Rush!";
-      const kind = isSnake ? "snakeSkill" : isFrog ? "frogSkill" : "duckSkill";
+      const isTurtle = normalized.includes("turtle") || normalized.includes("shell");
+      const isCarp = normalized.includes("carp") || normalized.includes("current");
+      const color = isSnake ? "#5fbf83" : isFrog ? "#bc6ca2" : isTurtle ? "#6fc5d8" : isCarp ? "#f0cc74" : "#f2d87a";
+      const text = isSnake ? "Ambush Ready!" : isFrog ? "Big Leap!" : isTurtle ? "Shell Guard!" : isCarp ? "Golden Current!" : "Flock Rush!";
+      const kind = isSnake ? "snakeSkill" : isFrog ? "frogSkill" : isTurtle ? "turtleSkill" : isCarp ? "carpSkill" : "duckSkill";
       this.effects.push({ kind, ...center, color, born: performance.now(), life: this.life(1250) });
       this.spawnFloatingText(center, playerName ? `${playerName}: ${abilityName || text}` : abilityName || text, color);
-      this.spawnParticles(center, color, this.count(isFrog ? 18 : 24), isFrog ? 88 : 72, kind);
+      this.spawnParticles(center, color, this.count(isFrog ? 18 : isTurtle ? 20 : isCarp ? 28 : 24), isFrog ? 88 : isCarp ? 96 : 72, kind);
     }
 
     spawnScreenNotice(text, color = "#87d7ea") {
@@ -259,17 +265,74 @@
           ctx.beginPath();
           ctx.arc(p.x, p.y, tileSize * (0.16 + pop * 0.08), 0, Math.PI * 2);
           ctx.fill();
-        } else if (effect.kind === "duckSkill" || effect.kind === "snakeSkill" || effect.kind === "frogSkill") {
+          ctx.globalAlpha = Math.min(0.38, alpha);
+          ctx.lineWidth = Math.max(1, tileSize * 0.028);
+          for (let i = 0; i < 4; i += 1) {
+            const angle = i * (Math.PI / 2) + t * 0.8;
+            ctx.beginPath();
+            ctx.moveTo(p.x + Math.cos(angle) * tileSize * 0.22, p.y + Math.sin(angle) * tileSize * 0.22);
+            ctx.lineTo(p.x + Math.cos(angle) * tileSize * 0.43, p.y + Math.sin(angle) * tileSize * 0.43);
+            ctx.stroke();
+          }
+        } else if (effect.kind === "duckSkill" || effect.kind === "snakeSkill" || effect.kind === "frogSkill" || effect.kind === "turtleSkill" || effect.kind === "carpSkill") {
           const radius = tileSize * (0.8 + t * (effect.kind === "frogSkill" ? 2.3 : 1.5));
           ctx.lineWidth = Math.max(2, tileSize * 0.07);
           ctx.beginPath();
           ctx.arc(p.x, p.y, radius, 0, Math.PI * 2);
           ctx.stroke();
+          ctx.globalAlpha = Math.max(0, alpha * 0.52);
+          if (effect.kind === "duckSkill") {
+            ctx.lineWidth = Math.max(1, tileSize * 0.035);
+            for (let i = -2; i <= 2; i += 1) {
+              const y = p.y + i * tileSize * 0.18;
+              ctx.beginPath();
+              ctx.moveTo(p.x - radius * 0.55 + t * radius * 0.18, y);
+              ctx.quadraticCurveTo(p.x, y - tileSize * 0.18, p.x + radius * 0.6, y + tileSize * 0.08);
+              ctx.stroke();
+            }
+          }
           if (effect.kind === "snakeSkill") {
             ctx.setLineDash([tileSize * 0.18, tileSize * 0.16]);
             ctx.beginPath();
             ctx.arc(p.x, p.y, radius * 0.62, 0, Math.PI * 2);
             ctx.stroke();
+            ctx.setLineDash([]);
+            ctx.beginPath();
+            ctx.moveTo(p.x - radius * 0.46, p.y);
+            ctx.quadraticCurveTo(p.x - radius * 0.12, p.y - radius * 0.22, p.x + radius * 0.22, p.y);
+            ctx.quadraticCurveTo(p.x + radius * 0.5, p.y + radius * 0.18, p.x + radius * 0.68, p.y - radius * 0.03);
+            ctx.stroke();
+          }
+          if (effect.kind === "frogSkill") {
+            ctx.lineWidth = Math.max(1, tileSize * 0.04);
+            ctx.beginPath();
+            ctx.ellipse(p.x, p.y + tileSize * 0.12, radius * 0.42, radius * 0.16, 0, 0, Math.PI * 2);
+            ctx.stroke();
+            ctx.beginPath();
+            ctx.arc(p.x, p.y - radius * 0.25, Math.max(3, tileSize * 0.11), Math.PI * 0.15, Math.PI * 0.85);
+            ctx.stroke();
+          }
+          if (effect.kind === "turtleSkill") {
+            ctx.lineWidth = Math.max(1, tileSize * 0.04);
+            ctx.beginPath();
+            ctx.ellipse(p.x, p.y, radius * 0.58, radius * 0.38, 0, 0, Math.PI * 2);
+            ctx.stroke();
+            for (let i = -1; i <= 1; i += 1) {
+              ctx.beginPath();
+              ctx.moveTo(p.x - radius * 0.36, p.y + i * radius * 0.14);
+              ctx.lineTo(p.x + radius * 0.36, p.y + i * radius * 0.14);
+              ctx.stroke();
+            }
+          }
+          if (effect.kind === "carpSkill") {
+            ctx.lineWidth = Math.max(1, tileSize * 0.035);
+            for (let i = -2; i <= 2; i += 1) {
+              const y = p.y + i * tileSize * 0.15;
+              ctx.beginPath();
+              ctx.moveTo(p.x - radius * 0.6, y);
+              ctx.bezierCurveTo(p.x - radius * 0.15, y - tileSize * 0.2, p.x + radius * 0.16, y + tileSize * 0.2, p.x + radius * 0.62, y);
+              ctx.stroke();
+            }
           }
         }
         ctx.restore();
@@ -279,32 +342,43 @@
     drawArrow(ctx, effect, t, alpha) {
       const from = this.worldToScreen(effect.from.wx, effect.from.wy);
       const to = this.worldToScreen(effect.to.wx, effect.to.wy);
-      const mx = from.x + (to.x - from.x) * t;
-      const my = from.y + (to.y - from.y) * t;
-      const angle = Math.atan2(to.y - from.y, to.x - from.x);
+      const dx = to.x - from.x;
+      const dy = to.y - from.y;
+      const distance = Math.max(1, Math.hypot(dx, dy));
+      const normal = { x: -dy / distance, y: dx / distance };
+      const bend = Math.min(34, distance * 0.16);
+      const c1 = { x: from.x + dx * 0.35 + normal.x * bend, y: from.y + dy * 0.35 + normal.y * bend };
+      const c2 = { x: from.x + dx * 0.68 + normal.x * bend, y: from.y + dy * 0.68 + normal.y * bend };
+      const current = this.cubicPoint(from, c1, c2, to, t);
+      const ahead = this.cubicPoint(from, c1, c2, to, Math.min(1, t + 0.04));
+      const angle = Math.atan2(ahead.y - current.y, ahead.x - current.x);
       ctx.save();
-      ctx.globalAlpha = alpha;
-      ctx.strokeStyle = effect.color;
+      ctx.globalAlpha = Math.min(0.88, alpha);
+      ctx.strokeStyle = this.withAlpha(effect.color, 0.9);
       ctx.fillStyle = effect.color;
-      ctx.lineWidth = 2.2;
+      ctx.lineWidth = 2.4;
+      ctx.lineCap = "round";
       ctx.beginPath();
       ctx.moveTo(from.x, from.y);
-      ctx.lineTo(mx, my);
+      ctx.bezierCurveTo(c1.x, c1.y, c2.x, c2.y, current.x, current.y);
       ctx.stroke();
+      for (let i = 0; i < 3; i += 1) {
+        const dotT = Math.max(0, t - i * 0.13);
+        const dot = this.cubicPoint(from, c1, c2, to, dotT);
+        ctx.globalAlpha = Math.max(0, alpha * (0.58 - i * 0.12));
+        ctx.beginPath();
+        ctx.arc(dot.x, dot.y, 4 - i * 0.75, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      ctx.globalAlpha = Math.min(0.94, alpha);
       ctx.beginPath();
-      ctx.moveTo(mx, my);
-      ctx.lineTo(mx - Math.cos(angle - 0.55) * 10, my - Math.sin(angle - 0.55) * 10);
-      ctx.lineTo(mx - Math.cos(angle + 0.55) * 10, my - Math.sin(angle + 0.55) * 10);
+      ctx.moveTo(current.x, current.y);
+      ctx.lineTo(current.x - Math.cos(angle - 0.55) * 10, current.y - Math.sin(angle - 0.55) * 10);
+      ctx.lineTo(current.x - Math.cos(angle + 0.55) * 10, current.y - Math.sin(angle + 0.55) * 10);
       ctx.closePath();
       ctx.fill();
       if (effect.text && this.settings.floatingText) {
-        ctx.font = "900 12px Inter, sans-serif";
-        ctx.textAlign = "center";
-        ctx.lineWidth = 4;
-        ctx.strokeStyle = "rgba(4, 12, 18, 0.75)";
-        ctx.fillStyle = "#edf8fb";
-        ctx.strokeText(effect.text, mx, my - 14);
-        ctx.fillText(effect.text, mx, my - 14);
+        this.drawPillText(ctx, effect.text, current.x, current.y - 16, effect.color);
       }
       ctx.restore();
     }
@@ -324,9 +398,35 @@
           ctx.moveTo(p.x - particle.size * 2, p.y);
           ctx.lineTo(p.x + particle.size * 2, p.y + particle.size);
           ctx.stroke();
+        } else if (particle.style === "mudTunnel" || particle.style === "snakeSkill") {
+          ctx.lineWidth = 1.4;
+          ctx.beginPath();
+          ctx.moveTo(p.x - particle.size * 2.2, p.y + particle.size * 0.5);
+          ctx.quadraticCurveTo(p.x, p.y - particle.size, p.x + particle.size * 2.2, p.y + particle.size * 0.2);
+          ctx.stroke();
+        } else if (particle.style === "reedGuard") {
+          ctx.lineWidth = 1.4;
+          ctx.beginPath();
+          ctx.moveTo(p.x, p.y + particle.size * 2);
+          ctx.lineTo(p.x + particle.size * 0.8, p.y - particle.size * 2.2);
+          ctx.stroke();
         } else if (particle.style === "lilyFarm" || particle.style === "frogSkill") {
           ctx.beginPath();
           ctx.ellipse(p.x, p.y, particle.size * 2.2, particle.size, 0.3, 0, Math.PI * 2);
+          ctx.fill();
+        } else if (particle.style === "jumpPad") {
+          ctx.lineWidth = 1.3;
+          ctx.beginPath();
+          ctx.arc(p.x, p.y, particle.size * 2.1, Math.PI * 0.15, Math.PI * 0.85);
+          ctx.stroke();
+        } else if (particle.style === "turtleSkill") {
+          ctx.lineWidth = 1.2;
+          ctx.beginPath();
+          ctx.ellipse(p.x, p.y, particle.size * 2.4, particle.size * 1.5, 0, 0, Math.PI * 2);
+          ctx.stroke();
+        } else if (particle.style === "carpSkill") {
+          ctx.beginPath();
+          ctx.ellipse(p.x, p.y, particle.size * 2.1, particle.size * 1.05, -0.35, 0, Math.PI * 2);
           ctx.fill();
         } else {
           ctx.beginPath();
@@ -354,6 +454,32 @@
         ctx.fillText(notice.text, rect.width / 2, y);
         ctx.restore();
       });
+    }
+
+    drawPillText(ctx, text, x, y, color = "#87d7ea") {
+      ctx.save();
+      ctx.font = "950 12px Inter, sans-serif";
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+      const width = ctx.measureText(text).width + 16;
+      const height = 20;
+      ctx.fillStyle = "rgba(4, 13, 20, 0.84)";
+      ctx.strokeStyle = this.withAlpha(color, 0.62);
+      ctx.lineWidth = 1;
+      this.roundRect(ctx, x - width / 2, y - height / 2, width, height, 999);
+      ctx.fill();
+      ctx.stroke();
+      ctx.fillStyle = "#edf8fb";
+      ctx.fillText(text, x, y + 0.5);
+      ctx.restore();
+    }
+
+    cubicPoint(a, b, c, d, t) {
+      const mt = 1 - t;
+      return {
+        x: mt ** 3 * a.x + 3 * mt ** 2 * t * b.x + 3 * mt * t ** 2 * c.x + t ** 3 * d.x,
+        y: mt ** 3 * a.y + 3 * mt ** 2 * t * b.y + 3 * mt * t ** 2 * c.y + t ** 3 * d.y,
+      };
     }
 
     trim() {

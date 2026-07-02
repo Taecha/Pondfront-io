@@ -1,11 +1,13 @@
 const config = require("../shared/gameConfig");
 const animals = require("../shared/animals");
+const combatConfig = require("../shared/combatConfig");
 const balance = config.BALANCE;
 
-const ATTACK_COOLDOWN_SECONDS = 3.5;
-const MAX_ACTIVE_ATTACKS_PER_PLAYER = 2;
-const WAVE_TICK_SECONDS = 0.18;
-const WAVE_CAPTURE_LIMIT = 4;
+const ATTACK_COOLDOWN_SECONDS = combatConfig.attackCooldownSeconds;
+const MAX_ACTIVE_ATTACKS_PER_PLAYER = combatConfig.maxActiveAttacksPerPlayer;
+const WAVE_TICK_SECONDS = combatConfig.waveTickSeconds;
+const WAVE_CAPTURE_LIMIT = combatConfig.waveCaptureLimit;
+const COMBAT_FORMULA = combatConfig.formula;
 
 class CombatManager {
   constructor(tileManager, pushEvent) {
@@ -43,7 +45,7 @@ class CombatManager {
     if (!player || player.defeated) return { ok: false, message: "You are defeated." };
     if (!target) return { ok: false, resultType: "invalidTarget", message: "Invalid target." };
     if (config.TILE_TYPES[target.type].blocks) return { ok: false, resultType: "blockedTile", message: "Blocked by terrain." };
-    if (target.owner === player.id) return this.defend(player, tileId, percent);
+    if (target.owner === player.id) return this.defend(player, tileId, percent, game.now());
 
     const defender = game.getPlayer(target.owner);
     if (defender) return this.startWaveAttack(game, player, defender, target, percent, sourceIds);
@@ -127,17 +129,18 @@ class CombatManager {
 
   startWaveAttack(game, player, defender, target, percent, sourceIds = []) {
     const now = game.now();
-    if (game.diplomacy.areAllied(player.id, defender.id)) return { ok: false, message: "Cannot attack ally." };
-    if (now < (player.attackCooldownUntil || 0)) return { ok: false, message: "Attack cooldown is active." };
+    const diplomacyCheck = game.diplomacy.canAttack(player.id, defender.id, now);
+    if (!diplomacyCheck.ok) return { ok: false, resultType: "diplomacyBlocked", message: diplomacyCheck.reason };
+    if (now < (player.attackCooldownUntil || 0)) return { ok: false, resultType: "cooldown", message: "Attack cooldown is active." };
     if (this.activeAttacks.filter((wave) => wave.attackerId === player.id).length >= MAX_ACTIVE_ATTACKS_PER_PLAYER) {
-      return { ok: false, message: "Frontline already moving." };
+      return { ok: false, resultType: "tooManyWaves", message: "Frontline already moving." };
     }
 
     const reach = this.tileManager.borderReachInfo(player, target, sourceIds);
-    if (!reach.reachable) return { ok: false, message: "Too far from border." };
+    if (!reach.reachable) return { ok: false, resultType: "tooFar", message: "Too far from border." };
 
     const spend = this.spendEnergy(player, percent);
-    if (spend < 5) return { ok: false, message: "Not enough Animal Energy." };
+    if (spend < 5) return { ok: false, resultType: "notEnoughEnergy", message: "Not enough Animal Energy." };
 
     const exhaustion = Math.min(balance.maxWarExhaustion, player.flags?.warExhaustion || 0);
     const attackInfo = this.attackModifierInfo(game, player, target, reach.source, false);
@@ -167,7 +170,7 @@ class CombatManager {
     };
     this.nextAttackId += 1;
     this.activeAttacks.push(wave);
-    game.recordWar?.(player.id, defender.id, { attack: true, damage: spend });
+    game.recordWar?.(player.id, defender.id, { attack: true, damage: spend, energySpent: spend });
 
     this.pushEvent({
       kind: "attackWave",
@@ -211,6 +214,11 @@ class CombatManager {
     const attacker = game.getPlayer(wave.attackerId);
     const defender = game.getPlayer(wave.defenderId);
     if (!attacker || !defender || attacker.defeated || defender.defeated) return false;
+    const diplomacyCheck = game.diplomacy.canAttack(wave.attackerId, wave.defenderId, now);
+    if (!diplomacyCheck.ok) {
+      this.finishWave(game, wave, diplomacyCheck.reason);
+      return false;
+    }
 
     const candidates = this.waveCandidates(game, wave, attacker, defender);
     if (!candidates.length) {
@@ -323,7 +331,7 @@ class CombatManager {
       targetOwner: defender.id,
       at: now,
     });
-    game.recordWar?.(attacker.id, defender.id, { tilesCaptured: 1, damage: cost });
+    game.recordWar?.(attacker.id, defender.id, { tilesCaptured: 1, damage: cost, biggestWave: wave.capturedTiles.length });
   }
 
   resistWave(game, wave, candidate, cost) {
@@ -377,29 +385,30 @@ class CombatManager {
     const type = config.TILE_TYPES[tile.type];
     if (!type || type.blocks) return Infinity;
 
-    const baseByType = {
-      water: 6,
-      lily: 8,
-      reeds: 12,
-      mud: 14,
-      nest: 16,
-    };
-
-    let cost = tile.building ? 18 : baseByType[tile.type] || 10;
+    let cost = tile.building ? COMBAT_FORMULA.buildingBaseCost : COMBAT_FORMULA.baseCostByTile[tile.type] || 10;
     cost *= balance.attackCostMultiplier;
-    cost += type.defenseBonus * 1.25;
-    cost += tile.defenseEnergy * 0.82;
-    cost += Math.max(0, candidate.distance || 0) * 1.1;
-    cost += Math.max(0, 2 - (candidate.attackerEdges || 0)) * 1.2;
+    cost += type.defenseBonus * COMBAT_FORMULA.terrainDefenseMultiplier;
+    cost += tile.defenseEnergy * COMBAT_FORMULA.defenseEnergyMultiplier;
+    cost += Math.max(0, candidate.distance || 0) * COMBAT_FORMULA.distanceCost;
+    cost += Math.max(0, 2 - (candidate.attackerEdges || 0)) * COMBAT_FORMULA.weakBorderPenalty;
 
     if (defender) {
       const energyRatio = defender.energy / Math.max(1, defender.maxEnergy);
-      cost += Math.min(18, defender.energy * 0.035);
-      cost *= 0.86 + energyRatio * 0.45;
-      if (defender.territory > attacker.territory * 1.35 && energyRatio < 0.35) cost *= 0.88;
+      cost += Math.min(COMBAT_FORMULA.defenderEnergyFlatCap, defender.energy * COMBAT_FORMULA.defenderEnergyFlatMultiplier);
+      cost *= COMBAT_FORMULA.defenderEnergyRatioBase + energyRatio * COMBAT_FORMULA.defenderEnergyRatioMultiplier;
+      if (defender.territory > attacker.territory * 1.35 && energyRatio < 0.35) cost *= COMBAT_FORMULA.bigDefenderWeakEnergyMultiplier;
       if (defender.animal === "snake" && (tile.type === "reeds" || tile.type === "mud")) cost *= 1.2;
       if (tile.type === "water" && defender.animal === "frog") cost *= 0.95;
-      cost += this.reedGuardBonus(defender.id, tile);
+      if (defender.animal === "turtle") {
+        cost *= balance.turtleBorderDefenseMultiplier || 1.25;
+        cost += this.turtleTerrainDefense(tile);
+        if (game.now() < (defender.abilityActiveUntil || 0)) {
+          cost *= balance.shellGuardCaptureCostMultiplier || 1.35;
+          if ((tile.defenseEnergy || 0) > 4) cost *= balance.shellGuardDefendedExtraMultiplier || 1.2;
+        }
+      }
+      if (defender.animal === "carp") cost *= balance.carpDefenseMultiplier || 0.92;
+      cost += this.reedGuardBonus(defender.id, tile, defender);
       cost += defender.flags?.objectiveDefenseBonus || 0;
       if (game.now() < (defender.flags?.campDefenseUntil || 0)) cost += balance.campDefenseBonus || 4;
       if (defender.flags?.lastNestProtection && this.nearCore(defender, tile)) cost += balance.lastNestProtectionDefense || 18;
@@ -412,14 +421,16 @@ class CombatManager {
     if (attacker.animal === "snake" && (tile.type === "reeds" || tile.type === "mud") && (attacker.level || 1) >= 5) cost *= 1 / (balance.level5SnakeReedAttackMultiplier || 1.12);
     if (wave.ambushApplied) cost *= balance.snakeAmbushDefenseCostMultiplier || 0.8;
     if (attacker.animal === "frog" && tile.type === "lily") cost *= 0.92;
+    if (attacker.animal === "carp" && game.now() < (attacker.abilityActiveUntil || 0) && tile.type === "water") cost *= balance.goldenCurrentWaterCostMultiplier || 0.8;
+    if (attacker.animal === "carp" && game.now() < (attacker.abilityActiveUntil || 0) && tile.type === "lily") cost *= balance.goldenCurrentLilyCostMultiplier || 0.7;
     if (game.eventsManager?.isActive("mudslide") && tile.type === "mud") cost *= balance.mudslideDefenseMultiplier || 1.22;
     cost += game.objectives?.tileCostBonus(tile) || 0;
-    if (!rough && wave.remainingPower / Math.max(1, wave.spentEnergy) < 0.18) cost *= 1.06;
+    if (!rough && wave.remainingPower / Math.max(1, wave.spentEnergy) < 0.18) cost *= COMBAT_FORMULA.lowPowerFatigueMultiplier;
 
     return Math.max(4, cost);
   }
 
-  defend(player, tileId, percent) {
+  defend(player, tileId, percent, now = Date.now() / 1000) {
     const tile = this.tileManager.getById(tileId);
     if (!tile || tile.owner !== player.id) return { ok: false, message: "Choose your territory to defend." };
     const spend = this.spendEnergy(player, percent) * balance.defendSpendMultiplier;
@@ -427,9 +438,11 @@ class CombatManager {
     player.energy -= spend;
     player.stats.energyUsed += spend;
     player.stats.defenses = (player.stats.defenses || 0) + 1;
-    tile.defenseEnergy = Math.min(90, tile.defenseEnergy + spend * balance.defendEnergyMultiplier);
-    tile.lastChanged = Date.now() / 1000;
-    this.pushEvent({ kind: "defend", to: tile.id, amount: Math.round(spend), playerId: player.id, at: Date.now() / 1000 });
+    const animalBoost = player.animal === "turtle" ? balance.turtleDefendMultiplier || 1.16 : 1;
+    const shellBoost = player.animal === "turtle" && now < (player.abilityActiveUntil || 0) ? 1.18 : 1;
+    tile.defenseEnergy = Math.min(90, tile.defenseEnergy + spend * balance.defendEnergyMultiplier * animalBoost * shellBoost);
+    tile.lastChanged = now;
+    this.pushEvent({ kind: "defend", to: tile.id, amount: Math.round(spend), playerId: player.id, at: now });
     return { ok: true, message: "Border defense reinforced." };
   }
 
@@ -500,6 +513,72 @@ class CombatManager {
         ability: animal.ability,
         activeEffect: result.activeEffect,
         gameplayChanges: result.gameplayChanges,
+        at: now,
+      });
+      this.debugAbility(game, player, animal.ability, beforeEnergy, cooldownBefore, result, options);
+      return result;
+    }
+
+    if (player.animal === "turtle") {
+      player.abilityActiveUntil = now + animal.duration;
+      player.abilityReadyAt = now + this.abilityCooldown(player, animal);
+      player.stats.abilitiesUsed = (player.stats.abilitiesUsed || 0) + 1;
+      const affectedTiles = this.tileManager
+        .borders(player.id)
+        .filter((tile) => tile.neighbors.some((neighbor) => neighbor.owner && neighbor.owner !== player.id))
+        .slice(0, 36)
+        .map((tile) => tile.id);
+      const result = {
+        ok: true,
+        message: `Shell Guard active: enemy waves cost more against Turtle borders for ${animal.duration}s.`,
+        cooldown: this.abilityCooldown(player, animal),
+        activeEffect: "Shell Guard",
+        duration: animal.duration,
+        effectApplied: true,
+        gameplayChanges: ["Enemy capture cost x1.35 against Turtle borders", "Defended Turtle tiles gain extra resistance"],
+        affectedTiles,
+      };
+      this.pushEvent({
+        kind: "ability",
+        playerId: player.id,
+        skillType: player.animal,
+        ability: animal.ability,
+        activeEffect: result.activeEffect,
+        gameplayChanges: result.gameplayChanges,
+        affectedTiles,
+        at: now,
+      });
+      this.debugAbility(game, player, animal.ability, beforeEnergy, cooldownBefore, result, options);
+      return result;
+    }
+
+    if (player.animal === "carp") {
+      player.abilityActiveUntil = now + animal.duration;
+      player.abilityReadyAt = now + this.abilityCooldown(player, animal);
+      player.stats.abilitiesUsed = (player.stats.abilitiesUsed || 0) + 1;
+      const affectedTiles = this.tileManager
+        .owned(player.id)
+        .filter((tile) => tile.type === "water" || tile.type === "lily")
+        .slice(0, 42)
+        .map((tile) => tile.id);
+      const result = {
+        ok: true,
+        message: `Golden Current active: income and water/lily expansion improve for ${animal.duration}s.`,
+        cooldown: this.abilityCooldown(player, animal),
+        activeEffect: "Golden Current",
+        duration: animal.duration,
+        effectApplied: true,
+        gameplayChanges: ["Income +30%", "Open-water expansion cost x0.80", "Lily expansion cost x0.70"],
+        affectedTiles,
+      };
+      this.pushEvent({
+        kind: "ability",
+        playerId: player.id,
+        skillType: player.animal,
+        ability: animal.ability,
+        activeEffect: result.activeEffect,
+        gameplayChanges: result.gameplayChanges,
+        affectedTiles,
         at: now,
       });
       this.debugAbility(game, player, animal.ability, beforeEnergy, cooldownBefore, result, options);
@@ -597,18 +676,30 @@ class CombatManager {
 
   captureCost(game, attacker, defender, target, reach) {
     const type = config.TILE_TYPES[target.type];
-    let cost = type.captureCost + type.defenseBonus * 2.8 + target.defenseEnergy;
+    let cost = (target.building ? COMBAT_FORMULA.buildingBaseCost : COMBAT_FORMULA.baseCostByTile[target.type] || type.captureCost) * balance.attackCostMultiplier;
+    cost += type.defenseBonus * COMBAT_FORMULA.terrainDefenseMultiplier;
+    cost += target.defenseEnergy * COMBAT_FORMULA.defenseEnergyMultiplier;
     if (defender) {
-      cost += Math.min(42, defender.energy * 0.14);
+      const energyRatio = defender.energy / Math.max(1, defender.maxEnergy);
+      cost += Math.min(COMBAT_FORMULA.defenderEnergyFlatCap, defender.energy * COMBAT_FORMULA.defenderEnergyFlatMultiplier);
+      cost *= COMBAT_FORMULA.defenderEnergyRatioBase + energyRatio * COMBAT_FORMULA.defenderEnergyRatioMultiplier;
       if (defender.animal === "snake" && (target.type === "reeds" || target.type === "mud")) cost *= 1.22;
       if (target.type === "water" && defender.animal === "frog") cost *= 0.94;
-      cost += this.reedGuardBonus(defender.id, target);
+      if (defender.animal === "turtle") {
+        cost *= balance.turtleBorderDefenseMultiplier || 1.25;
+        cost += this.turtleTerrainDefense(target);
+        if (game.now() < (defender.abilityActiveUntil || 0)) cost *= balance.shellGuardCaptureCostMultiplier || 1.35;
+      }
+      if (defender.animal === "carp") cost *= balance.carpDefenseMultiplier || 0.92;
+      cost += this.reedGuardBonus(defender.id, target, defender);
     }
     if (reach.jumped) cost *= 1.08;
     if (attacker.animal === "duck" && target.type === "water" && game.now() < attacker.abilityActiveUntil) cost *= balance.flockRushOpenWaterCostMultiplier || 0.65;
     if (attacker.animal === "duck" && target.type === "water") cost *= 0.78;
     if (attacker.animal === "snake" && target.type === "water") cost *= 1.18;
     if (attacker.animal === "snake" && (target.type === "reeds" || target.type === "mud")) cost *= 0.84;
+    if (attacker.animal === "carp" && game.now() < (attacker.abilityActiveUntil || 0) && target.type === "water") cost *= balance.goldenCurrentWaterCostMultiplier || 0.8;
+    if (attacker.animal === "carp" && game.now() < (attacker.abilityActiveUntil || 0) && target.type === "lily") cost *= balance.goldenCurrentLilyCostMultiplier || 0.7;
     return Math.max(6, cost);
   }
 
@@ -619,6 +710,7 @@ class CombatManager {
     return config.getNeutralTileExpansionCost(target.type, player.animal, {
       jumped: Boolean(reach.jumped),
       flockRush: player.animal === "duck" && game.now() < player.abilityActiveUntil,
+      goldenCurrent: player.animal === "carp" && game.now() < player.abilityActiveUntil,
       mudTunnel: Boolean(player.flags?.mudTunnel),
       jumpPad: Boolean(player.flags?.jumpPad),
       territory: player.territory,
@@ -648,6 +740,8 @@ class CombatManager {
       player.abilityActiveUntil = Math.min(player.abilityActiveUntil || game.now(), game.now());
     }
     if (player.animal === "frog" && target.type === "lily") multiplier *= 1.08;
+    if (player.animal === "turtle") multiplier *= balance.turtleAttackPowerMultiplier || 0.94;
+    if (player.animal === "carp" && game.now() < (player.abilityActiveUntil || 0) && (target.type === "water" || target.type === "lily")) multiplier *= 1.04;
     if (jumped) multiplier *= 0.94;
     return { multiplier, ambushApplied };
   }
@@ -721,6 +815,42 @@ class CombatManager {
         targetNeeded: false,
       };
     }
+    if (player.animal === "frog") {
+      return {
+        abilityName: animal.ability,
+        ready: cooldownLeft <= 0,
+        cooldownLeft,
+        cooldown,
+        activeLeft: 0,
+        activeEffect: null,
+        realModifier: (player.level || 1) >= 3 ? "Captures up to 7 nearby neutral leap tiles; never enemy tiles." : "Captures up to 5 nearby neutral leap tiles; never enemy tiles.",
+        targetNeeded: true,
+      };
+    }
+    if (player.animal === "turtle") {
+      return {
+        abilityName: animal.ability,
+        ready: cooldownLeft <= 0,
+        cooldownLeft,
+        cooldown,
+        activeLeft,
+        activeEffect: activeLeft > 0 ? "Shell Guard Active" : null,
+        realModifier: "Enemy waves cost x1.35 against your borders; defended borders resist even harder.",
+        targetNeeded: false,
+      };
+    }
+    if (player.animal === "carp") {
+      return {
+        abilityName: animal.ability,
+        ready: cooldownLeft <= 0,
+        cooldownLeft,
+        cooldown,
+        activeLeft,
+        activeEffect: activeLeft > 0 ? "Golden Current Active" : null,
+        realModifier: "Income +30%; open-water expansion x0.80 and lily expansion x0.70.",
+        targetNeeded: false,
+      };
+    }
     return {
       abilityName: animal.ability,
       ready: cooldownLeft <= 0,
@@ -728,7 +858,7 @@ class CombatManager {
       cooldown,
       activeLeft: 0,
       activeEffect: null,
-      realModifier: (player.level || 1) >= 3 ? "Captures up to 7 nearby neutral leap tiles; never enemy tiles." : "Captures up to 5 nearby neutral leap tiles; never enemy tiles.",
+      realModifier: animal.perk || "",
       targetNeeded: false,
     };
   }
@@ -756,9 +886,17 @@ class CombatManager {
     );
   }
 
-  reedGuardBonus(ownerId, target) {
+  turtleTerrainDefense(tile) {
+    if (!tile) return 0;
+    const nearRock = tile.neighbors?.some((neighbor) => config.TILE_TYPES[neighbor.type]?.blocks) || false;
+    const terrainBonus = tile.type === "mud" || nearRock ? balance.turtleMudRockAdjDefense || 3 : 0;
+    return terrainBonus;
+  }
+
+  reedGuardBonus(ownerId, target, owner = null) {
+    const animalBoost = owner?.animal === "turtle" ? balance.turtleReedGuardMultiplier || 1.28 : 1;
     return [target, ...target.neighbors].reduce((sum, tile) => {
-      if (tile.owner === ownerId && tile.building === "reedGuard") return sum + 7 * Math.max(1, Number(tile.buildingLevel) || 1);
+      if (tile.owner === ownerId && tile.building === "reedGuard") return sum + 7 * Math.max(1, Number(tile.buildingLevel) || 1) * animalBoost;
       return sum;
     }, 0);
   }

@@ -59,6 +59,8 @@ class EventManager {
     const human = game.getPlayer(config.HUMAN_ID);
     if (human?.animal === "frog" && Math.random() < 0.3 && this.lastType !== "lilyBloom") return "lilyBloom";
     if (human?.animal === "snake" && Math.random() < 0.25 && this.lastType !== "mudslide") return "mudslide";
+    if (human?.animal === "carp" && Math.random() < 0.28 && this.lastType !== "lilyBloom") return "lilyBloom";
+    if (human?.animal === "turtle" && Math.random() < 0.22 && this.lastType !== "mudslide") return "mudslide";
     return types[Math.floor(Math.random() * types.length)] || "rainstorm";
   }
 
