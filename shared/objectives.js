@@ -48,6 +48,17 @@
       xp: 22,
       description: "Reduces animal ability cooldowns.",
     },
+    deepCurrent: {
+      label: "Deep Current",
+      short: "DC",
+      color: "#6fb8f0",
+      spawn: { x: 42, y: 40, radius: 7 },
+      tilePreference: ["water", "lily", "reeds"],
+      captureCostBonus: 25,
+      routePowerBonus: 0.18,
+      xp: 22,
+      description: "Improves Current Push water-route attacks.",
+    },
   };
 
   const CRITTER_CAMPS = {

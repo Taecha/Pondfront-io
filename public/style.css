@@ -3924,3 +3924,174 @@ body.ui-tiny .bottombar select {
     padding: 7px 8px;
   }
 }
+
+/* Pond/river polish pass */
+body {
+  background:
+    linear-gradient(115deg, rgba(245, 214, 128, 0.08), transparent 24%),
+    repeating-linear-gradient(168deg, rgba(166, 226, 214, 0.035) 0 2px, transparent 2px 18px),
+    linear-gradient(135deg, #06131d 0%, #0b2b38 46%, #163c37 100%);
+}
+
+.start-screen {
+  background:
+    linear-gradient(115deg, rgba(245, 214, 128, 0.1), transparent 22%),
+    repeating-linear-gradient(172deg, rgba(168, 232, 220, 0.045) 0 2px, transparent 2px 24px),
+    linear-gradient(135deg, #05131d 0%, #0a2d3a 48%, #173f38 100%);
+}
+
+.start-screen::after {
+  background:
+    linear-gradient(90deg, transparent 0 24%, rgba(144, 184, 109, 0.08) 24% 25%, transparent 25% 100%),
+    repeating-linear-gradient(90deg, transparent 0 42px, rgba(203, 222, 145, 0.05) 43px 45px, transparent 46px 80px),
+    radial-gradient(ellipse at center, transparent 44%, rgba(3, 10, 15, 0.58));
+  opacity: 0.52;
+}
+
+.lobby-card > *,
+.panel,
+.topbar,
+.bottombar,
+.mobile-action-card,
+.mobile-map-controls,
+.context-menu,
+.mobile-sheet > div,
+.result > div {
+  border-color: rgba(164, 218, 205, 0.24);
+  background:
+    linear-gradient(180deg, rgba(13, 45, 58, 0.88), rgba(5, 20, 30, 0.9)),
+    linear-gradient(135deg, rgba(100, 171, 137, 0.09), rgba(216, 173, 72, 0.035));
+  box-shadow: 0 18px 48px rgba(0, 0, 0, 0.34), inset 0 1px 0 rgba(238, 255, 244, 0.05);
+  backdrop-filter: blur(14px);
+}
+
+.panel h2,
+.panel h3,
+.brand strong,
+.lobby-title h1 {
+  color: #f2f8dc;
+}
+
+button.ready#buildButton {
+  border-color: rgba(191, 224, 128, 0.52);
+  box-shadow: 0 0 0 1px rgba(191, 224, 128, 0.08), 0 10px 22px rgba(0, 0, 0, 0.18);
+}
+
+button.cooldown#buildButton {
+  color: #c7d8dc;
+  background: linear-gradient(180deg, rgba(64, 86, 91, 0.94), rgba(25, 43, 49, 0.96));
+}
+
+.stat,
+.info-grid div,
+.mini-stats span,
+.compact-row,
+.mission-row,
+.leaderboard-panel li {
+  background:
+    linear-gradient(180deg, rgba(20, 58, 70, 0.72), rgba(8, 28, 38, 0.78)),
+    linear-gradient(90deg, rgba(126, 181, 112, 0.05), transparent);
+}
+
+@media (max-width: 900px) {
+  .topbar {
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    gap: 8px;
+    padding: 7px 8px;
+  }
+
+  .brand small,
+  .help-button,
+  #collapseUiButton {
+    display: none;
+  }
+
+  .top-stats {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 4px;
+  }
+
+  .stat {
+    min-width: 0;
+    padding: 5px 4px;
+  }
+
+  .stat span {
+    font-size: 0.52rem;
+  }
+
+  .stat strong {
+    font-size: clamp(0.62rem, 2.5vw, 0.78rem);
+  }
+
+  .left-panel {
+    display: none;
+  }
+
+  .right-panel {
+    top: 62px;
+    right: 8px;
+    width: 112px;
+  }
+
+  #miniMap {
+    width: 112px;
+    height: 72px;
+    opacity: 0.88;
+  }
+
+  .mobile-map-controls {
+    top: auto;
+    right: 8px;
+    bottom: 78px;
+    grid-template-columns: repeat(4, 40px);
+    gap: 5px;
+    padding: 5px;
+  }
+
+  .mobile-map-controls button {
+    min-width: 40px;
+    min-height: 40px;
+    font-size: 0.72rem;
+  }
+
+  .mobile-action-card {
+    right: 8px;
+    bottom: 8px;
+    grid-template-columns: minmax(0, 1fr) auto auto 40px;
+    gap: 6px;
+    width: calc(100vw - 16px);
+    padding: 8px;
+    border-radius: 10px;
+  }
+
+  .mobile-action-card button {
+    min-height: 40px;
+    padding-inline: 10px;
+    font-size: 0.78rem;
+  }
+
+  .bottombar {
+    max-width: calc(100vw - 16px);
+    padding: 7px;
+    border-radius: 10px;
+  }
+
+  .percent-row button,
+  .action-row button,
+  .bottombar select {
+    min-height: 40px;
+    padding: 7px 8px;
+    font-size: 0.72rem;
+  }
+
+  .mobile-sheet > div {
+    max-height: 72vh;
+    border-radius: 14px 14px 0 0;
+  }
+
+  .build-sheet-list button {
+    min-height: 44px;
+    padding: 9px;
+  }
+}

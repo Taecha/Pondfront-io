@@ -13,12 +13,12 @@ function runMatch(index, difficulty = "smart") {
   });
 
   const dt = 1;
-  const maxTicks = Math.ceil(config.MATCH_SECONDS / dt);
+  const maxTicks = Math.ceil((Number(process.env.PONDFRONT_SIM_SECONDS) || config.MATCH_SECONDS * 3) / dt);
   for (let tick = 0; tick < maxTicks && !game.ended; tick += 1) {
     game.tick(dt);
   }
 
-  game.economy.recalculate(game.players, game.now());
+  game.economy.recalculate(game.players, game.now(), game);
   const active = game.players.filter((player) => !player.defeated);
   const winner = game.getPlayer(game.winnerId) || active.slice().sort((a, b) => b.territory - a.territory)[0];
   const farms = game.tileManager.tiles.filter((tile) => tile.building === "lilyFarm").length;

@@ -14,19 +14,24 @@ class CombatManager {
     this.tileManager = tileManager;
     this.pushEvent = pushEvent;
     this.activeAttacks = [];
+    this.continuousAttacks = [];
     this.nextAttackId = 1;
+    this.nextContinuousId = 1;
   }
 
   update(game) {
     const now = game.now();
     game.players.forEach((player) => this.expireAbilityFlags(game, player, now));
+    this.processContinuousAttacks(game, now);
     if (!this.activeAttacks.length) return;
     this.activeAttacks = this.activeAttacks.filter((wave) => this.processWave(game, wave, now));
   }
 
   snapshot() {
-    return this.activeAttacks.map((wave) => ({
+    const waves = this.activeAttacks.map((wave) => ({
       id: wave.id,
+      continuous: false,
+      routeAttack: Boolean(wave.routeAttack),
       attackerId: wave.attackerId,
       defenderId: wave.defenderId,
       remainingPower: Math.round(wave.remainingPower),
@@ -38,6 +43,22 @@ class CombatManager {
       createdAt: wave.createdAt,
       lastTick: wave.lastTick,
     }));
+    const orders = this.continuousAttacks.map((order) => ({
+      id: order.id,
+      continuous: true,
+      attackerId: order.attackerId,
+      defenderId: order.defenderId,
+      remainingPower: Math.round(order.lastSpend || 0),
+      frontierTiles: [order.targetTileId].filter((id) => id != null),
+      capturedTiles: [],
+      sourceTile: order.sourceTile,
+      targetStartTile: order.targetTileId,
+      drainPerSecond: Math.round(order.drainPerSecond || 0),
+      estimatedCaptureSpeed: order.estimatedCaptureSpeed || "steady",
+      createdAt: order.createdAt,
+      lastTick: order.lastTick,
+    }));
+    return waves.concat(orders);
   }
 
   expandOrAttack(game, player, tileId, percent, sourceIds = []) {
@@ -130,16 +151,16 @@ class CombatManager {
     };
   }
 
-  startWaveAttack(game, player, defender, target, percent, sourceIds = []) {
+  startWaveAttack(game, player, defender, target, percent, sourceIds = [], options = {}) {
     const now = game.now();
     const diplomacyCheck = game.diplomacy.canAttack(player.id, defender.id, now);
     if (!diplomacyCheck.ok) return { ok: false, resultType: "diplomacyBlocked", message: diplomacyCheck.reason };
-    if (now < (player.attackCooldownUntil || 0)) return { ok: false, resultType: "cooldown", message: "Attack cooldown is active." };
+    if (!options.ignoreCooldown && now < (player.attackCooldownUntil || 0)) return { ok: false, resultType: "cooldown", message: "Attack cooldown is active." };
     if (this.activeAttacks.filter((wave) => wave.attackerId === player.id).length >= MAX_ACTIVE_ATTACKS_PER_PLAYER) {
       return { ok: false, resultType: "tooManyWaves", message: "Frontline already moving." };
     }
 
-    const reach = this.tileManager.borderReachInfo(player, target, sourceIds);
+    const reach = options.routeReach || this.tileManager.borderReachInfo(player, target, sourceIds);
     if (!reach.reachable) return { ok: false, resultType: "tooFar", message: "Too far from border." };
 
     const spend = this.spendEnergy(player, percent);
@@ -147,12 +168,13 @@ class CombatManager {
 
     const exhaustion = Math.min(balance.maxWarExhaustion, player.flags?.warExhaustion || 0);
     const attackInfo = this.attackModifierInfo(game, player, target, reach.source, false);
-    const attackPower = spend * balance.attackPowerMultiplier * (1 - exhaustion) * attackInfo.multiplier;
+    const routeMultiplier = options.routeAttack ? 0.74 * (1 + Math.min(0.45, player.flags?.routePowerBonus || 0)) : 1;
+    const attackPower = spend * balance.attackPowerMultiplier * (1 - exhaustion) * attackInfo.multiplier * routeMultiplier;
     player.energy -= spend;
     player.stats.energyUsed += spend;
     player.stats.attacksLaunched = (player.stats.attacksLaunched || 0) + 1;
     player.flags.warExhaustion = Math.min(balance.maxWarExhaustion, (player.flags.warExhaustion || 0) + balance.warExhaustionPerAttack);
-    player.attackCooldownUntil = now + ATTACK_COOLDOWN_SECONDS;
+    player.attackCooldownUntil = now + (options.continuous ? 0.7 : ATTACK_COOLDOWN_SECONDS);
 
     const wave = {
       id: `wave-${this.nextAttackId}`,
@@ -167,6 +189,8 @@ class CombatManager {
       targetStartTile: target.id,
       spentEnergy: spend,
       ambushApplied: attackInfo.ambushApplied,
+      continuous: Boolean(options.continuous),
+      routeAttack: Boolean(options.routeAttack),
       createdAt: now,
       lastTick: now - WAVE_TICK_SECONDS,
       tickRate: WAVE_TICK_SECONDS,
@@ -178,6 +202,8 @@ class CombatManager {
     this.pushEvent({
       kind: "attackWave",
       waveId: wave.id,
+      continuous: Boolean(options.continuous),
+      routeAttack: Boolean(options.routeAttack),
       from: reach.source.id,
       to: target.id,
       amount: Math.round(spend),
@@ -203,12 +229,209 @@ class CombatManager {
       ok: true,
       message: attackInfo.ambushApplied
         ? `Ambush wave launched with ${Math.round(spend)} energy.`
-        : `Frontline wave launched with ${Math.round(spend)} energy.`,
+        : options.routeAttack
+          ? `Current Push launched with ${Math.round(spend)} energy.`
+          : options.continuous
+            ? `Continuous attack sent ${Math.round(spend)} energy.`
+            : `Frontline wave launched with ${Math.round(spend)} energy.`,
       spentEnergy: Math.round(spend),
       attackPower: Math.round(attackPower),
       gameplayChanges: attackInfo.ambushApplied ? ["Ambush applied: +40% attack power", "Ambush applied: enemy border costs -20%"] : [],
       activeEffect: attackInfo.ambushApplied ? null : this.abilityStatus(player, now).activeEffect,
     };
+  }
+
+  startContinuousAttack(game, player, tileId, percent, sourceIds = []) {
+    const now = game.now();
+    const target = this.tileManager.getById(tileId);
+    if (!target || !target.owner || target.owner === player.id) return { ok: false, message: "Choose an enemy border to start a continuous attack." };
+    const defender = game.getPlayer(target.owner);
+    if (!defender || defender.defeated) return { ok: false, message: "Target player is no longer active." };
+    const diplomacyCheck = game.diplomacy.canAttack(player.id, defender.id, now);
+    if (!diplomacyCheck.ok) return { ok: false, message: diplomacyCheck.reason };
+    const reach = this.tileManager.borderReachInfo(player, target, sourceIds);
+    if (!reach.reachable) return { ok: false, message: "Continuous attack needs a connected enemy border." };
+    if (player.energy < (balance.continuousAttackMinEnergy || 6)) return { ok: false, message: "Not enough Animal Energy to start a continuous attack." };
+
+    this.stopContinuousAttack(game, player.id, "Attack retargeted.", true);
+    const cleanPercent = Math.max(0.1, Math.min(1, Number(percent) || 0.25));
+    const drainPerSecond = Math.max(balance.continuousAttackMinEnergy || 6, player.maxEnergy * 0.025, player.energy * cleanPercent * 0.1);
+    const order = {
+      id: `cont-${this.nextContinuousId}`,
+      attackerId: player.id,
+      defenderId: defender.id,
+      targetTileId: target.id,
+      sourceTile: reach.source.id,
+      sourceIds,
+      percent: cleanPercent,
+      drainPerSecond,
+      estimatedCaptureSpeed: cleanPercent >= 0.75 ? "fast" : cleanPercent >= 0.5 ? "steady" : "probing",
+      createdAt: now,
+      lastTick: now - (balance.continuousAttackTickSeconds || 1.45),
+      lastSpend: 0,
+    };
+    this.nextContinuousId += 1;
+    this.continuousAttacks.push(order);
+    this.pushEvent({
+      kind: "continuousAttackStart",
+      orderId: order.id,
+      playerId: player.id,
+      targetOwner: defender.id,
+      from: reach.source.id,
+      to: target.id,
+      drainPerSecond: Math.round(drainPerSecond),
+      at: now,
+      message: `${player.name} started a continuous frontline attack.`,
+    });
+    return {
+      ok: true,
+      resultType: "continuousAttack",
+      message: `Continuous attack started. Draining about ${Math.round(drainPerSecond)} energy/s.`,
+      drainPerSecond: Math.round(drainPerSecond),
+    };
+  }
+
+  stopContinuousAttack(game, playerId, reason = "Attack stopped.", silent = false) {
+    const now = game.now();
+    const stopped = this.continuousAttacks.filter((order) => order.attackerId === playerId);
+    this.continuousAttacks = this.continuousAttacks.filter((order) => order.attackerId !== playerId);
+    if (!stopped.length) return { ok: true, message: "No continuous attack active." };
+    if (!silent) {
+      stopped.forEach((order) =>
+        this.pushEvent({
+          kind: "continuousAttackStop",
+          orderId: order.id,
+          playerId,
+          targetOwner: order.defenderId,
+          to: order.targetTileId,
+          message: reason,
+          at: now,
+        }),
+      );
+    }
+    return { ok: true, resultType: "continuousStopped", message: reason };
+  }
+
+  processContinuousAttacks(game, now) {
+    if (!this.continuousAttacks.length) return;
+    this.continuousAttacks = this.continuousAttacks.filter((order) => {
+      if (now - order.lastTick < (balance.continuousAttackTickSeconds || 1.45)) return true;
+      const attacker = game.getPlayer(order.attackerId);
+      const defender = game.getPlayer(order.defenderId);
+      if (!attacker || !defender || attacker.defeated || defender.defeated) return false;
+      const diplomacyCheck = game.diplomacy.canAttack(attacker.id, defender.id, now);
+      if (!diplomacyCheck.ok) {
+        this.pushEvent({ kind: "continuousAttackStop", playerId: attacker.id, targetOwner: defender.id, to: order.targetTileId, message: diplomacyCheck.reason, at: now });
+        return false;
+      }
+      if (attacker.energy < (balance.continuousAttackMinEnergy || 6)) {
+        this.pushEvent({ kind: "continuousAttackStop", playerId: attacker.id, targetOwner: defender.id, to: order.targetTileId, message: "Continuous attack stopped: energy too low.", at: now });
+        return false;
+      }
+      if (this.activeAttacks.filter((wave) => wave.attackerId === attacker.id).length >= MAX_ACTIVE_ATTACKS_PER_PLAYER) return true;
+
+      const target = this.continuousTarget(attacker, defender, order);
+      if (!target) {
+        this.pushEvent({ kind: "continuousAttackStop", playerId: attacker.id, targetOwner: defender.id, to: order.targetTileId, message: "Continuous attack stopped: no connected front.", at: now });
+        return false;
+      }
+      const spendTarget = Math.max(balance.continuousAttackMinEnergy || 6, attacker.energy * order.percent * (balance.continuousAttackEnergyMultiplier || 0.34));
+      const tickPercent = Math.min(balance.continuousAttackMaxPercentPerTick || 0.22, Math.max(0.04, spendTarget / Math.max(1, attacker.energy)));
+      const result = this.startWaveAttack(game, attacker, defender, target, tickPercent, order.sourceIds, {
+        continuous: true,
+        ignoreCooldown: true,
+      });
+      order.lastTick = now;
+      order.targetTileId = target.id;
+      order.lastSpend = result.spentEnergy || spendTarget;
+      if (!result.ok && !["tooManyWaves", "cooldown"].includes(result.resultType)) {
+        this.pushEvent({ kind: "continuousAttackStop", playerId: attacker.id, targetOwner: defender.id, to: target.id, message: result.message, at: now });
+        return false;
+      }
+      if (result.ok) {
+        this.pushEvent({
+          kind: "continuousAttackPulse",
+          playerId: attacker.id,
+          targetOwner: defender.id,
+          to: target.id,
+          amount: Math.round(result.spentEnergy || 0),
+          at: now,
+        });
+      }
+      return true;
+    });
+  }
+
+  continuousTarget(attacker, defender, order) {
+    const original = this.tileManager.getById(order.targetTileId);
+    if (original?.owner === defender.id && this.tileManager.borderReachInfo(attacker, original, order.sourceIds).reachable) return original;
+    const candidates = this.tileManager
+      .capturable(attacker.id)
+      .filter((tile) => tile.owner === defender.id && this.tileManager.borderReachInfo(attacker, tile, order.sourceIds).reachable);
+    if (!candidates.length) return null;
+    const anchor = original || this.tileManager.getById(order.sourceTile);
+    return candidates
+      .sort((a, b) => {
+        const ad = anchor ? Math.abs(a.x - anchor.x) + Math.abs(a.y - anchor.y) : 0;
+        const bd = anchor ? Math.abs(b.x - anchor.x) + Math.abs(b.y - anchor.y) : 0;
+        return ad - bd || a.defenseEnergy - b.defenseEnergy;
+      })[0];
+  }
+
+  startWaterRouteAttack(game, player, tileId, percent, sourceIds = []) {
+    const target = this.tileManager.getById(tileId);
+    if (!target || !target.owner || target.owner === player.id) return { ok: false, message: "Choose an enemy coastal tile for Current Push." };
+    const defender = game.getPlayer(target.owner);
+    if (!defender || defender.defeated) return { ok: false, message: "Target player is no longer active." };
+    const diplomacyCheck = game.diplomacy.canAttack(player.id, defender.id, game.now());
+    if (!diplomacyCheck.ok) return { ok: false, message: diplomacyCheck.reason };
+    const route = this.waterRoute(player, target, sourceIds);
+    if (!route) return { ok: false, message: "No open water route to that border." };
+    const result = this.startWaveAttack(game, player, defender, target, percent, [], {
+      routeAttack: true,
+      routeReach: { reachable: true, source: route.source, jumped: true },
+    });
+    if (result.ok) {
+      this.pushEvent({
+        kind: "waterRouteAttack",
+        playerId: player.id,
+        targetOwner: defender.id,
+        from: route.source.id,
+        to: target.id,
+        routeTiles: route.path.slice(0, 24).map((tile) => tile.id),
+        amount: result.spentEnergy,
+        at: game.now(),
+        message: `${player.name} sent a Current Push across open water.`,
+      });
+    }
+    return result;
+  }
+
+  waterRoute(player, target, sourceIds = []) {
+    const waterTypes = new Set(["water", "lily"]);
+    const starts = sourceIds
+      .map((id) => this.tileManager.getById(id))
+      .filter((tile) => tile?.owner === player.id && waterTypes.has(tile.type));
+    if (!starts.length) {
+      starts.push(...this.tileManager.owned(player.id).filter((tile) => waterTypes.has(tile.type)));
+    }
+    const targetCoast = target.neighbors.some((neighbor) => waterTypes.has(neighbor.type) && !config.TILE_TYPES[neighbor.type].blocks);
+    if (!starts.length || !targetCoast) return null;
+    const maxDistance = player.animal === "duck" || player.animal === "carp" ? 28 : 20;
+    const queue = starts.slice(0, 24).map((tile) => ({ tile, path: [tile] }));
+    const seen = new Set(queue.map((entry) => entry.tile.id));
+    while (queue.length) {
+      const current = queue.shift();
+      if (Math.abs(current.tile.x - target.x) + Math.abs(current.tile.y - target.y) <= 1) return { source: current.path[0], path: current.path };
+      if (current.path.length > maxDistance) continue;
+      current.tile.neighbors.forEach((neighbor) => {
+        if (seen.has(neighbor.id) || config.TILE_TYPES[neighbor.type].blocks || !waterTypes.has(neighbor.type)) return;
+        if (neighbor.owner && neighbor.owner !== player.id && neighbor.owner !== target.owner) return;
+        seen.add(neighbor.id);
+        queue.push({ tile: neighbor, path: current.path.concat(neighbor) });
+      });
+    }
+    return null;
   }
 
   processWave(game, wave, now) {
@@ -241,7 +464,8 @@ class CombatManager {
         break;
       }
 
-      this.captureWaveTile(game, wave, attacker, defender, candidate, cost, now);
+      const capturedTile = this.captureWaveTile(game, wave, attacker, defender, candidate, cost, now);
+      if (!capturedTile) break;
       nextFrontier.add(candidate.tile.id);
       captured += 1;
     }
@@ -300,6 +524,11 @@ class CombatManager {
 
   captureWaveTile(game, wave, attacker, defender, candidate, cost, now) {
     const tile = candidate.tile;
+    const coreHit = game.core?.handleCoreHit(game, wave, attacker, defender, candidate, cost);
+    if (coreHit?.blocked) {
+      this.finishWave(game, wave, coreHit.reason || "Core Nest resisted the attack.");
+      return false;
+    }
     wave.remainingPower = Math.max(0, wave.remainingPower - cost);
     defender.energy = Math.max(0, defender.energy - Math.min(defender.energy, cost * 0.14 + 1.5));
 
@@ -321,7 +550,15 @@ class CombatManager {
     if (!this.tileManager.owned(defender.id).length && !defender.defeated) {
       defender.defeated = true;
       attacker.stats.playersDefeated += 1;
+      this.pushEvent({
+        kind: "eliminated",
+        playerId: defender.id,
+        targetId: attacker.id,
+        at: now,
+        message: `${defender.name} was eliminated by ${attacker.name}.`,
+      });
     }
+    if (coreHit?.coreBroken) game.core?.handleCoreCaptured(game, attacker, defender, tile);
 
     this.pushEvent({
       kind: "waveCapture",
@@ -335,6 +572,7 @@ class CombatManager {
       at: now,
     });
     game.recordWar?.(attacker.id, defender.id, { tilesCaptured: 1, damage: cost, biggestWave: wave.capturedTiles.length });
+    return true;
   }
 
   resistWave(game, wave, candidate, cost) {
@@ -415,6 +653,7 @@ class CombatManager {
       cost += defender.flags?.objectiveDefenseBonus || 0;
       if (game.now() < (defender.flags?.campDefenseUntil || 0)) cost += balance.campDefenseBonus || 4;
       if (defender.flags?.lastNestProtection && this.nearCore(defender, tile)) cost += balance.lastNestProtectionDefense || 18;
+      cost += game.core?.defenseBonus(defender, tile, game.now()) || 0;
     }
 
     if (attacker.animal === "duck" && tile.type === "water") cost *= 0.86;

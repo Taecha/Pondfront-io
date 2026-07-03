@@ -43,6 +43,11 @@ function firstOwnedBuildTile(game, player, buildingType) {
   return game.tileManager.owned(player.id).find((tile) => game.economy.canBuild(player, tile, buildingType));
 }
 
+function finishConstruction(game, tile) {
+  game.simTime = Math.max(game.now(), tile?.buildingActiveAt || game.now()) + 0.25;
+  game.economy.update(game.players, 0, game.now(), game);
+}
+
 function makeEnemyBorder(game, attacker, defender) {
   const source = game.tileManager
     .owned(attacker.id)
@@ -89,20 +94,43 @@ function testBuildings(checks) {
   const beforeMax = player.maxEnergy;
   const nestTile = firstOwnedBuildTile(game, player, "nest");
   const nest = nestTile ? game.economy.build(player, nestTile, "nest", game.now()) : { ok: false };
+  const maxDuringConstruction = (() => {
+    game.economy.recalculate(game.players, game.now(), game);
+    return player.maxEnergy;
+  })();
+  let guardTile = firstOwnedBuildTile(game, player, "reedGuard");
+  if (!guardTile) {
+    guardTile = game.tileManager.owned(player.id).find((tile) => !tile.building);
+    if (guardTile) guardTile.type = "reeds";
+  }
+  const secondBuild = nest.ok && guardTile ? game.economy.build(player, guardTile, "reedGuard", game.now()) : { ok: false };
+  finishConstruction(game, nestTile);
   game.economy.recalculate(game.players, game.now(), game);
   const beforeUpgradeDefense = nestTile?.defenseEnergy || 0;
   player.energy = Math.max(player.energy, 160);
   const upgrade = nest.ok ? game.economy.upgradeBuilding(player, nestTile, game.now()) : { ok: false };
+  finishConstruction(game, nestTile);
   game.economy.recalculate(game.players, game.now(), game);
-  const lilyTile = firstOwnedBuildTile(game, player, "lilyFarm");
+  let lilyTile = firstOwnedBuildTile(game, player, "lilyFarm");
+  if (!lilyTile) {
+    lilyTile = game.tileManager.owned(player.id).find((tile) => !tile.building);
+    if (lilyTile) lilyTile.type = "water";
+  }
+  player.energy = Math.max(player.energy, 160);
+  const firstFarmCost = game.economy.buildingCost(player, "lilyFarm");
   const lily = lilyTile ? game.economy.build(player, lilyTile, "lilyFarm", game.now()) : { ok: false };
+  game.economy.recalculate(game.players, game.now(), game);
+  const secondFarmCost = game.economy.buildingCost(player, "lilyFarm");
   const beforeIncome = player.income;
   if (lily.ok) {
-    game.simTime += config.BALANCE.farmActivationTime + 1;
+    finishConstruction(game, lilyTile);
     game.economy.recalculate(game.players, game.now(), game);
   }
   assertCheck(checks, "nest increases max energy", nest.ok && player.maxEnergy > beforeMax, `${Math.round(beforeMax)} -> ${Math.round(player.maxEnergy)}`);
+  assertCheck(checks, "building effect waits for construction", nest.ok && maxDuringConstruction <= beforeMax + 1, `${Math.round(beforeMax)} -> ${Math.round(maxDuringConstruction)}`);
+  assertCheck(checks, "can start another building while one constructs", secondBuild.ok, secondBuild.message);
   assertCheck(checks, "building upgrade reaches level 2", upgrade.ok && nestTile.buildingLevel === 2 && nestTile.defenseEnergy > beforeUpgradeDefense, upgrade.message);
+  assertCheck(checks, "lily farm cost scales upward", lily.ok && secondFarmCost > firstFarmCost, `${firstFarmCost} -> ${secondFarmCost}`);
   assertCheck(checks, "lily farm increases income", lily.ok && player.income > beforeIncome, `${beforeIncome.toFixed(1)} -> ${player.income.toFixed(1)}`);
 }
 

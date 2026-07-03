@@ -11,6 +11,8 @@ const BotManager = require("./server/BotManager");
 const DiplomacyManager = require("./server/DiplomacyManager");
 const TeamManager = require("./server/TeamManager");
 const LobbyManager = require("./server/LobbyManager");
+const SupportManager = require("./server/SupportManager");
+const CoreManager = require("./server/CoreManager");
 const ObjectiveManager = require("./server/ObjectiveManager");
 const EventManager = require("./server/EventManager");
 const ProgressionManager = require("./server/ProgressionManager");
@@ -63,12 +65,15 @@ class PondFrontServerGame {
     this.teamManager = new TeamManager((event) => this.pushEvent(event));
     this.diplomacy = new DiplomacyManager((event) => this.pushEvent(event));
     this.combat = new CombatManager(this.tileManager, (event) => this.pushEvent(event));
+    this.support = new SupportManager((event) => this.pushEvent(event));
+    this.core = new CoreManager(this.tileManager, (event) => this.pushEvent(event));
     this.players = this.createPlayers(animal, this.matchSettings.difficulty);
     this.teamManager.setup(this.players, this.matchSettings);
     this.progression.setup(this.players);
     this.missions.setup(this.players);
     this.diplomacy.attach(this.players);
     this.players.forEach((player, index) => this.tileManager.claimStart(player, player.spawnIndex ?? index, this.now()));
+    this.core.setup(this.players, this.now());
     this.economy.recalculate(this.players, this.now(), this);
     this.botManager = new BotManager(this);
     this.logMatchStart();
@@ -152,7 +157,7 @@ class PondFrontServerGame {
   }
 
   createPlayers(humanAnimal, difficulty) {
-    const personalities = ["aggressive", "defensive", "expander", "objectiveHunter", "leaderHunter", "betrayer", "farmer", "peaceful", "loyalAlly", "opportunist"];
+    const personalities = ["aggressive", "defensive", "expander", "objectiveHunter", "leaderHunter", "supporter", "betrayer", "farmer", "peaceful", "loyalAlly", "opportunist"];
     const lobbyHumans = this.matchSettings.humanPlayers || [];
     const players = lobbyHumans.length
       ? lobbyHumans.map((entry, index) => {
@@ -251,6 +256,9 @@ class PondFrontServerGame {
         tilesCaptured: 0,
         energyUsed: 0,
         playersDefeated: 0,
+        supportSent: 0,
+        supportReceived: 0,
+        surrenderedEnemies: 0,
         attacksLaunched: 0,
         defenses: 0,
         buildingsBuilt: 0,
@@ -259,6 +267,7 @@ class PondFrontServerGame {
         campsCaptured: 0,
         bestAttackWave: 0,
         damageDealt: 0,
+        incomePeak: 0,
       },
     };
   }
@@ -271,7 +280,11 @@ class PondFrontServerGame {
     this.teamManager.update(this);
     this.objectives.update(this);
     this.eventsManager.update(this);
+    this.core.update(this);
     this.economy.update(this.players, dt, this.now(), this);
+    this.players.forEach((player) => {
+      player.stats.incomePeak = Math.max(player.stats.incomePeak || 0, player.income || 0);
+    });
     this.missions.update(this);
     this.botManager.update(dt);
     this.checkWin();
@@ -293,10 +306,11 @@ class PondFrontServerGame {
       const result = this.economy.build(player, tile, body.buildingType, this.now());
       if (result.ok) {
         this.pushEvent({
-          kind: "buildComplete",
+          kind: "buildStarted",
           playerId: player.id,
           to: tile.id,
           buildingType: body.buildingType,
+          finishesAt: result.buildingActiveAt,
           at: this.now(),
         });
       }
@@ -307,10 +321,12 @@ class PondFrontServerGame {
       const result = this.economy.upgradeBuilding(player, tile, this.now());
       if (result.ok) {
         this.pushEvent({
-          kind: "buildUpgrade",
+          kind: "buildUpgradeStarted",
           playerId: player.id,
           to: tile.id,
           buildingType: tile.building,
+          level: tile.buildingLevel || 1,
+          finishesAt: result.buildingActiveAt,
           at: this.now(),
         });
       }
@@ -336,6 +352,12 @@ class PondFrontServerGame {
         targetTileId: body.tileId,
       });
     }
+    if (body.type === "startContinuousAttack") {
+      return this.combat.startContinuousAttack(this, player, Number(body.tileId), percent, body.sourceIds || []);
+    }
+    if (body.type === "stopContinuousAttack") return this.combat.stopContinuousAttack(this, player.id, "Attack cancelled.");
+    if (body.type === "support") return this.support.send(this, player, body.targetId, percent);
+    if (body.type === "waterRoute") return this.combat.startWaterRouteAttack(this, player, Number(body.tileId), percent, body.sourceIds || []);
     if (body.type === "diplomacy") return this.diplomacy.handle(this, player, body.targetId, body.command);
     if (body.type === "teamCommand") return this.teamManager.handleCommand(this, player, body);
     if (body.type === "ping") return this.handlePing(player, body);
@@ -376,34 +398,23 @@ class PondFrontServerGame {
 
   checkWin() {
     if (this.teamManager?.active()) {
-      const teams = this.teamManager.territoryStats(this.players, this.tileManager.playable().length);
-      const winnerTeam = teams.find((team) => team.territoryPct >= (teamConfig.teamWinControl || config.WIN_CONTROL));
-      if (winnerTeam) {
+      const aliveTeamIds = [
+        ...new Set(
+          this.players
+            .filter((player) => !player.defeated && player.teamId && player.territory > 0)
+            .map((player) => player.teamId),
+        ),
+      ];
+      if (aliveTeamIds.length === 1) {
         const leadMember = this.players
-          .filter((player) => player.teamId === winnerTeam.id && !player.defeated)
+          .filter((player) => player.teamId === aliveTeamIds[0] && !player.defeated)
           .sort((a, b) => b.territory - a.territory)[0];
-        this.end(leadMember?.id || null, winnerTeam.id);
-        return;
-      }
-      if (this.timeLeft() <= 0) {
-        const leaderTeam = teams[0];
-        const leadMember = this.players
-          .filter((player) => player.teamId === leaderTeam?.id && !player.defeated)
-          .sort((a, b) => b.territory - a.territory)[0];
-        this.end(leadMember?.id || null, leaderTeam?.id || null);
+        this.end(leadMember?.id || null, aliveTeamIds[0]);
       }
       return;
     }
-    const active = this.players.filter((player) => !player.defeated);
-    const winner = active.find((player) => this.territoryPercent(player) >= config.WIN_CONTROL);
-    if (winner) {
-      this.end(winner.id);
-      return;
-    }
-    if (this.timeLeft() <= 0) {
-      const leader = active.slice().sort((a, b) => b.territory - a.territory)[0];
-      this.end(leader?.id || null);
-    }
+    const active = this.players.filter((player) => !player.defeated && player.territory > 0);
+    if (active.length <= 1) this.end(active[0]?.id || null);
   }
 
   end(winnerId, winnerTeamId = null) {
@@ -417,8 +428,42 @@ class PondFrontServerGame {
       winnerId,
       winnerTeamId,
       message: winnerTeam ? `${winnerTeam.name} controls the pond together.` : winner ? `${winner.name} controls the pond.` : "The match ended.",
+      elapsed: Math.round(this.elapsed()),
       at: this.now(),
     });
+  }
+
+  surrenderPlayer(player, targetId = null, reason = "surrendered") {
+    if (!player || player.defeated) return { ok: false, message: "Player already defeated." };
+    const target = targetId ? this.getPlayer(targetId) : null;
+    const now = this.now();
+    const owned = this.tileManager.owned(player.id);
+    owned.forEach((tile, index) => {
+      const transfer = target && index % 3 !== 0;
+      tile.owner = transfer ? target.id : null;
+      tile.captureProgress = {};
+      tile.defenseEnergy = transfer ? Math.min(12, tile.defenseEnergy || 2) : Math.max(0, (tile.defenseEnergy || 0) * 0.35);
+      tile.building = null;
+      tile.buildingLevel = 0;
+      tile.lastChanged = now;
+    });
+    player.defeated = true;
+    player.stats.surrendered = 1;
+    if (target) {
+      target.stats.playersDefeated = (target.stats.playersDefeated || 0) + 1;
+      target.stats.surrenderedEnemies = (target.stats.surrenderedEnemies || 0) + 1;
+    }
+    this.pushEvent({
+      kind: "surrender",
+      playerId: player.id,
+      targetId: target?.id || null,
+      amount: owned.length,
+      message: target ? `${player.name} surrendered to ${target.name}. Territory absorbed.` : `${player.name} surrendered. Territory returned to the pond.`,
+      reason,
+      at: now,
+    });
+    this.economy.recalculate(this.players, now, this);
+    return { ok: true, message: `${player.name} surrendered.` };
   }
 
   snapshot(viewerId = config.HUMAN_ID) {
@@ -441,6 +486,9 @@ class PondFrontServerGame {
       income: Number(player.income.toFixed(1)),
       incomeBreakdown: this.roundIncomeBreakdown(player.incomeBreakdown),
       coreTileId: player.coreTileId,
+      coreHealth: Math.round(player.coreHealth || 0),
+      coreMaxHealth: Math.round(player.coreMaxHealth || 0),
+      coreLost: Boolean(player.coreLost || player.flags?.coreLost),
       territory: player.territory,
       territoryPct: playable ? player.territory / playable : 0,
       defeated: player.defeated,
@@ -455,6 +503,7 @@ class PondFrontServerGame {
       abilityStatus: this.combat.abilityStatus(player, this.now()),
       progression: this.progression.progress(player),
       attackCooldownUntil: player.attackCooldownUntil || 0,
+      supportReadyAt: player.supportReadyAt || 0,
       buildings: player.buildings,
       flags: player.flags,
       stats: player.stats,
@@ -463,6 +512,11 @@ class PondFrontServerGame {
     return {
       serverTime: this.now(),
       timeLeft: this.timeLeft(),
+      elapsed: this.elapsed(),
+      animalsLeft: players.filter((player) => !player.defeated && player.territory > 0).length,
+      teamsLeft: this.teamManager?.active()
+        ? new Set(players.filter((player) => !player.defeated && player.teamId && player.territory > 0).map((player) => player.teamId)).size
+        : 0,
       regions: this.tileManager.regions,
       objectives: this.objectives.snapshot().objectives,
       camps: this.objectives.snapshot().camps,
@@ -489,6 +543,7 @@ class PondFrontServerGame {
         building: tile.building,
         buildingLevel: tile.buildingLevel || 0,
         buildingActiveAt: tile.buildingActiveAt || 0,
+        buildingPendingEvent: tile.buildingPendingEvent || null,
         captureProgress: this.roundCaptureProgress(tile.captureProgress),
         defenseEnergy: Math.round(tile.defenseEnergy),
         objectiveId: tile.objectiveId || null,
@@ -496,6 +551,10 @@ class PondFrontServerGame {
         campId: tile.campId || null,
         campType: tile.campType || null,
         specialActive: Boolean(tile.specialActive),
+        isCore: Boolean(tile.isCore),
+        coreOwnerId: tile.coreOwnerId || null,
+        coreHealth: Math.round(tile.coreHealth || 0),
+        coreMaxHealth: Math.round(tile.coreMaxHealth || 0),
         lastChanged: tile.lastChanged,
       })),
       players,
@@ -632,7 +691,7 @@ class PondFrontServerGame {
     if (event.kind === "attackWave") this.metrics.attacks += 1;
     if (event.kind === "waveCapture") this.metrics.waveCaptures += 1;
     if (event.kind === "expand") this.metrics.expansions += 1;
-    if (event.kind === "buildComplete") this.metrics.builds += 1;
+    if (event.kind === "buildStarted") this.metrics.builds += 1;
     if (event.kind === "defend") this.metrics.defenses += 1;
     if (event.kind === "ping") this.metrics.pings += 1;
     if (event.kind === "objectiveCaptured") this.metrics.objectives += 1;

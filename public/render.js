@@ -831,6 +831,18 @@
           ring: false,
         });
       });
+      (this.state.tiles || []).forEach((tile) => {
+        if (!tile.isCore) return;
+        const owner = this.playerMap.get(tile.coreOwnerId);
+        markers.push({
+          tile,
+          active: tile.owner === tile.coreOwnerId,
+          owner: tile.owner,
+          label: "CN",
+          color: owner?.color || "#f0cc74",
+          ring: true,
+        });
+      });
       if (!markers.length) return;
       const size = this.baseTile * this.camera.zoom;
       ctx.save();
@@ -968,7 +980,12 @@
         if (source && target) {
           const from = this.tileCenter(source);
           const to = this.tileCenter(target);
-          this.drawStrategicFlow(ctx, from, to, color, now, 0.75 + pulse * 0.35);
+          const label = wave.continuous
+            ? `${Math.max(1, Math.round(wave.drainPerSecond || wave.remainingPower || 0))}/s`
+            : wave.routeAttack
+              ? "Current"
+              : "";
+          this.drawStrategicFlow(ctx, from, to, color, now, 0.75 + pulse * 0.35, label);
         }
 
         wave.capturedTiles.slice(-18).forEach((id, index) => {

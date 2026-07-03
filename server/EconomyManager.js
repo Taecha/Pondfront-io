@@ -10,11 +10,32 @@ class EconomyManager {
 
   update(players, dt, now = Date.now() / 1000, game = null) {
     this.recalculate(players, now, game);
+    this.completeBuildings(now, game);
     players.forEach((player) => {
       if (player.defeated) return;
       player.flags.warExhaustion = Math.max(0, (player.flags.warExhaustion || 0) - balance.warExhaustionDecayPerSecond * dt);
       player.energy = Math.min(player.maxEnergy, player.energy + player.income * dt);
       player.energy = Math.max(0, player.energy);
+    });
+  }
+
+  completeBuildings(now, game = null) {
+    if (!game) return;
+    this.tileManager.tiles.forEach((tile) => {
+      if (!tile.building || !tile.buildingActiveAt || tile.buildingActiveAt > now || tile.buildingCompleteNotified) return;
+      tile.buildingCompleteNotified = true;
+      const player = game.getPlayer(tile.owner);
+      game.pushEvent({
+        kind: tile.buildingPendingEvent === "upgrade" ? "buildUpgrade" : "buildComplete",
+        playerId: tile.owner,
+        to: tile.id,
+        buildingType: tile.building,
+        level: tile.buildingLevel || 1,
+        at: now,
+        message: `${config.BUILDINGS[tile.building]?.label || "Building"} ${tile.buildingPendingEvent === "upgrade" ? `upgraded to level ${tile.buildingLevel || 1}` : "finished"}.`,
+      });
+      delete tile.buildingPendingEvent;
+      if (player) player.flags = player.flags || {};
     });
   }
 
@@ -29,6 +50,7 @@ class EconomyManager {
         mudTunnel: false,
         objectiveDefenseBonus: 0,
         abilityCooldownReduction: 0,
+        routePowerBonus: 0,
       };
       player.buildings = { nest: 0, lilyFarm: 0, reedGuard: 0, mudTunnel: 0, jumpPad: 0 };
       player.incomeBreakdown = {
@@ -81,6 +103,7 @@ class EconomyManager {
       if (territoryPct < balance.recoveryTerritoryPct && player.territory > 0) {
         player.incomeBreakdown.recovery += balance.recoveryIncomeMax * (1 - territoryPct / balance.recoveryTerritoryPct);
       }
+      game?.core?.applyEconomy(player);
       if (player.animal === "duck" && player.abilityActiveUntil > now) player.incomeBreakdown.temporary += 0.25;
       if (player.animal === "carp" && player.abilityActiveUntil > now) {
         const current = Object.values(player.incomeBreakdown).reduce((sum, value) => sum + value, 0);
@@ -103,7 +126,15 @@ class EconomyManager {
       if (player.animal === "duck") player.maxEnergy *= 1.08;
       if ((player.level || 1) >= 5 && player.animal === "duck") player.maxEnergy *= 1.04;
       player.energy = Math.min(player.energy, player.maxEnergy);
-      if (player.territory <= 0 && !player.defeated) player.defeated = true;
+      if (player.territory <= 0 && !player.defeated) {
+        player.defeated = true;
+        game?.pushEvent?.({
+          kind: "eliminated",
+          playerId: player.id,
+          message: `${player.name} was eliminated.`,
+          at: now,
+        });
+      }
     });
   }
 
@@ -117,9 +148,10 @@ class EconomyManager {
       player.maxEnergy += balance.nestMaxEnergyBonus * boost;
       player.incomeBreakdown.buildings += balance.nestIncomeBonus * level;
     }
-    if (tile.building === "lilyFarm") {
-      const nearEnemy = tile.neighbors?.some((neighbor) => neighbor.owner && neighbor.owner !== player.id) ? balance.farmBorderPenalty : 0;
-      player.incomeBreakdown.buildings += Math.max(0.35, (balance.farmIncomeBonus + (tile.type === "lily" ? balance.farmLilyBonus : 0) - nearEnemy) * boost);
+      if (tile.building === "lilyFarm") {
+        const nearEnemy = tile.neighbors?.some((neighbor) => neighbor.owner && neighbor.owner !== player.id) ? balance.farmBorderPenalty : 0;
+      const efficiency = this.farmEfficiency(player);
+      player.incomeBreakdown.buildings += Math.max(0.25, (balance.farmIncomeBonus + (tile.type === "lily" ? balance.farmLilyBonus : 0) - nearEnemy) * boost * efficiency);
       if (player.animal === "frog") player.incomeBreakdown.animal += balance.farmFrogBonus * level;
     }
     if (tile.building === "reedGuard") {
@@ -144,66 +176,89 @@ class EconomyManager {
     if (objective.maxEnergyBonus) player.maxEnergy += objective.maxEnergyBonus;
     if (objective.defenseBonus) player.flags.objectiveDefenseBonus += objective.defenseBonus;
     if (objective.cooldownReduction) player.flags.abilityCooldownReduction += objective.cooldownReduction;
+    if (objective.routePowerBonus) player.flags.routePowerBonus = Math.max(player.flags.routePowerBonus || 0, objective.routePowerBonus);
   }
 
   buildingCost(player, buildingType) {
     const building = config.BUILDINGS[buildingType];
     if (!building) return Infinity;
-    if (buildingType !== "lilyFarm") return building.cost;
+    const ownedCount = player.buildings?.[buildingType] || 0;
+    const growth = buildingType === "lilyFarm" ? balance.farmCostGrowth || balance.buildingCostGrowth || 0.35 : balance.buildingCostGrowth || 0.35;
+    const baseCost = buildingType === "lilyFarm" ? balance.farmBaseCost || building.cost : building.cost;
+    const carpDiscount = player.animal === "carp" && buildingType === "lilyFarm" ? balance.carpLilyFarmCostMultiplier || 0.9 : 1;
+    return Math.round(baseCost * (1 + ownedCount * growth) * carpDiscount);
+  }
+
+  farmEfficiency(player) {
     const farms = player.buildings?.lilyFarm || 0;
-    const carpDiscount = player.animal === "carp" ? balance.carpLilyFarmCostMultiplier || 0.9 : 1;
-    return Math.round(balance.farmBaseCost * Math.pow(1 + balance.farmCostGrowth, farms) * carpDiscount);
+    const softCap = Math.max(1, Math.ceil(Math.max(1, player.territory || 1) / (balance.farmSoftCapTerritory || balance.farmTerritoryPerFarm || 16)));
+    const over = Math.max(0, farms - softCap);
+    return Math.max(0.45, 1 - over * (balance.farmSoftCapPenalty || 0.08));
   }
 
-  maxLilyFarms(player) {
-    return Math.max(1, Math.floor(Math.max(0, player.territory) / balance.farmTerritoryPerFarm) + 1);
-  }
-
-  hasLilyFarmSupport(tile) {
-    if (!tile) return false;
-    if (tile.type === "lily" || tile.type === "nest") return true;
-    return tile.neighbors?.some((neighbor) => neighbor.type === "lily" || neighbor.type === "nest");
-  }
-
-  canBuild(player, tile, buildingType) {
+  buildUnavailableReason(player, tile, buildingType, now = Date.now() / 1000) {
     const building = config.BUILDINGS[buildingType];
-    if (!building || !tile || tile.owner !== player.id || tile.building) return false;
-    if (building.animal && building.animal !== player.animal) return false;
-    if (!building.validTiles.includes(tile.type)) return false;
-    if (buildingType === "lilyFarm") {
-      if ((player.buildings?.lilyFarm || 0) >= this.maxLilyFarms(player)) return false;
-      if (!this.hasLilyFarmSupport(tile)) return false;
-    }
-    return player.energy >= this.buildingCost(player, buildingType);
+    if (!player || player.defeated) return "You are out of the pond.";
+    if (!building) return "Unknown building.";
+    if (!tile || tile.owner !== player.id) return "Choose one of your territory tiles.";
+    if (tile.building) return "That tile already has a building.";
+    if (building.animal && building.animal !== player.animal) return `${building.label} is for ${building.animal} only.`;
+    if (!building.validTiles.includes(tile.type)) return `Needs ${building.validTiles.map((type) => config.TILE_TYPES[type]?.label || type).join(", ")}.`;
+    const cost = this.buildingCost(player, buildingType);
+    if (player.energy < cost) return `Need ${cost} Animal Energy.`;
+    return "";
+  }
+
+  canBuild(player, tile, buildingType, now = Date.now() / 1000) {
+    return !this.buildUnavailableReason(player, tile, buildingType, now);
   }
 
   build(player, tile, buildingType, now) {
-    if (!this.canBuild(player, tile, buildingType)) {
-      return { ok: false, message: "Cannot build there." };
+    const reason = this.buildUnavailableReason(player, tile, buildingType, now);
+    if (reason) {
+      return { ok: false, message: reason };
     }
     const building = config.BUILDINGS[buildingType];
     const cost = this.buildingCost(player, buildingType);
+    const buildTime = balance.buildTimeSeconds || 10;
     player.energy -= cost;
     tile.building = buildingType;
     tile.buildingLevel = 1;
-    tile.buildingActiveAt = buildingType === "lilyFarm" ? now + balance.farmActivationTime : now;
+    tile.buildingActiveAt = now + buildTime;
+    tile.buildingCompleteNotified = false;
+    tile.buildingPendingEvent = "build";
     tile.lastChanged = now;
+    player.buildings = player.buildings || {};
+    player.buildings[buildingType] = (player.buildings[buildingType] || 0) + 1;
     player.stats.buildingsBuilt = (player.stats.buildingsBuilt || 0) + 1;
-    return { ok: true, message: buildingType === "lilyFarm" ? `${building.label} planted. Active in ${balance.farmActivationTime}s.` : `${building.label} built.` };
+    return {
+      ok: true,
+      message: `${building.label} construction started. Finishes in ${buildTime}s.`,
+      spentEnergy: cost,
+      buildTime,
+      buildingActiveAt: tile.buildingActiveAt,
+      nextCost: this.buildingCost(player, buildingType),
+    };
   }
 
   upgradeBuilding(player, tile, now) {
     if (!tile || tile.owner !== player.id || !tile.building) return { ok: false, message: "Choose one of your buildings." };
+    if (tile.buildingActiveAt && tile.buildingActiveAt > now) return { ok: false, message: `Building is still under construction. Wait ${Math.ceil(tile.buildingActiveAt - now)}s.` };
     const building = config.BUILDINGS[tile.building];
     const level = Math.max(1, Number(tile.buildingLevel) || 1);
     if (level >= 3) return { ok: false, message: "Building is already max level." };
-    const cost = Math.round((building?.cost || 40) * (0.72 + level * 0.55));
+    const ownedCount = player.buildings?.[tile.building] || 0;
+    const cost = Math.round((building?.cost || 40) * (0.78 + level * (balance.upgradeCostGrowth || 0.82)) * (1 + Math.max(0, ownedCount - 1) * 0.08));
     if (player.energy < cost) return { ok: false, message: "Not enough Animal Energy." };
+    const upgradeTime = balance.upgradeTimeSeconds || balance.buildTimeSeconds || 8;
     player.energy -= cost;
     tile.buildingLevel = level + 1;
+    tile.buildingActiveAt = now + upgradeTime;
+    tile.buildingCompleteNotified = false;
+    tile.buildingPendingEvent = "upgrade";
     tile.defenseEnergy = Math.min(90, tile.defenseEnergy + 8 + level * 4);
     tile.lastChanged = now;
-    return { ok: true, message: `${building?.label || "Building"} upgraded to level ${tile.buildingLevel}.` };
+    return { ok: true, message: `${building?.label || "Building"} upgrading to level ${tile.buildingLevel}. Finishes in ${upgradeTime}s.`, spentEnergy: cost, buildingActiveAt: tile.buildingActiveAt };
   }
 
   removeBuilding(player, tile, now) {
@@ -212,6 +267,8 @@ class EconomyManager {
     tile.building = null;
     tile.buildingLevel = 0;
     tile.buildingActiveAt = 0;
+    tile.buildingCompleteNotified = false;
+    delete tile.buildingPendingEvent;
     tile.lastChanged = now;
     return { ok: true, message: `${building?.label || "Building"} removed.` };
   }

@@ -147,8 +147,14 @@
         }
         if (event.kind === "waveCapture") this.play("capture", { cooldown: 55 });
         if (event.kind === "waveResist" || (event.kind === "waveEnd" && (event.captured || 0) === 0)) this.play("blocked", { cooldown: 110 });
+        if (event.kind === "continuousAttackStart" || event.kind === "waterRouteAttack") this.play("attack", { intensity: 0.95, cooldown: 140 });
+        if (event.kind === "supportSent") this.play("alliance", { cooldown: 180 });
+        if (event.kind === "coreUnderAttack") this.play("warning", { cooldown: 260 });
+        if (event.kind === "coreCaptured" || event.kind === "surrender" || event.kind === "eliminated") this.play("objective", { cooldown: 260 });
         if (event.kind === "defend") this.play("defend", { cooldown: 100 });
+        if (event.kind === "buildStarted") this.play("build", { cooldown: 120, intensity: 0.72 });
         if (event.kind === "buildComplete") this.play("build", { cooldown: 120 });
+        if (event.kind === "buildUpgradeStarted") this.play("upgrade", { cooldown: 140, intensity: 0.72 });
         if (event.kind === "buildUpgrade") this.play("upgrade", { cooldown: 120 });
         if (event.kind === "objectiveAppeared" || event.kind === "objectiveCaptured" || event.kind === "campCaptured") this.play("objective", { cooldown: 220 });
         if (event.kind === "diplomacy" && ["alliance", "allianceAccepted"].includes(event.subtype)) this.play("alliance", { cooldown: 180 });

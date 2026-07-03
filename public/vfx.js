@@ -54,6 +54,29 @@
         this.spawnAttackArrow(event.from, event.to, color, "");
       } else if (event.kind === "waveResist") {
         this.spawnBlockedEffect(event.to, "Blocked");
+      } else if (event.kind === "supportSent") {
+        const target = state?.players?.find((candidate) => candidate.id === event.targetId);
+        this.spawnAttackArrow(player?.coreTileId, target?.coreTileId, "#87d7ea", `+${event.received || event.amount || 0}`);
+        this.spawnScreenNotice("Support Sent", "#87d7ea");
+      } else if (event.kind === "continuousAttackStart") {
+        this.spawnAttackArrow(event.from, event.to, color, "Push");
+        this.spawnScreenNotice("Continuous Attack", color);
+      } else if (event.kind === "continuousAttackStop") {
+        this.spawnBlockedEffect(event.to, "Stopped");
+      } else if (event.kind === "continuousAttackPulse") {
+        this.spawnPulse(event.to, color, 0.86);
+      } else if (event.kind === "waterRouteAttack") {
+        (event.routeTiles || []).slice(0, 18).forEach((tileId) => this.spawnRipple(tileId, "#87d7ea", 0.62));
+        this.spawnAttackArrow(event.from, event.to, color, "Current");
+      } else if (event.kind === "coreUnderAttack") {
+        this.spawnBlockedEffect(event.to, "Core Hit");
+        this.spawnScreenNotice("Core Nest Under Attack", "#e9857c");
+      } else if (event.kind === "coreCaptured") {
+        this.spawnObjectiveEffect(event.to, color, "Core Captured!");
+      } else if (event.kind === "surrender") {
+        this.spawnScreenNotice(event.message || "Player Surrendered", "#f2d87a");
+      } else if (event.kind === "eliminated") {
+        this.spawnScreenNotice(event.message || "Eliminated", event.playerId === state?.humanId ? "#e9857c" : "#f2d87a");
       } else if (event.kind === "defend") {
         this.spawnDefendEffect([event.to]);
       } else if (event.kind === "ability") {
@@ -67,6 +90,12 @@
         this.spawnPulse(event.to, color, 1.35);
         this.spawnAttackArrow(event.from, event.to, color, "Ambush Used");
         this.spawnFloatingText(event.to, "Ambush Used", color);
+      } else if (event.kind === "buildStarted") {
+        this.spawnRipple(event.to, "#f2d87a", 0.72);
+        this.spawnFloatingText(event.to, "Building", "#f2d87a");
+      } else if (event.kind === "buildUpgradeStarted") {
+        this.spawnRipple(event.to, "#f2d87a", 0.72);
+        this.spawnFloatingText(event.to, `Upgrade L${event.level || ""}`.trim(), "#f2d87a");
       } else if (event.kind === "buildComplete") {
         this.spawnBuildEffect(event.to, event.buildingType);
       } else if (event.kind === "buildUpgrade") {

@@ -392,6 +392,30 @@
           const actor = this.player(event.playerId);
           this.ui.toast(`${actor?.name || "Teammate"} is responding.`);
         }
+        if (event.kind === "supportSent" && this.involvesHuman(event)) {
+          this.ui.toast(event.message || "Support sent.");
+        }
+        if (event.kind === "continuousAttackStart" && this.involvesHuman(event)) {
+          this.ui.toast(`Continuous attack started: ${Math.round(event.drainPerSecond || 0)} energy/s.`);
+        }
+        if (event.kind === "continuousAttackStop" && this.involvesHuman(event)) {
+          this.ui.toast(event.message || "Continuous attack stopped.", true);
+        }
+        if (event.kind === "waterRouteAttack" && this.involvesHuman(event)) {
+          this.ui.toast(event.message || "Current Push launched.");
+        }
+        if (event.kind === "coreUnderAttack" && this.involvesHuman(event)) {
+          this.ui.toast(event.message || "Core Nest under attack.", true);
+        }
+        if ((event.kind === "coreCaptured" || event.kind === "surrender") && this.involvesHuman(event)) {
+          this.ui.toast(event.message || "Core battle resolved.", event.targetOwner === this.state.humanId || event.playerId === this.state.humanId);
+        }
+        if (event.kind === "eliminated") {
+          this.ui.toast(event.message || "An animal was eliminated.", event.playerId === this.state.humanId);
+        }
+        if ((event.kind === "buildComplete" || event.kind === "buildUpgrade") && this.involvesHuman(event)) {
+          this.ui.toast(event.message || (event.kind === "buildUpgrade" ? "Upgrade finished." : "Building finished."));
+        }
         if (event.kind === "waveEnd" && this.involvesHuman(event)) {
           const captured = event.captured || 0;
           this.ui.toast(captured > 0 ? `Frontline wave captured ${captured} tiles.` : event.message || "Attack wave stopped.", captured === 0);
@@ -416,7 +440,10 @@
     involvesHuman(event) {
       return Boolean(
         this.state &&
-          (event.playerId === this.state.humanId || event.targetId === this.state.humanId || event.targetOwner === this.state.humanId),
+          (event.playerId === this.state.humanId ||
+            event.targetId === this.state.humanId ||
+            event.targetOwner === this.state.humanId ||
+            event.attackerId === this.state.humanId),
       );
     }
 
@@ -450,6 +477,10 @@
       const type = payload.type;
       if (type === "ability") {
         await this.handleAbilityAction(payload);
+        return;
+      }
+      if (type === "attack" && this.activeContinuousAttack()) {
+        await this.postAction({ type: "stopContinuousAttack" });
         return;
       }
 
@@ -528,7 +559,7 @@
 
       this.mode = type;
       const action = {
-        type,
+        type: type === "attack" ? "startContinuousAttack" : type,
         tileId: tile.id,
         percent: this.ui.percent,
         buildingType: payload.buildingType,
@@ -578,6 +609,14 @@
     async handleDiplomacy(command) {
       if (!this.state || !this.selectedPlayerId) {
         this.ui.toast("Select another player first.", true);
+        return;
+      }
+      if (command === "sendSupport") {
+        await this.postAction({
+          type: "support",
+          targetId: this.selectedPlayerId,
+          percent: this.ui.percent,
+        });
         return;
       }
       await this.postAction({
@@ -852,7 +891,7 @@
         return;
       }
       if (tile.owner && tile.owner !== human.id && this.tileContext(tile).canAttack) {
-        await this.postAction({ type: "attack", tileId: tile.id, percent: this.ui.percent, sourceIds: this.validSourceTiles().map((source) => source.id) });
+        await this.postAction({ type: "startContinuousAttack", tileId: tile.id, percent: this.ui.percent, sourceIds: this.validSourceTiles().map((source) => source.id) });
         return;
       }
       if (tile.owner === human.id && this.isBorder(tile, human.id)) {
@@ -1028,28 +1067,34 @@
       }
 
       const relation = this.relationship(tile.owner);
-      if (relation?.allied) {
+      if (relation?.allied || relation?.teammate) {
         add("Ping Good Job", { action: "ping", pingType: "good", targetId: tile.owner }, { icon: "P", hint: "Ally-visible signal" });
         add("Request Help", { action: "ping", pingType: "help", targetId: tile.owner }, { icon: "H", hint: "Ask ally to support this area" });
+        [0.25, 0.5, 0.75].forEach((percent) =>
+          add(`Send Support ${Math.round(percent * 100)}%`, { action: "support", percent, targetId: tile.owner }, { icon: "S", hint: "Transfer Animal Energy with 75% efficiency" }),
+        );
         add("Ping Defend Here", { action: "ping", pingType: "defend", targetId: tile.owner }, { icon: "D", hint: "Ask ally to defend here" });
         add("Ping Attack Here", { action: "ping", pingType: "attack", targetId: tile.owner }, { icon: "A", hint: "Coordinate an ally attack" });
         this.teamCommandMenuItems(tile, ["help", "defend", "objective"]).forEach((item) => items.push(item));
         add("Ping Danger", { action: "ping", pingType: "danger", targetId: tile.owner }, { icon: "!", hint: "Warn your ally" });
         add("View Ally Info", { action: "viewPlayer", targetId: tile.owner }, { icon: "i", hint: "Open player details" });
-        add("Break Alliance", { action: "diplomacy", command: "breakAlliance", targetId: tile.owner }, { icon: "B", danger: true, hint: "End friendly status" });
-        return { title: owner?.name || "Ally", subtitle: `${type.label} | Alliance`, items };
+        if (!relation?.teammate) add("Break Alliance", { action: "diplomacy", command: "breakAlliance", targetId: tile.owner }, { icon: "B", danger: true, hint: "End friendly status" });
+        return { title: owner?.name || "Ally", subtitle: `${type.label} | ${relation?.teammate ? "Team" : "Alliance"}`, items };
       }
 
       const attackable = this.isAttackableBorder(tile);
       if (attackable) {
         [0.1, 0.25, 0.5, 0.75, 1].forEach((percent) =>
-          add(`Attack ${Math.round(percent * 100)}%`, { action: "attack", percent, targetId: tile.owner }, { icon: "A", danger: percent >= 0.75, hint: "Launch frontline wave" }),
+          add(`Start Attack ${Math.round(percent * 100)}%`, { action: "attack", percent, targetId: tile.owner }, { icon: "A", danger: percent >= 0.75, hint: "Start a continuous frontline attack" }),
         );
       } else {
         add(relation && !relation.canAttack ? relation.blockReason : "Too Far To Attack", { action: "viewPlayer", targetId: tile.owner }, { icon: "X", disabled: true, hint: relation?.blockReason || "Need a connected enemy border" });
       }
 
       sep();
+      if (relation?.canAttack) {
+        add("Current Push 50%", { action: "waterRoute", percent: 0.5, targetId: tile.owner }, { icon: "~", hint: "Try a slower attack through open water routes" });
+      }
       this.teamCommandMenuItems(tile, ["attack", "push", "objective", "retreat"]).forEach((item) => items.push(item));
       if (items.length && !items[items.length - 1].separator) sep();
       if (relation?.pendingForViewer) {
@@ -1086,20 +1131,14 @@
         const badTerrain = !building.validTiles.includes(tile.type);
         const cost = this.buildingCost(buildingType, human);
         const noEnergy = human.energy < cost;
-        const farmLimit = buildingType === "lilyFarm" && human.buildings?.lilyFarm >= this.maxLilyFarms(human);
-        const farmSupport = buildingType !== "lilyFarm" || this.hasLilyFarmSupport(tile);
-        const disabled = wrongAnimal || badTerrain || noEnergy || farmLimit || !farmSupport;
+        const disabled = wrongAnimal || badTerrain || noEnergy;
         const reason = wrongAnimal
           ? "Wrong animal"
           : badTerrain
             ? "Invalid terrain"
-            : farmLimit
-              ? "Farm limit"
-              : !farmSupport
-                ? "Needs lily or nest nearby"
             : noEnergy
               ? "Not enough energy"
-              : `${cost} energy`;
+              : `${cost} energy. Finishes in ${this.state.config.balance?.buildTimeSeconds || 10}s.`;
         return {
           label: `Build ${building.label}`,
           icon: "B",
@@ -1163,8 +1202,21 @@
         await this.postAction({ type: "build", tileId: tile?.id, buildingType: payload.buildingType || this.ui.nodes.buildSelect.value });
         return;
       }
+      if (payload.action === "support") {
+        await this.postAction({ type: "support", targetId: payload.targetId || tile?.owner, percent: this.ui.percent });
+        return;
+      }
+      if (payload.action === "waterRoute") {
+        await this.postAction({
+          type: "waterRoute",
+          tileId: tile?.id,
+          percent: this.ui.percent,
+          sourceIds: this.validSourceTiles().map((source) => source.id),
+        });
+        return;
+      }
       if (["expand", "attack", "defend"].includes(payload.action)) {
-        const action = { type: payload.action, tileId: tile?.id, percent: this.ui.percent };
+        const action = { type: payload.action === "attack" ? "startContinuousAttack" : payload.action, tileId: tile?.id, percent: this.ui.percent };
         if (payload.action === "expand") action.sourceIds = this.validSourceTiles().map((source) => source.id);
         if (payload.action === "attack") action.sourceIds = this.validSourceTiles().map((source) => source.id);
         await this.postAction(action);
@@ -1381,10 +1433,6 @@
       if (building.animal && building.animal !== human.animal) return false;
       if (!building.validTiles.includes(tile.type)) return false;
       if (human.energy < this.buildingCost(buildingType, human)) return false;
-      if (buildingType === "lilyFarm") {
-        if ((human.buildings?.lilyFarm || 0) >= this.maxLilyFarms(human)) return false;
-        if (!this.hasLilyFarmSupport(tile)) return false;
-      }
       return true;
     }
 
@@ -1461,6 +1509,11 @@
       return this.state?.players.find((candidate) => candidate.id === id) || null;
     }
 
+    activeContinuousAttack() {
+      const humanId = this.state?.humanId;
+      return (this.state?.activeAttacks || []).find((wave) => wave.continuous && wave.attackerId === humanId) || null;
+    }
+
     isAllied(playerId) {
       return Boolean(this.human()?.allies.includes(playerId));
     }
@@ -1526,20 +1579,16 @@
       if (configured != null) return configured;
       const building = this.state?.config?.buildings?.[buildingType];
       if (!building) return Infinity;
-      if (buildingType !== "lilyFarm") return building.cost;
       const balance = this.state.config.balance || root.PondBalance || {};
-      const farms = human?.buildings?.lilyFarm || 0;
-      const carpDiscount = human?.animal === "carp" ? balance.carpLilyFarmCostMultiplier || 0.9 : 1;
-      return Math.round((balance.farmBaseCost || building.cost) * Math.pow(1 + (balance.farmCostGrowth || 0.2), farms) * carpDiscount);
+      const ownedCount = human?.buildings?.[buildingType] || 0;
+      const growth = buildingType === "lilyFarm" ? balance.farmCostGrowth || balance.buildingCostGrowth || 0.35 : balance.buildingCostGrowth || 0.35;
+      const baseCost = buildingType === "lilyFarm" ? balance.farmBaseCost || building.cost : building.cost;
+      const carpDiscount = human?.animal === "carp" && buildingType === "lilyFarm" ? balance.carpLilyFarmCostMultiplier || 0.9 : 1;
+      return Math.round(baseCost * (1 + ownedCount * growth) * carpDiscount);
     }
 
-    maxLilyFarms(human = this.human()) {
-      const balance = this.state?.config?.balance || root.PondBalance || {};
-      return Math.max(1, Math.floor((human?.territory || 0) / (balance.farmTerritoryPerFarm || 18)) + 1);
-    }
-
-    hasLilyFarmSupport(tile) {
-      return Boolean(tile && (tile.type === "lily" || tile.type === "nest" || this.neighbors(tile).some((neighbor) => neighbor.type === "lily" || neighbor.type === "nest")));
+    constructionLeft(tile) {
+      return Math.max(0, Math.ceil((tile?.buildingActiveAt || 0) - (this.state?.serverTime || 0)));
     }
 
     tileAt(x, y) {

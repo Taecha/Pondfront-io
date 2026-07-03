@@ -832,8 +832,8 @@
         this.nodes.teamStat.textContent = humanTeam ? `${humanTeam.name.replace(" Team", "")} ${Math.round(humanTeam.territoryPct * 100)}%` : "Solo";
         this.nodes.teamStat.style.color = humanTeam?.color || "";
       }
-      this.nodes.timerStat.textContent = this.formatTime(state.timeLeft);
-      this.nodes.controlMeter.style.transform = `scaleX(${Math.max(0, Math.min(1, human.territoryPct / state.winControl))})`;
+      this.nodes.timerStat.textContent = `${this.formatTime(state.elapsed || 0)} | ${state.teamState?.active ? `${state.teamsLeft || 0} teams` : `${state.animalsLeft || 0} left`}`;
+      this.nodes.controlMeter.style.transform = `scaleX(${Math.max(0, Math.min(1, human.territoryPct))})`;
       this.nodes.teamButton?.classList.toggle("active", Boolean(state.teamState?.active));
       if (this.nodes.teamButton) this.nodes.teamButton.disabled = !state.teamState?.active;
       if (this.nodes.mobileTeamButton) {
@@ -919,7 +919,12 @@
         return { label: `Expand ${percent}%`, type: "expand", detail: context.estimateText || "Capture neutral water." };
       }
       if (context.canAttack) {
-        return { label: `Attack ${percent}%`, type: "attack", detail: context.estimateText || "Launch a border wave." };
+        const activeContinuous = state.activeAttacks?.some((wave) => wave.continuous && wave.attackerId === human.id);
+        return {
+          label: activeContinuous ? "Stop Attack" : `Start Attack ${percent}%`,
+          type: "attack",
+          detail: activeContinuous ? "Stop your current frontline order." : context.estimateText || "Start a continuous border push.",
+        };
       }
       if (tile.owner === human.id && tile.building) {
         return {
@@ -957,11 +962,14 @@
       }
       const summary = root.PondInfo?.tileSummary(state, tile, context);
       if (!summary) return;
+      const coreText = tile.isCore ? ` Core Nest: ${Math.round(tile.coreHealth || 0)}/${Math.round(tile.coreMaxHealth || 0)}.` : "";
+      const facts = summary.facts.slice();
+      if (tile.isCore) facts.unshift({ label: "Core Nest", value: `${Math.round(tile.coreHealth || 0)}/${Math.round(tile.coreMaxHealth || 0)}` });
       this.nodes.tileTitle.textContent = summary.title;
-      this.nodes.tileDetails.textContent = summary.detail;
+      this.nodes.tileDetails.textContent = `${summary.detail}${coreText}`;
       this.nodes.tileOwner.textContent = summary.ownerText;
       this.nodes.tileDefense.textContent = context.kind === "attackBorder" ? `Wave cost ~${context.nextCost}` : summary.defenseText;
-      this.nodes.tileFacts.innerHTML = summary.facts
+      this.nodes.tileFacts.innerHTML = facts
         .map((fact) => `<div><span>${this.escape(fact.label)}</span><strong>${this.escape(fact.value)}</strong></div>`)
         .join("");
       this.nodes.tileWarning.textContent = summary.warning || "";
@@ -997,7 +1005,7 @@
         const action = button.dataset.diplomacy;
         delete button.dataset.command;
         let enabled = true;
-        if (relation.teammate) enabled = ["pingAlly", "requestHelp", "sendWarning"].includes(action);
+        if (relation.teammate) enabled = ["pingAlly", "requestHelp", "sendSupport", "sendWarning"].includes(action);
         if (action === "requestAlliance") enabled = !relation.allied && relation.state !== "requested" && relation.state !== "truce" && relation.betrayalLeft <= 0;
         if (action === "acceptAlliance") enabled = relation.pendingForViewer && relation.requestType === "alliance";
         if (action === "acceptAlliance" && relation.pendingForViewer && relation.requestType === "truce") {
@@ -1009,9 +1017,9 @@
         if (action === "declareWar") enabled = !relation.betrayalByViewer || relation.betrayalLeft <= 0;
         if (action === "breakAlliance") enabled = relation.allied;
         if (action === "markEnemy") enabled = !relation.allied;
-        if (action === "pingAlly" || action === "requestHelp") enabled = relation.allied;
+        if (action === "pingAlly" || action === "requestHelp" || action === "sendSupport") enabled = relation.allied || relation.teammate;
         if (action === "sendWarning") enabled = true;
-        if (relation.teammate && !["pingAlly", "requestHelp", "sendWarning"].includes(action)) enabled = false;
+        if (relation.teammate && !["pingAlly", "requestHelp", "sendSupport", "sendWarning"].includes(action)) enabled = false;
         button.disabled = !enabled;
         button.dataset.relationState = relation.state;
         button.title = this.diplomacyTitle(action, relation);
@@ -1036,6 +1044,7 @@
           markEnemy: "Mark this player as an enemy.",
           pingAlly: "Send an ally ping.",
           requestHelp: "Ask an ally for help.",
+          sendSupport: "Send Animal Energy to this ally.",
           sendWarning: "Send a public warning.",
         }[action] || "Diplomacy action."
       ) + timer;
@@ -1157,9 +1166,15 @@
     updateActionLabels(human) {
       if (human) this.lastHuman = human;
       const energy = human ? Math.round(human.energy * this.percent) : 0;
+      const activeContinuous = this.lastState?.activeAttacks?.some((wave) => wave.continuous && wave.attackerId === human?.id);
+      const construction = this.constructionLeft(this.lastTile, this.lastState);
       this.nodes.expandButton.textContent = `Expand ${energy}`;
-      this.nodes.attackButton.textContent = `Attack ${energy}`;
+      this.nodes.attackButton.textContent = activeContinuous ? "Stop Attack" : `Start Attack ${energy}`;
+      this.nodes.attackButton.classList.toggle("active", Boolean(activeContinuous));
       this.nodes.defendButton.textContent = `Defend ${Math.round(energy * 0.75)}`;
+      this.nodes.buildButton.textContent = construction > 0 ? `Building ${construction}s` : "Build";
+      this.nodes.buildButton.classList.toggle("cooldown", construction > 0);
+      this.nodes.buildButton.classList.toggle("ready", construction <= 0 && Boolean(human));
     }
 
     toast(message, bad = false) {
@@ -1306,19 +1321,20 @@
       if (tile?.owner === human.id && tile.building) {
         const building = state.config.buildings[tile.building] || {};
         const level = tile.buildingLevel || 1;
-        const upgradeCost = Math.round((building.cost || 40) * (0.72 + level * 0.55));
-        const canUpgrade = level < 3 && human.energy >= upgradeCost;
+        const upgradeCost = this.upgradeCost(tile.building, level, human, state);
+        const construction = this.constructionLeft(tile, state);
+        const canUpgrade = level < 3 && human.energy >= upgradeCost && construction <= 0;
         const defendEnergy = Math.round(human.energy * this.percent * 0.75);
         this.nodes.buildSheetList.innerHTML = `
           <div class="building-sheet-card">
             <strong>${this.escape(building.label || tile.building)} L${level}</strong>
             <span>${this.escape(this.buildingEffect(tile.building))}</span>
-            <small>Defense ${Math.round(tile.defenseEnergy || 0)} | ${canUpgrade ? `Upgrade cost ${upgradeCost}` : level >= 3 ? "Max level" : `Need ${upgradeCost} energy`}</small>
+            <small>Defense ${Math.round(tile.defenseEnergy || 0)} | ${construction > 0 ? `Under construction ${construction}s` : level >= 3 ? "Max level" : `Upgrade cost ${upgradeCost}`}</small>
           </div>
           <button data-building-action="upgradeBuilding" ${canUpgrade ? "" : "disabled"}>
             <strong>Upgrade Building</strong>
             <span>Level ${Math.min(3, level + 1)} improves this building and adds border defense.</span>
-            <small>${level >= 3 ? "Already max level" : `Cost ${upgradeCost}`}</small>
+            <small>${level >= 3 ? "Already max level" : construction > 0 ? `Finish construction first: ${construction}s` : human.energy < upgradeCost ? `Need ${upgradeCost} energy` : `Cost ${upgradeCost}`}</small>
           </button>
           <button data-building-action="defend" ${defendEnergy >= 3 ? "" : "disabled"}>
             <strong>Defend Building</strong>
@@ -1340,23 +1356,17 @@
           const animalLocked = building.animal && building.animal !== human.animal;
           const occupiedLocked = Boolean(tile?.building);
           const terrainLocked = tile && !building.validTiles.includes(tile.type);
-          const farmLimitLocked = id === "lilyFarm" && (human.buildings?.lilyFarm || 0) >= this.maxLilyFarms(human, state);
-          const farmSupportLocked = id === "lilyFarm" && tile && !this.hasLilyFarmSupport(state, tile);
           const energyLocked = human.energy < cost;
-          const disabled = animalLocked || occupiedLocked || terrainLocked || farmLimitLocked || farmSupportLocked || energyLocked;
+          const disabled = animalLocked || occupiedLocked || terrainLocked || energyLocked;
           const reason = animalLocked
             ? `${building.animal} only`
             : occupiedLocked
               ? "Tile already has a building"
             : terrainLocked
               ? `Needs ${building.validTiles.join(", ")}`
-              : farmLimitLocked
-                ? "Farm limit reached"
-                : farmSupportLocked
-                  ? "Needs lily or nest nearby"
                   : energyLocked
                     ? `Need ${cost} energy`
-                    : "Ready";
+                    : `Ready. Takes ${state.config.balance?.buildTimeSeconds || 10}s to finish.`;
           return `<button data-build-choice="${this.escape(id)}" ${disabled ? "disabled" : ""}>
             <strong>${this.escape(building.label)}</strong>
             <span>Cost ${cost} | ${this.escape(this.buildingEffect(id))}</span>
@@ -1375,27 +1385,24 @@
 
     buildingEffect(id) {
       return {
-        nest: "Max energy",
-        lilyFarm: "Income",
-        reedGuard: "Border defense",
-        mudTunnel: "Snake mobility",
-        jumpPad: "Frog jump range",
+        nest: "Raises your max Animal Energy.",
+        lilyFarm: "Increases income per second. Cost rises as you build more.",
+        reedGuard: "Strengthens nearby borders against attacks.",
+        mudTunnel: "Improves control around mud and reeds.",
+        jumpPad: "Improves leap and mobility bonuses.",
       }[id] || "Upgrade";
     }
 
-    maxLilyFarms(human, state) {
-      const balance = state?.config?.balance || root.PondBalance || {};
-      return Math.max(1, Math.floor((human?.territory || 0) / (balance.farmTerritoryPerFarm || 18)) + 1);
+    upgradeCost(id, level, human, state) {
+      const building = state.config.buildings?.[id] || {};
+      const balance = state.config.balance || root.PondBalance || {};
+      const ownedCount = human?.buildings?.[id] || 0;
+      return Math.round((building.cost || 40) * (0.78 + level * (balance.upgradeCostGrowth || 0.82)) * (1 + Math.max(0, ownedCount - 1) * 0.08));
     }
 
-    hasLilyFarmSupport(state, tile) {
-      if (!tile) return false;
-      if (tile.type === "lily" || tile.type === "nest") return true;
-      return (state?.tiles || []).some(
-        (candidate) =>
-          (candidate.type === "lily" || candidate.type === "nest") &&
-          Math.abs(candidate.x - tile.x) + Math.abs(candidate.y - tile.y) === 1,
-      );
+    constructionLeft(tile, state = this.lastState) {
+      if (!tile?.building) return 0;
+      return Math.max(0, Math.ceil((tile.buildingActiveAt || 0) - (state?.serverTime || 0)));
     }
 
     isMobile() {
@@ -1418,7 +1425,7 @@
       this.nodes.resultScreen.classList.remove("hidden");
       const teamVictory = winningTeam && humanTeam && winningTeam.id === humanTeam.id;
       this.nodes.resultTitle.textContent = winningTeam ? (teamVictory ? "Team Victory" : "Team Defeat") : winner?.id === state.humanId ? "Victory" : "Defeat";
-      this.nodes.resultSummary.textContent = winningTeam ? `${winningTeam.name} controls the lake together.` : winner ? `${winner.name} controls the lake.` : "The match ended.";
+      this.nodes.resultSummary.textContent = winningTeam ? `${winningTeam.name} is the last team in the pond.` : winner ? `${winner.name} is the last animal standing.` : "The match ended.";
       const rank =
         winningTeam && humanTeam
           ? state.teamState.teams.findIndex((team) => team.id === humanTeam.id) + 1
@@ -1433,6 +1440,7 @@
         ${winningTeam ? `<dt>Winning Team</dt><dd>${this.escape(winningTeam.name)}</dd>` : ""}
         ${humanTeam ? `<dt>Your Team</dt><dd>${this.escape(humanTeam.name)} | ${Math.round(humanTeam.territoryPct * 100)}%</dd>` : ""}
         ${bestTeammate ? `<dt>Best Teammate</dt><dd>${this.escape(bestTeammate.name)}</dd>` : ""}
+        <dt>Time Survived</dt><dd>${this.escape(this.formatTime(state.elapsed || 0))}</dd>
         <dt>Territory</dt><dd>${Math.round(human.territoryPct * 100)}%</dd>
         <dt>Level</dt><dd>${human.level || 1} ${this.escape(human.progression?.title || "")}</dd>
         <dt>Energy Used</dt><dd>${Math.round(human.stats.energyUsed)}</dd>
@@ -1442,6 +1450,7 @@
         <dt>Abilities</dt><dd>${human.stats.abilitiesUsed || 0}</dd>
         <dt>Biggest Wave</dt><dd>${human.stats.bestAttackWave || 0}</dd>
         <dt>Buildings</dt><dd>${human.stats.buildingsBuilt || 0}</dd>
+        <dt>Peak Income</dt><dd>+${Number(human.stats.incomePeak || human.income || 0).toFixed(1)}/s</dd>
         <dt>Defeated</dt><dd>${human.stats.playersDefeated}</dd>
         <dt>Animal</dt><dd>${state.config.animals[human.animal].label}</dd>
       `;

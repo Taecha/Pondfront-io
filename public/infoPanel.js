@@ -7,13 +7,13 @@
     attack: "Send energy from your border into enemy land. Stronger attacks can push deeper through the front line.",
     expand: "Capture neutral pond tiles from your connected border. Ducks are especially efficient on open water.",
     defend: "Reinforces your border and makes enemy attacks cost more energy.",
-    build: "Build compact economy or defense upgrades on your territory. Buildings stay clean and only show clearly when useful.",
+    build: "Build compact economy or defense upgrades on your territory. Building starts a short cooldown and repeated building types cost more.",
     ability: "Use your animal ability when it is ready. Each animal has a different timing window and role.",
     diplomacy: "Alliances prevent friendly attacks. Truces block combat temporarily, and breaking alliances creates betrayal cooldown.",
     wave: "Attacks move as a wave from connected borders. Defense, terrain, and enemy energy can stop the wave.",
     alliances: "Allied players cannot attack each other and can share useful map signals.",
     bots: "Bot animals expand, build, ally, and attack based on their difficulty and nearby threats.",
-    win: "Control 70% of the playable lake to win. If time runs out, highest territory wins.",
+    win: "The match ends by elimination. Keep your Core Nest and territory alive until only one animal or team remains.",
     water: "Open Water is normal terrain. Ducks expand through it faster.",
     lily: "Lily Pad gives bonus income, especially useful for Frogs.",
     reeds: "Reeds are defensive terrain. Snakes get stronger here.",
@@ -21,7 +21,7 @@
     rock: "Rock blocks movement and cannot be captured.",
     nestZone: "Nest Zone is a strong place to build energy-focused structures.",
     nest: "Nest increases your maximum Animal Energy.",
-    lilyFarm: "Lily Farm adds a clear income boost, usually +2 Animal Energy per second or more on lily pads.",
+    lilyFarm: "Lily Farm increases income per second. Each extra Lily Farm costs more, and too many farms become less efficient.",
     reedGuard: "Reed Guard strengthens nearby border defense.",
     mudTunnel: "Mud Tunnel is Snake-only and improves reed/mud mobility.",
     jumpPad: "Jump Pad is Frog-only and improves jump expansion range.",
@@ -103,7 +103,7 @@
       const level = tile.buildingLevel || 1;
       facts.push({ label: "Building", value: `${building?.label || tile.building} L${level}` });
       const activeLeft = Math.max(0, Math.ceil((tile.buildingActiveAt || 0) - state.serverTime));
-      if (activeLeft > 0) facts.push({ label: "Active In", value: `${activeLeft}s` });
+      if (activeLeft > 0) facts.push({ label: "Construction", value: `${activeLeft}s` });
     }
 
     if (objective) {
@@ -210,6 +210,12 @@
     const war = state.wars?.find((entry) => entry.players.includes(player.id) && entry.players.includes(state.humanId));
     const warText = relationText || (war?.atWar ? "At War" : war?.peacePossible ? "Peace Possible" : relationText);
     const strength = strengthLabel(player.energy, player.maxEnergy);
+    const coreText = player.coreLost
+      ? "Lost"
+      : player.coreMaxHealth
+        ? `${Math.round(player.coreHealth || 0)}/${Math.round(player.coreMaxHealth)}`
+        : "Stable";
+    const supportLeft = Math.max(0, Math.ceil((player.supportReadyAt || 0) - (state.serverTime || 0)));
     const suggested = relation && !relation.canAttack
       ? relation.blockReason || "Protected by diplomacy"
       : relation?.allied
@@ -232,6 +238,8 @@
         { label: "Ability", value: animal.ability },
         { label: "Strength", value: strength },
         { label: "Income", value: `+${player.income}/s` },
+        { label: "Core Nest", value: coreText },
+        { label: "Support", value: supportLeft > 0 ? `${supportLeft}s cooldown` : "Ready" },
         { label: "Status", value: warText },
         { label: "Can Attack", value: relation?.canAttack ? "Yes" : relation?.blockReason || "No" },
         { label: "War Tiles", value: String(relation?.tilesCaptured ?? war?.tilesCaptured ?? 0) },

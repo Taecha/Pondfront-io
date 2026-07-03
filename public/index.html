@@ -159,11 +159,11 @@
                 <option value="9" selected>9</option>
                 <option value="10">10</option>
               </select>
-              <label for="matchLength">Match length</label>
+              <label for="matchLength">Match pace</label>
               <select id="matchLength">
-                <option value="quick">Quick</option>
+                <option value="quick">Fast</option>
                 <option value="standard" selected>Standard</option>
-                <option value="long">Long</option>
+                <option value="long">Slow</option>
               </select>
               <label class="coop-option" for="coopTeammates">Teammates</label>
               <select class="coop-option" id="coopTeammates">
@@ -413,7 +413,7 @@
             </div>
             <div class="stat"><span>Animal</span><strong id="animalStat">Duck</strong></div>
             <div class="stat team-stat"><span>Team</span><strong id="teamStat">Solo</strong></div>
-            <div class="stat"><span>Timer <button class="info-button" data-tip-key="win" aria-label="Win condition info">?</button></span><strong id="timerStat">15:00</strong></div>
+            <div class="stat"><span>Elapsed <button class="info-button" data-tip-key="win" aria-label="Win condition info">?</button></span><strong id="timerStat">00:00</strong></div>
           </div>
         </header>
 
@@ -474,6 +474,7 @@
                 <button data-diplomacy="markEnemy" title="Mark this player as a target.">Enemy</button>
                 <button data-diplomacy="pingAlly" title="Send a small ally signal.">Ping</button>
                 <button data-diplomacy="requestHelp" title="Ask an ally for help.">Help</button>
+                <button data-diplomacy="sendSupport" title="Send Animal Energy to an ally or teammate.">Support</button>
                 <button data-diplomacy="sendWarning" title="Send a public warning.">Warning</button>
               </div>
             </div>
