@@ -6,6 +6,7 @@
   return {
     states: {
       neutral: { label: "Neutral", icon: "-", color: "#9bb8c6" },
+      teammate: { label: "Teammate", icon: "T", color: "#83dced" },
       requested: { label: "Alliance Requested", icon: "?", color: "#f0cc74" },
       allied: { label: "Allied", icon: "A", color: "#77d99e" },
       war: { label: "At War", icon: "W", color: "#e9857c" },

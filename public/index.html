@@ -31,8 +31,10 @@
             </label>
 
             <div class="start-actions">
-              <button id="startButton" class="primary start-match">Start as Duck</button>
-              <button id="practiceButton" class="secondary-button" type="button">Practice Mode</button>
+              <button id="startButton" class="primary start-match">Solo Match</button>
+              <button id="createLobbyButton" class="secondary-button" type="button">Create Lobby</button>
+              <button id="joinLobbyButton" class="secondary-button" type="button">Join Lobby</button>
+              <button id="practiceButton" class="secondary-button" type="button">Practice With Bots</button>
               <button id="lobbyHelpButton" class="secondary-button" type="button">How to Play</button>
             </div>
           </section>
@@ -131,6 +133,12 @@
                 <span class="label">Match Setup</span>
                 <strong>Customize the pond</strong>
               </div>
+              <label for="gameMode">Game mode</label>
+              <select id="gameMode">
+                <option value="solo" selected>Solo</option>
+                <option value="coop">Co-Op Team</option>
+                <option value="teamBattle">Team Battle</option>
+              </select>
               <label for="difficulty">Bot strategy</label>
               <select id="difficulty">
                 <option value="easy">Chill</option>
@@ -157,6 +165,30 @@
                 <option value="standard" selected>Standard</option>
                 <option value="long">Long</option>
               </select>
+              <label class="coop-option" for="coopTeammates">Teammates</label>
+              <select class="coop-option" id="coopTeammates">
+                <option value="1">1</option>
+                <option value="2" selected>2</option>
+                <option value="3">3</option>
+              </select>
+              <label class="coop-option" for="teamBotDifficulty">Team bots</label>
+              <select class="coop-option" id="teamBotDifficulty">
+                <option value="normal" selected>Normal</option>
+                <option value="smart">Smart</option>
+                <option value="aggressive">Aggressive</option>
+              </select>
+              <label class="battle-option hidden" for="teamCount">Teams</label>
+              <select class="battle-option hidden" id="teamCount">
+                <option value="2" selected>2</option>
+                <option value="3">3</option>
+                <option value="4">4</option>
+              </select>
+              <label class="battle-option hidden" for="botsPerTeam">Bots/team</label>
+              <select class="battle-option hidden" id="botsPerTeam">
+                <option value="2">2</option>
+                <option value="4" selected>4</option>
+                <option value="6">6</option>
+              </select>
             </div>
 
             <div class="lake-preview" aria-label="Animated lake territory preview">
@@ -175,6 +207,174 @@
             </div>
           </aside>
         </div>
+
+        <section id="createLobbyPanel" class="lobby-flow-panel hidden" aria-label="Create lobby">
+          <header>
+            <div>
+              <span class="label">Create Lobby</span>
+              <h2>Set up a shared pond match</h2>
+            </div>
+            <button id="createLobbyBack" class="icon-button" type="button">X</button>
+          </header>
+          <div class="lobby-form-grid">
+            <label for="createNameInput">Name<input id="createNameInput" maxlength="18" value="Player" autocomplete="off" /></label>
+            <label for="createAnimalSelect">Animal<select id="createAnimalSelect">
+              <option value="duck">Duck</option>
+              <option value="snake">Snake</option>
+              <option value="frog">Frog</option>
+              <option value="turtle">Turtle</option>
+              <option value="carp">Carp</option>
+            </select></label>
+            <label for="createGameMode">Mode<select id="createGameMode">
+              <option value="solo">Free-for-all</option>
+              <option value="coop">Co-Op Team</option>
+              <option value="teamBattle">Team Battle</option>
+            </select></label>
+            <label for="createMapSize">Map<select id="createMapSize">
+              <option value="small">Small</option>
+              <option value="medium" selected>Medium</option>
+              <option value="large">Large</option>
+              <option value="huge">Huge</option>
+            </select></label>
+            <label for="createBotDifficulty">Bots<select id="createBotDifficulty">
+              <option value="easy">Chill</option>
+              <option value="normal" selected>Normal</option>
+              <option value="smart">Smart</option>
+              <option value="chaos">Chaos</option>
+            </select></label>
+            <label for="createBotCount">Bot count<select id="createBotCount">
+              <option value="0">0</option>
+              <option value="4">4</option>
+              <option value="8" selected>8</option>
+              <option value="10">10</option>
+            </select></label>
+            <label for="createTeamCount">Teams<select id="createTeamCount">
+              <option value="2" selected>2</option>
+              <option value="3">3</option>
+              <option value="4">4</option>
+            </select></label>
+            <label for="createBotsPerTeam">Bots/team<select id="createBotsPerTeam">
+              <option value="0">0</option>
+              <option value="2">2</option>
+              <option value="4" selected>4</option>
+              <option value="6">6</option>
+            </select></label>
+            <label class="check-row" for="createAllowBots"><input id="createAllowBots" type="checkbox" checked /> Allow bots</label>
+          </div>
+          <p id="createLobbyError" class="lobby-error hidden"></p>
+          <div class="lobby-flow-actions">
+            <button id="createLobbySubmit" class="primary" type="button">Create Room</button>
+            <button id="createLobbyCancel" class="secondary-button" type="button">Back</button>
+          </div>
+        </section>
+
+        <section id="joinLobbyPanel" class="lobby-flow-panel hidden" aria-label="Join lobby">
+          <header>
+            <div>
+              <span class="label">Join Lobby</span>
+              <h2>Enter a pond room code</h2>
+            </div>
+            <button id="joinLobbyBack" class="icon-button" type="button">X</button>
+          </header>
+          <div class="lobby-form-grid join-form">
+            <label for="joinRoomCode">Room code<input id="joinRoomCode" maxlength="10" placeholder="POND-482" autocomplete="off" /></label>
+            <label for="joinPlayerName">Name<input id="joinPlayerName" maxlength="18" value="Player" autocomplete="off" /></label>
+            <label for="joinAnimalSelect">Animal<select id="joinAnimalSelect">
+              <option value="duck">Duck</option>
+              <option value="snake">Snake</option>
+              <option value="frog">Frog</option>
+              <option value="turtle">Turtle</option>
+              <option value="carp">Carp</option>
+            </select></label>
+          </div>
+          <p id="joinLobbyError" class="lobby-error hidden"></p>
+          <div class="lobby-flow-actions">
+            <button id="joinLobbySubmit" class="primary" type="button">Join Room</button>
+            <button id="joinLobbyCancel" class="secondary-button" type="button">Back</button>
+          </div>
+        </section>
+
+        <section id="waitingRoom" class="waiting-room hidden" aria-label="Waiting room">
+          <header>
+            <div>
+              <span class="label">Waiting Room</span>
+              <h2 id="waitingRoomTitle">Pond Lobby</h2>
+            </div>
+            <button id="leaveLobbyButton" class="secondary-button" type="button">Leave Lobby</button>
+          </header>
+          <div class="room-code-card">
+            <span>Room Code</span>
+            <strong id="lobbyRoomCode">POND-000</strong>
+            <button id="copyRoomCodeButton" type="button">Copy</button>
+          </div>
+          <div class="waiting-grid">
+            <section class="waiting-panel">
+              <div class="panel-head-row">
+                <span class="label">Players</span>
+                <strong id="lobbyStatusText">Waiting</strong>
+              </div>
+              <div id="lobbyPlayerList" class="lobby-player-list"></div>
+              <p id="lobbyError" class="lobby-error hidden"></p>
+            </section>
+            <section class="waiting-panel">
+              <span class="label">Your Setup</span>
+              <div class="lobby-form-grid compact">
+                <label for="lobbyPlayerName">Name<input id="lobbyPlayerName" maxlength="18" autocomplete="off" /></label>
+                <label for="lobbyAnimalSelect">Animal<select id="lobbyAnimalSelect">
+                  <option value="duck">Duck</option>
+                  <option value="snake">Snake</option>
+                  <option value="frog">Frog</option>
+                  <option value="turtle">Turtle</option>
+                  <option value="carp">Carp</option>
+                </select></label>
+                <label for="lobbyTeamSelect">Team<select id="lobbyTeamSelect"></select></label>
+              </div>
+              <button id="lobbyReadyButton" class="primary" type="button">Ready</button>
+            </section>
+            <section id="lobbyHostControls" class="waiting-panel host-controls">
+              <span class="label">Host Settings</span>
+              <div class="lobby-form-grid compact">
+                <label for="lobbyGameMode">Mode<select id="lobbyGameMode">
+                  <option value="solo">Free-for-all</option>
+                  <option value="coop">Co-Op Team</option>
+                  <option value="teamBattle">Team Battle</option>
+                </select></label>
+                <label for="lobbyMapSize">Map<select id="lobbyMapSize">
+                  <option value="small">Small</option>
+                  <option value="medium">Medium</option>
+                  <option value="large">Large</option>
+                  <option value="huge">Huge</option>
+                </select></label>
+                <label for="lobbyBotCount">Bots<select id="lobbyBotCount">
+                  <option value="0">0</option>
+                  <option value="4">4</option>
+                  <option value="8">8</option>
+                  <option value="10">10</option>
+                </select></label>
+                <label for="lobbyBotDifficulty">Bot strategy<select id="lobbyBotDifficulty">
+                  <option value="easy">Chill</option>
+                  <option value="normal">Normal</option>
+                  <option value="smart">Smart</option>
+                  <option value="chaos">Chaos</option>
+                </select></label>
+                <label for="lobbyTeamCount">Teams<select id="lobbyTeamCount">
+                  <option value="2">2</option>
+                  <option value="3">3</option>
+                  <option value="4">4</option>
+                </select></label>
+                <label for="lobbyBotsPerTeam">Bots/team<select id="lobbyBotsPerTeam">
+                  <option value="0">0</option>
+                  <option value="2">2</option>
+                  <option value="4">4</option>
+                  <option value="6">6</option>
+                </select></label>
+                <label class="check-row" for="lobbyAllowBots"><input id="lobbyAllowBots" type="checkbox" checked /> Allow bots</label>
+                <label class="check-row" for="lobbyForceStart"><input id="lobbyForceStart" type="checkbox" /> Force start</label>
+              </div>
+              <button id="lobbyStartMatch" class="primary" type="button">Start Match</button>
+            </section>
+          </div>
+        </section>
 
         <section id="lobbyGuide" class="lobby-guide hidden" aria-modal="true" role="dialog">
           <div>
@@ -212,6 +412,7 @@
               <i><b id="controlMeter"></b></i>
             </div>
             <div class="stat"><span>Animal</span><strong id="animalStat">Duck</strong></div>
+            <div class="stat team-stat"><span>Team</span><strong id="teamStat">Solo</strong></div>
             <div class="stat"><span>Timer <button class="info-button" data-tip-key="win" aria-label="Win condition info">?</button></span><strong id="timerStat">15:00</strong></div>
           </div>
         </header>
@@ -231,6 +432,8 @@
             <button id="mobileStrategicButton" type="button" title="Toggle strategic view">SV</button>
             <button id="collapseUiButton" type="button" title="Collapse panels">UI</button>
             <button id="openLeaderboardButton" type="button" title="Toggle leaderboard">#</button>
+            <button id="mobileTeamButton" type="button" title="Team commands">Team</button>
+            <button id="mobileMuteButton" type="button" title="Mute sound">Sound</button>
           </div>
           <div id="mobileActionCard" class="mobile-action-card hidden">
             <div>
@@ -302,7 +505,10 @@
               <div id="missionList" class="compact-list"></div>
             </div>
             <div class="panel leaderboard-panel">
-              <span class="label">Leaderboard</span>
+              <div class="panel-head-row">
+                <span class="label">Leaderboard</span>
+                <button id="leaderboardToggle" type="button">Players</button>
+              </div>
               <ol id="leaderboard"></ol>
             </div>
           </aside>
@@ -313,6 +519,16 @@
             <label><input id="strategicView" type="checkbox" checked /> Strategic view</label>
             <label><input id="autoStrategicView" type="checkbox" checked /> Auto strategic</label>
             <label><input id="showIcons" type="checkbox" /> Tile icons</label>
+            <label><input id="showBorderStatus" type="checkbox" checked /> Border status</label>
+            <label>
+              UI
+              <select id="uiScale" aria-label="UI scale">
+                <option value="compact" selected>Compact</option>
+                <option value="tiny">Tiny</option>
+                <option value="normal">Normal</option>
+                <option value="large">Large</option>
+              </select>
+            </label>
             <label>
               Effects
               <select id="effectsLevel" aria-label="Effects level">
@@ -323,8 +539,16 @@
             </label>
             <label><input id="floatingText" type="checkbox" checked /> Text</label>
             <label><input id="attackArrows" type="checkbox" checked /> Arrows</label>
+            <label><input id="screenShake" type="checkbox" checked /> Shake</label>
             <label><input id="reducedMotion" type="checkbox" /> Reduced motion</label>
             <label><input id="autoLowPerformance" type="checkbox" checked /> Auto low</label>
+            <label><input id="soundEnabled" type="checkbox" checked /> Sound</label>
+            <label><input id="musicEnabled" type="checkbox" checked /> Ambience</label>
+            <label><input id="uiSounds" type="checkbox" checked /> UI SFX</label>
+            <label><input id="muteAll" type="checkbox" /> Mute</label>
+            <label class="range-setting">Master <input id="masterVolume" type="range" min="0" max="1" step="0.05" value="0.72" /></label>
+            <label class="range-setting">SFX <input id="sfxVolume" type="range" min="0" max="1" step="0.05" value="0.78" /></label>
+            <label class="range-setting">Music <input id="musicVolume" type="range" min="0" max="1" step="0.05" value="0.28" /></label>
           </div>
         </section>
 
@@ -341,6 +565,7 @@
             <button id="attackButton" data-tip-key="attack" title="Attack selected enemy border with chosen energy percent.">Attack</button>
             <button id="defendButton" data-tip-key="defend" title="Store energy in your selected territory.">Defend</button>
             <button id="buildButton" data-tip-key="build" title="Build economy or defense on selected owned tile.">Build</button>
+            <button id="teamButton" title="Open co-op team commands.">Team</button>
             <button id="abilityButton" data-tip-key="ability" title="Use your animal ability.">Ability</button>
           </div>
           <select id="buildSelect" title="Choose building type.">
@@ -401,6 +626,19 @@
             <div id="buildSheetList" class="build-sheet-list"></div>
           </div>
         </section>
+
+        <section id="teamSheet" class="mobile-sheet hidden" aria-modal="true" role="dialog">
+          <div>
+            <header>
+              <div>
+                <span class="label">Team</span>
+                <h2 id="teamSheetTitle">Team Commands</h2>
+              </div>
+              <button id="closeTeamSheet" class="icon-button" type="button">X</button>
+            </header>
+            <div id="teamSheetBody" class="mobile-sheet-body"></div>
+          </div>
+        </section>
       </section>
     </main>
 
@@ -409,6 +647,8 @@
     <script src="/shared/gameConfig.js"></script>
     <script src="/shared/diplomacyConfig.js"></script>
     <script src="/shared/combatConfig.js"></script>
+    <script src="/shared/teamConfig.js"></script>
+    <script src="/shared/borderStatus.js"></script>
     <script src="/shared/animals.js"></script>
     <script src="/shared/objectives.js"></script>
     <script src="/shared/lakeEvents.js"></script>
@@ -416,6 +656,7 @@
     <script src="./contextMenu.js"></script>
     <script src="./tooltips.js"></script>
     <script src="./helpMenu.js"></script>
+    <script src="./audioManager.js"></script>
     <script src="./vfx.js"></script>
     <script src="./render.js"></script>
     <script src="./ui.js"></script>

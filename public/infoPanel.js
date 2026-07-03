@@ -83,6 +83,8 @@
     const type = state.config.tileTypes[tile.type];
     const owner = state.players.find((player) => player.id === tile.owner);
     const human = state.players.find((player) => player.id === state.humanId);
+    const borderTools = root.PondBorderStatus;
+    const status = context.status || null;
     const objective = state.objectives?.find((entry) => entry.tileId === tile.id);
     const camp = state.camps?.find((entry) => entry.tileId === tile.id);
     const ownerText = owner ? (owner.id === state.humanId ? "Your territory" : owner.name) : type.blocks ? "Blocked" : "Neutral";
@@ -90,9 +92,11 @@
     const facts = [
       { label: "Terrain", value: type.label },
       { label: "Owner", value: ownerText },
-      { label: "Defense", value: defenseLabel(defenseTotal, type.blocks) },
+      { label: "Defense", value: borderTools?.defenseLevel?.(defenseTotal) || defenseLabel(defenseTotal, type.blocks) },
       { label: "Income", value: `+${Number(type.incomeBonus || 0).toFixed(2)}/s` },
     ];
+
+    if (status?.label) facts.push({ label: "Border", value: status.label });
 
     if (tile.building) {
       const building = state.config.buildings[tile.building];
@@ -126,12 +130,21 @@
       const progress = Number(tile.captureProgress?.[human.id] || 0);
       facts.push({ label: "Capture", value: `${Math.round(progress)}/${cost}` });
       if (progress > 0) facts.push({ label: "Remaining", value: `${Math.max(0, Math.round(cost - progress))}` });
+      if (context.sendEnergy != null) facts.push({ label: "Send", value: String(context.sendEnergy) });
+      if (context.resultText) facts.push({ label: "Result", value: context.resultText });
     }
 
     if (context.canExpand) facts.push({ label: "Action", value: "Expandable border" });
     if (context.canAttack) facts.push({ label: "Action", value: "Attackable border" });
     if (context.canDefend) facts.push({ label: "Action", value: "Defendable border" });
+    if (context.canUpgradeBuilding) facts.push({ label: "Upgrade", value: "Available" });
     if (context.estimateText) facts.push({ label: "Estimate", value: context.estimateText });
+    if (context.kind === "attackBorder") {
+      facts.push({ label: "Send", value: String(context.sendEnergy || context.strength || 0) });
+      facts.push({ label: "First Cost", value: context.nextCost == null ? "?" : `~${context.nextCost}` });
+      facts.push({ label: "Risk", value: context.risk || "Unknown" });
+      facts.push({ label: "Reinforced", value: `+${context.reinforcedBonus || 0}` });
+    }
 
     let title = type.label;
     let detail = TERRAIN_TIPS[tile.type] || "Pond terrain.";
@@ -139,7 +152,9 @@
 
     if (context.kind === "attackBorder") {
       title = "Attackable Border";
-      detail = `Send ${context.percent}% energy. Estimated capture: ${context.tiles} tiles.`;
+      detail =
+        status?.detail ||
+        `Send ${context.percent}% energy. Estimated capture: ${context.tiles} tiles. First border costs about ${context.nextCost}.`;
     } else if (context.kind === "blockedAttack") {
       title = owner ? "Enemy Territory" : type.label;
       detail = context.reason || detail;
@@ -148,7 +163,9 @@
       title = "Expansion Target";
       const progressText =
         context.expansionProgress > 0 ? ` Progress ${Math.round(context.expansionProgress)}/${context.expansionCost}.` : "";
-      detail = `Use Animal Energy to capture this ${type.label.toLowerCase()} from your border.${progressText}`;
+      detail = context.willCapture
+        ? `Ready to capture this ${type.label.toLowerCase()} with your selected send amount.`
+        : `Use Animal Energy to capture this ${type.label.toLowerCase()} from your border.${progressText}`;
     } else if (type.blocks) {
       title = "Blocked Terrain";
       detail = TIPS.rock;
@@ -186,7 +203,10 @@
 
     const animal = state.config.animals[player.animal];
     const relation = relationshipFor(state, player.id);
-    const relationText = relation?.label || (human.allies.includes(player.id) ? "Alliance" : human.enemies.includes(player.id) ? "Marked enemy" : "Neutral");
+    const relationText =
+      relation?.label ||
+      (player.teamId && player.teamId === human.teamId ? "Teammate" : human.allies.includes(player.id) ? "Alliance" : human.enemies.includes(player.id) ? "Marked enemy" : "Neutral");
+    const roleLabel = state.config.teams?.roles?.[player.role]?.label || player.role || (player.isBot ? "Bot" : "Player");
     const war = state.wars?.find((entry) => entry.players.includes(player.id) && entry.players.includes(state.humanId));
     const warText = relationText || (war?.atWar ? "At War" : war?.peacePossible ? "Peace Possible" : relationText);
     const strength = strengthLabel(player.energy, player.maxEnergy);
@@ -205,6 +225,9 @@
       meta: `${animal.label} L${player.level || 1} | ${Math.round(player.territoryPct * 100)}% territory | ${player.energy} energy | ${warText}`,
       facts: [
         { label: "Animal", value: animal.label },
+        { label: "Team", value: player.teamName || "Solo" },
+        { label: "Relationship", value: relationText },
+        { label: "Role", value: roleLabel },
         { label: "Level", value: player.progression?.levelText || `Level ${player.level || 1}` },
         { label: "Ability", value: animal.ability },
         { label: "Strength", value: strength },

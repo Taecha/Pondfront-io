@@ -81,6 +81,8 @@
             "campCaptured",
             "campMoved",
             "ping",
+            "teamCommand",
+            "teamResponse",
             "buildComplete",
             "buildUpgrade",
             "buildRemove",
@@ -193,10 +195,16 @@
       const rect = this.canvas.getBoundingClientRect();
       const ctx = this.ctx;
       ctx.clearRect(0, 0, rect.width, rect.height);
+      const shake = this.vfx?.shakeOffset?.(performance.now()) || { x: 0, y: 0 };
+      ctx.save();
+      ctx.translate(shake.x, shake.y);
       this.drawWater(ctx, rect);
+      if (this.state) {
+        this.drawMap(ctx, drawOptions);
+        this.drawEvents(ctx, drawOptions);
+      }
+      ctx.restore();
       if (!this.state) return;
-      this.drawMap(ctx, drawOptions);
-      this.drawEvents(ctx, drawOptions);
       this.drawMiniMap(drawOptions);
     }
 
@@ -309,6 +317,7 @@
       this.drawLocalGlow(ctx);
       this.drawRegionNames(ctx);
       this.drawDefense(ctx, visibleTiles);
+      this.drawBorderStatus(ctx, visibleTiles, options);
       this.drawSpecialMarkers(ctx);
       this.drawLegalHints(ctx, options);
       this.drawPreview(ctx, options);
@@ -387,6 +396,15 @@
         const overlap = Math.max(0.35, size * 0.018);
         ctx.fillStyle = this.withAlpha(owner.color, alpha);
         ctx.fillRect(p.x - overlap, p.y - overlap, size + overlap * 2, size + overlap * 2);
+        if (this.camera.zoom > 0.38) {
+          const glowAlpha = tile.owner === this.state.humanId ? 0.13 : 0.08;
+          const glow = ctx.createLinearGradient(p.x, p.y, p.x + size, p.y + size);
+          glow.addColorStop(0, `rgba(255,255,255,${glowAlpha})`);
+          glow.addColorStop(0.55, "rgba(255,255,255,0)");
+          glow.addColorStop(1, "rgba(0,0,0,0.08)");
+          ctx.fillStyle = glow;
+          ctx.fillRect(p.x - overlap, p.y - overlap, size + overlap * 2, size + overlap * 2);
+        }
         if (transitionAlpha > 0 && transition.oldColor) {
           ctx.fillStyle = this.withAlpha(transition.oldColor, transitionAlpha * 0.58);
           ctx.fillRect(p.x - overlap, p.y - overlap, size + overlap * 2, size + overlap * 2);
@@ -430,7 +448,15 @@
       ctx.globalAlpha = alpha;
       const cx = x + size / 2;
       const cy = y + size / 2;
+      const now = performance.now();
       if (tile.type === "lily") {
+        const glow = 0.35 + Math.sin(now * 0.003 + tile.id) * 0.18;
+        ctx.globalAlpha = alpha * (1.05 + glow);
+        ctx.fillStyle = "rgba(169, 255, 175, 0.26)";
+        ctx.beginPath();
+        ctx.arc(cx, cy, size * (0.32 + glow * 0.12), 0, Math.PI * 2);
+        ctx.fill();
+        ctx.globalAlpha = alpha;
         ctx.fillStyle = "#a6e6a6";
         ctx.beginPath();
         ctx.ellipse(cx - size * 0.05, cy, size * 0.28, size * 0.16, -0.35, 0, Math.PI * 2);
@@ -445,16 +471,20 @@
         ctx.strokeStyle = "#d3df8c";
         ctx.lineWidth = Math.max(1, size * 0.05);
         for (let i = -2; i <= 2; i += 1) {
-          const lean = (this.tileNoise(tile.id + i * 7, -0.08, 0.08) || 0) * size;
+          const lean = (this.tileNoise(tile.id + i * 7, -0.08, 0.08) + Math.sin(now * 0.002 + tile.id + i) * 0.035) * size;
           ctx.beginPath();
           ctx.moveTo(cx + i * size * 0.08, y + size * 0.78);
           ctx.quadraticCurveTo(cx + i * size * 0.08 + lean, cy, cx + i * size * 0.09 + size * 0.05, y + size * 0.22);
           ctx.stroke();
         }
       } else if (tile.type === "mud" || tile.type === "nest") {
-        ctx.fillStyle = tile.type === "nest" ? "#f0c16f" : "#c79662";
+        ctx.fillStyle = tile.type === "nest" ? "#f0c16f" : "#b87d4a";
         ctx.beginPath();
         ctx.ellipse(cx, cy, size * 0.28, size * 0.18, 0.2, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillStyle = tile.type === "nest" ? "rgba(255,238,172,0.22)" : "rgba(67,40,24,0.22)";
+        ctx.beginPath();
+        ctx.ellipse(cx + size * 0.04, cy - size * 0.02, size * 0.18, size * 0.08, -0.2, 0, Math.PI * 2);
         ctx.fill();
         ctx.strokeStyle = "rgba(3, 10, 15, 0.5)";
         ctx.lineWidth = Math.max(1, size * 0.025);
@@ -462,13 +492,20 @@
         ctx.arc(cx, cy, size * 0.13, 0.2, Math.PI * 1.8);
         ctx.stroke();
       } else if (tile.type === "rock") {
-        ctx.fillStyle = "#d2dbe0";
+        ctx.fillStyle = "#d6e0e5";
         ctx.beginPath();
         ctx.moveTo(cx - size * 0.26, cy + size * 0.16);
         ctx.lineTo(cx - size * 0.16, cy - size * 0.16);
         ctx.lineTo(cx + size * 0.08, cy - size * 0.26);
         ctx.lineTo(cx + size * 0.28, cy + size * 0.06);
         ctx.lineTo(cx + size * 0.08, cy + size * 0.24);
+        ctx.closePath();
+        ctx.fill();
+        ctx.fillStyle = "rgba(255,255,255,0.24)";
+        ctx.beginPath();
+        ctx.moveTo(cx - size * 0.12, cy - size * 0.12);
+        ctx.lineTo(cx + size * 0.06, cy - size * 0.2);
+        ctx.lineTo(cx + size * 0.18, cy + size * 0.02);
         ctx.closePath();
         ctx.fill();
       }
@@ -580,7 +617,9 @@
       const width = Math.max(1.05, size * (tile.owner === this.state.humanId ? 0.052 : 0.044));
       this.neighbors(tile).forEach((neighbor, index) => {
         if (neighbor && neighbor.owner === tile.owner) return;
-        const contested = Boolean(neighbor?.owner && neighbor.owner !== tile.owner);
+        const neighborPlayer = neighbor?.owner ? this.playerMap.get(neighbor.owner) : null;
+        const friendlyTeam = Boolean(neighborPlayer?.teamId && player.teamId && neighborPlayer.teamId === player.teamId);
+        const contested = Boolean(neighbor?.owner && neighbor.owner !== tile.owner && !friendlyTeam);
         const points =
           index === 0
             ? [p.x, p.y, p.x + size, p.y]
@@ -589,14 +628,14 @@
               : index === 2
                 ? [p.x, p.y + size, p.x + size, p.y + size]
                 : [p.x, p.y, p.x, p.y + size];
-        this.strokeBorderEdge(ctx, points, color, width, contested);
+        this.strokeBorderEdge(ctx, points, friendlyTeam ? player.teamColor || color : color, friendlyTeam ? width * 0.72 : width, contested, friendlyTeam);
       });
     }
 
-    strokeBorderEdge(ctx, points, color, width, contested = false) {
+    strokeBorderEdge(ctx, points, color, width, contested = false, friendly = false) {
       ctx.lineCap = "square";
       ctx.lineJoin = "miter";
-      ctx.strokeStyle = contested ? "rgba(2, 8, 13, 0.88)" : "rgba(3, 10, 15, 0.62)";
+      ctx.strokeStyle = friendly ? this.withAlpha(color, 0.18) : contested ? "rgba(2, 8, 13, 0.88)" : "rgba(3, 10, 15, 0.62)";
       ctx.lineWidth = width + (contested ? 2 : 1.25);
       ctx.beginPath();
       ctx.moveTo(points[0], points[1]);
@@ -610,7 +649,7 @@
         ctx.lineTo(points[2], points[3]);
         ctx.stroke();
       }
-      ctx.strokeStyle = color;
+      ctx.strokeStyle = friendly ? this.withAlpha(color, 0.68) : color;
       ctx.lineWidth = width;
       ctx.beginPath();
       ctx.moveTo(points[0], points[1]);
@@ -690,6 +729,82 @@
       ctx.restore();
     }
 
+    drawBorderStatus(ctx, tiles = this.state.tiles, options = {}) {
+      if (!options.showBorderStatus || this.camera.zoom < 0.44) return;
+      const humanId = this.state.humanId;
+      const statusTools = root.PondBorderStatus;
+      const legal = new Set(options.legalTileIds || []);
+      const active = new Set();
+      (this.state.activeAttacks || []).forEach((wave) => {
+        if (wave.targetStartTile != null) active.add(wave.targetStartTile);
+        (wave.frontierTiles || []).forEach((id) => active.add(id));
+      });
+      const relationById = new Map((this.state.relationships || []).map((relation) => [relation.playerId, relation]));
+      const size = this.baseTile * this.camera.zoom;
+      const colors = {
+        weak: "#a4f0b5",
+        enemy: "#f1c46f",
+        war: "#e9857c",
+        strong: "#f0a35f",
+        reinforced: "#e46a6a",
+        defended: "#87d7ea",
+        underAttack: "#ffffff",
+        allied: "#8ed6ff",
+        truce: "#b7d8ce",
+        invalid: "#9aa8ad",
+      };
+
+      ctx.save();
+      tiles.forEach((tile) => {
+        const touchesHuman = this.neighbors(tile).some((neighbor) => neighbor && neighbor.owner === humanId);
+        const isHumanFront = tile.owner === humanId && this.neighbors(tile).some((neighbor) => neighbor && neighbor.owner !== humanId);
+        const isFocus = tile.id === options.selectedTileId || tile.id === options.hoverTileId || legal.has(tile.id);
+        if (!touchesHuman && !isHumanFront && !isFocus) return;
+        if (!tile.owner && !legal.has(tile.id) && tile.id !== options.hoverTileId) return;
+
+        const type = this.state.config.tileTypes[tile.type];
+        const ownerIsHuman = tile.owner === humanId;
+        const relation = tile.owner && tile.owner !== humanId ? relationById.get(tile.owner) : null;
+        const status = statusTools?.statusFor?.({
+          tile,
+          tileType: type,
+          relation,
+          ownerIsHuman,
+          canExpand: !tile.owner && legal.has(tile.id),
+          canAttack: Boolean(tile.owner && tile.owner !== humanId && touchesHuman),
+          underAttack: active.has(tile.id),
+          estimatedCost: (tile.defenseEnergy || 0) + (type?.defenseBonus || 0),
+        });
+        if (!status) return;
+        if (status.id === "open" && !isFocus && (tile.defenseEnergy || 0) < 10) return;
+
+        const p = this.worldToScreen(tile.x * this.baseTile, tile.y * this.baseTile);
+        const color = colors[status.id] || colors.enemy;
+        const alpha = status.id === "reinforced" || status.id === "underAttack" ? 0.9 : isFocus ? 0.74 : 0.5;
+        ctx.globalAlpha = alpha;
+        ctx.strokeStyle = color;
+        ctx.lineWidth = Math.max(1.4, size * (status.id === "reinforced" || status.id === "underAttack" ? 0.055 : 0.038));
+        this.roundRect(ctx, p.x + size * 0.13, p.y + size * 0.13, size * 0.74, size * 0.74, Math.max(3, size * 0.13));
+        ctx.stroke();
+
+        if ((tile.id === options.selectedTileId || tile.id === options.hoverTileId) && size > 17) {
+          const text = status.label.replace(" Border", "");
+          ctx.globalAlpha = 0.94;
+          ctx.font = `800 ${Math.max(8, Math.min(11, size * 0.18))}px Inter, sans-serif`;
+          ctx.textAlign = "center";
+          ctx.textBaseline = "middle";
+          const center = this.tileCenter(tile);
+          const width = Math.min(86, Math.max(38, ctx.measureText(text).width + 12));
+          ctx.fillStyle = "rgba(4, 12, 18, 0.78)";
+          this.roundRect(ctx, center.x - width / 2, center.y - size * 0.78, width, 17, 9);
+          ctx.fill();
+          ctx.fillStyle = color;
+          ctx.fillText(text, center.x, center.y - size * 0.78 + 8.5);
+        }
+      });
+      ctx.restore();
+    }
+
     drawSpecialMarkers(ctx) {
       const markers = [];
       (this.state.objectives || []).forEach((objective) => {
@@ -722,6 +837,17 @@
       markers.forEach((marker) => {
         const p = this.tileCenter(marker.tile);
         const pulse = 0.5 + Math.sin(performance.now() * 0.006 + marker.tile.id) * 0.5;
+        ctx.globalAlpha = marker.active ? 0.18 + pulse * 0.12 : 0.08;
+        ctx.fillStyle = marker.color;
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, Math.max(10, size * (marker.ring ? 0.72 + pulse * 0.18 : 0.56 + pulse * 0.12)), 0, Math.PI * 2);
+        ctx.fill();
+        ctx.globalAlpha = marker.active ? 0.42 : 0.18;
+        ctx.strokeStyle = marker.color;
+        ctx.lineWidth = Math.max(1, size * 0.03);
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, Math.max(10, size * (marker.ring ? 0.88 + pulse * 0.22 : 0.66 + pulse * 0.16)), 0, Math.PI * 2);
+        ctx.stroke();
         ctx.globalAlpha = marker.active ? 0.9 : 0.35;
         ctx.fillStyle = "rgba(5, 16, 25, 0.82)";
         ctx.strokeStyle = marker.owner === this.state.humanId ? "#ffffff" : marker.color;
@@ -949,7 +1075,8 @@
         ctx.textBaseline = "middle";
         const animal = this.state.config.animals[player.animal];
         const firstName = (player.name || "Player").split(" ")[0];
-        const name = `${animal.icon} ${firstName}`;
+        const teamBadge = player.teamBadge ? `[${player.teamBadge}] ` : "";
+        const name = `${teamBadge}${animal.icon} ${firstName}`;
         const textW = ctx.measureText(name).width;
         ctx.save();
         ctx.globalAlpha = 0.9;
@@ -960,6 +1087,14 @@
         ctx.lineWidth = id === this.state.humanId ? 1.6 : 1;
         this.roundRect(ctx, p.x - textW / 2 - 8, p.y - fontSize / 2 - 4, textW + 16, fontSize + 8, 8);
         ctx.stroke();
+        if (player.teamColor) {
+          ctx.strokeStyle = this.withAlpha(player.teamColor, 0.72);
+          ctx.lineWidth = 2;
+          ctx.beginPath();
+          ctx.moveTo(p.x - textW / 2 - 6, p.y + fontSize / 2 + 5);
+          ctx.lineTo(p.x + textW / 2 + 6, p.y + fontSize / 2 + 5);
+          ctx.stroke();
+        }
         ctx.restore();
         ctx.lineWidth = 3.5;
         ctx.strokeStyle = "rgba(6,16,25,0.82)";
@@ -972,19 +1107,19 @@
     drawEvents(ctx, options = {}) {
       if (options.effects?.reducedMotion && this.camera.zoom < 0.58) return;
       const now = performance.now();
-      this.eventAnims = this.eventAnims.filter((event) => now - event.atMs < (event.kind === "ping" ? 6000 : 1800));
+      this.eventAnims = this.eventAnims.filter((event) => now - event.atMs < (event.kind === "ping" || event.kind === "teamCommand" ? 6000 : 1800));
       this.eventAnims.forEach((event) => {
-        const life = event.kind === "ping" ? 6000 : event.kind === "attackWave" ? 1800 : 1450;
+        const life = event.kind === "ping" || event.kind === "teamCommand" ? 6000 : event.kind === "attackWave" ? 1800 : 1450;
         const t = Math.min(1, (now - event.atMs) / life);
         const to = this.tileMap.get(event.to);
         if (!to) return;
         const toP = this.tileCenter(to);
         const player = event.playerId ? this.playerMap.get(event.playerId) : null;
-        const color = event.kind === "waveResist" ? "#edf8fb" : player?.color || "#d8ad48";
+        const color = event.teamColor || (event.kind === "waveResist" ? "#edf8fb" : player?.color || "#d8ad48");
         ctx.save();
         ctx.globalAlpha = 1 - t;
-        if (event.kind === "ping") {
-          const label = root.PondInfo?.PING_LABELS?.[event.pingType] || "Ping";
+        if (event.kind === "ping" || event.kind === "teamCommand") {
+          const label = event.label || root.PondInfo?.PING_LABELS?.[event.pingType] || "Ping";
           ctx.strokeStyle = color;
           ctx.fillStyle = color;
           ctx.lineWidth = 2;
@@ -1068,6 +1203,21 @@
         ctx.lineWidth = 1.5;
         ctx.strokeRect(minX, minY, Math.max(3, maxX - minX), Math.max(3, maxY - minY));
       }
+      const human = this.playerMap.get(this.state.humanId);
+      if (human?.teamId) {
+        const teamTiles = this.state.tiles.filter((tile) => this.playerMap.get(tile.owner)?.teamId === human.teamId);
+        if (teamTiles.length) {
+          const minX = Math.min(...teamTiles.map((tile) => tile.x)) * cellW;
+          const minY = Math.min(...teamTiles.map((tile) => tile.y)) * cellH;
+          const maxX = (Math.max(...teamTiles.map((tile) => tile.x)) + 1) * cellW;
+          const maxY = (Math.max(...teamTiles.map((tile) => tile.y)) + 1) * cellH;
+          ctx.strokeStyle = human.teamColor || "#83dced";
+          ctx.lineWidth = 1;
+          ctx.setLineDash([4, 3]);
+          ctx.strokeRect(minX, minY, Math.max(4, maxX - minX), Math.max(4, maxY - minY));
+          ctx.setLineDash([]);
+        }
+      }
       this.drawMiniAttacks(ctx, cellW, cellH, options);
       this.drawMiniCamera(ctx, rect, cellW, cellH);
       const shine = ctx.createLinearGradient(0, 0, rect.width, rect.height);
@@ -1131,7 +1281,7 @@
 
     drawMiniPings(ctx, cellW, cellH) {
       const now = performance.now();
-      const pings = this.eventAnims.filter((event) => event.kind === "ping" && now - event.atMs < 6000);
+      const pings = this.eventAnims.filter((event) => (event.kind === "ping" || event.kind === "teamCommand") && now - event.atMs < 6000);
       if (!pings.length) return;
       ctx.save();
       pings.forEach((event) => {
@@ -1142,8 +1292,8 @@
         const x = (tile.x + 0.5) * cellW;
         const y = (tile.y + 0.5) * cellH;
         ctx.globalAlpha = 1 - t;
-        ctx.strokeStyle = player?.color || "#f0cc74";
-        ctx.fillStyle = player?.color || "#f0cc74";
+        ctx.strokeStyle = event.teamColor || player?.color || "#f0cc74";
+        ctx.fillStyle = event.teamColor || player?.color || "#f0cc74";
         ctx.lineWidth = 1.4;
         ctx.beginPath();
         ctx.arc(x, y, 2.5 + t * 8, 0, Math.PI * 2);

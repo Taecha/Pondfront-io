@@ -9,6 +9,8 @@ const EconomyManager = require("./server/EconomyManager");
 const CombatManager = require("./server/CombatManager");
 const BotManager = require("./server/BotManager");
 const DiplomacyManager = require("./server/DiplomacyManager");
+const TeamManager = require("./server/TeamManager");
+const LobbyManager = require("./server/LobbyManager");
 const ObjectiveManager = require("./server/ObjectiveManager");
 const EventManager = require("./server/EventManager");
 const ProgressionManager = require("./server/ProgressionManager");
@@ -17,14 +19,15 @@ const objectives = require("./shared/objectives");
 const lakeEvents = require("./shared/lakeEvents");
 const diplomacyConfig = require("./shared/diplomacyConfig");
 const combatConfig = require("./shared/combatConfig");
+const teamConfig = require("./shared/teamConfig");
 
 const ROOT = __dirname;
 const PUBLIC = path.join(ROOT, "public");
 const PORT = Number(process.env.PORT || 5173);
 
 class PondFrontServerGame {
-  constructor() {
-    this.reset("duck", "normal");
+  constructor(options = {}) {
+    if (!options.skipInitialReset) this.reset("duck", "normal");
   }
 
   reset(animal = "duck", difficulty = "normal", settings = {}) {
@@ -34,6 +37,7 @@ class PondFrontServerGame {
     this.matchSeconds = this.matchSettings.matchSeconds;
     this.ended = false;
     this.winnerId = null;
+    this.winnerTeamId = null;
     this.events = [];
     this.eventId = 1;
     this.metrics = {
@@ -56,13 +60,15 @@ class PondFrontServerGame {
     this.objectives.setup(this.now());
     this.eventsManager.reset(this.now());
     this.economy = new EconomyManager(this.tileManager);
+    this.teamManager = new TeamManager((event) => this.pushEvent(event));
     this.diplomacy = new DiplomacyManager((event) => this.pushEvent(event));
     this.combat = new CombatManager(this.tileManager, (event) => this.pushEvent(event));
     this.players = this.createPlayers(animal, this.matchSettings.difficulty);
+    this.teamManager.setup(this.players, this.matchSettings);
     this.progression.setup(this.players);
     this.missions.setup(this.players);
     this.diplomacy.attach(this.players);
-    this.players.forEach((player, index) => this.tileManager.claimStart(player, index, this.now()));
+    this.players.forEach((player, index) => this.tileManager.claimStart(player, player.spawnIndex ?? index, this.now()));
     this.economy.recalculate(this.players, this.now(), this);
     this.botManager = new BotManager(this);
     this.logMatchStart();
@@ -71,10 +77,36 @@ class PondFrontServerGame {
 
   sanitizeMatchSettings(settings = {}) {
     const difficulty = ["easy", "normal", "smart", "chaos"].includes(settings.difficulty) ? settings.difficulty : "normal";
+    const gameMode = ["solo", "coop", "teamBattle"].includes(settings.gameMode) ? settings.gameMode : "solo";
     const mapSize = ["small", "medium", "large", "huge"].includes(settings.mapSize) ? settings.mapSize : "medium";
     const map = config.MAP_SIZES[mapSize] || config.MAP_SIZES.medium;
+    const humanPlayers = Array.isArray(settings.humanPlayers)
+      ? settings.humanPlayers
+          .slice(0, 12)
+          .map((player, index) => ({
+            id: String(player.id || `${config.HUMAN_ID}-${index}`).slice(0, 32),
+            socketId: player.socketId || null,
+            name: this.cleanPlayerName(player.name || player.playerName || `Player ${index + 1}`),
+            animal: animals[player.animal] ? player.animal : "duck",
+            teamId: player.teamId || null,
+            ready: Boolean(player.ready),
+            isHost: Boolean(player.isHost),
+            connected: player.connected !== false,
+            color: player.color || config.PLAYER_COLORS[index % config.PLAYER_COLORS.length],
+            spawnIndex: Number.isFinite(Number(player.spawnIndex)) ? Number(player.spawnIndex) : index,
+          }))
+      : [];
+    const humanCount = Math.max(1, humanPlayers.length || 1);
+    const allowBots = settings.allowBots !== false;
+    const coopTeammates = Math.max(0, Math.min(4, Number(settings.coopTeammates ?? 2)));
+    const teamCount = Math.max(2, Math.min(4, Number(settings.teamCount || 2)));
+    const botsPerTeam = Math.max(0, Math.min(6, Number(settings.botsPerTeam ?? 4)));
     const requestedBots = Number(settings.botCount || map.defaultBots || config.BOT_COUNT || 9);
-    const botCount = Math.max(map.minBots, Math.min(map.maxBots, requestedBots));
+    const teamBattleBots = Math.max(teamCount * botsPerTeam - humanCount, teamCount);
+    const coopBots = Math.max(requestedBots, coopTeammates + Math.max(4, map.minBots));
+    const modeBotCount = gameMode === "teamBattle" ? teamBattleBots : gameMode === "coop" ? coopBots : requestedBots;
+    const botCap = gameMode === "teamBattle" ? Math.min(map.maxBots, teamCount * botsPerTeam + 2) : map.maxBots;
+    const botCount = allowBots ? Math.max(map.minBots, Math.min(botCap, modeBotCount)) : 0;
     const matchLength = ["quick", "standard", "long"].includes(settings.matchLength) ? settings.matchLength : "standard";
     const lengthMultiplier = matchLength === "quick" ? 0.8 : matchLength === "long" ? 1.2 : 1;
     const matchSeconds =
@@ -82,6 +114,13 @@ class PondFrontServerGame {
     return {
       difficulty,
       botCount,
+      allowBots,
+      gameMode,
+      humanPlayers,
+      coopTeammates,
+      teamBotDifficulty: ["normal", "smart", "aggressive"].includes(settings.teamBotDifficulty) ? settings.teamBotDifficulty : "normal",
+      teamCount,
+      botsPerTeam,
       matchLength,
       matchSeconds,
       mapSize,
@@ -98,6 +137,7 @@ class PondFrontServerGame {
         `Map size selected: ${map.label}`,
         `Grid: ${this.tileManager.cols} x ${this.tileManager.rows}`,
         `Bot count: ${this.matchSettings.botCount}`,
+        `Mode: ${this.matchSettings.gameMode}`,
         `Spawn points: ${this.tileManager.spawnPoints.length >= this.players.length ? "valid" : "short"} (${this.tileManager.spawnPoints.length})`,
       ].join(" | "),
     );
@@ -113,16 +153,36 @@ class PondFrontServerGame {
 
   createPlayers(humanAnimal, difficulty) {
     const personalities = ["aggressive", "defensive", "expander", "objectiveHunter", "leaderHunter", "betrayer", "farmer", "peaceful", "loyalAlly", "opportunist"];
-    const safeHumanAnimal = animals[humanAnimal] ? humanAnimal : "duck";
-    const human = this.makePlayer(config.HUMAN_ID, this.matchSettings.playerName || "Player", safeHumanAnimal, animals[safeHumanAnimal].color, false, "human");
-    const players = [human];
-    const botCount = this.matchSettings.botCount || config.BOT_COUNT || 9;
+    const lobbyHumans = this.matchSettings.humanPlayers || [];
+    const players = lobbyHumans.length
+      ? lobbyHumans.map((entry, index) => {
+          const animal = animals[entry.animal] ? entry.animal : "duck";
+          const player = this.makePlayer(entry.id, entry.name, animal, entry.color || config.PLAYER_COLORS[index % config.PLAYER_COLORS.length], false, "human");
+          player.preferredTeamId = entry.teamId || null;
+          player.socketId = entry.socketId || null;
+          player.connected = entry.connected !== false;
+          player.isHost = Boolean(entry.isHost);
+          player.lobbyReady = Boolean(entry.ready);
+          player.spawnIndex = Number.isFinite(Number(entry.spawnIndex)) ? Number(entry.spawnIndex) : index;
+          return player;
+        })
+      : [
+          this.makePlayer(
+            config.HUMAN_ID,
+            this.matchSettings.playerName || "Player",
+            animals[humanAnimal] ? humanAnimal : "duck",
+            animals[animals[humanAnimal] ? humanAnimal : "duck"].color,
+            false,
+            "human",
+          ),
+        ];
+    const botCount = this.matchSettings.botCount ?? config.BOT_COUNT ?? 9;
     const botNames = this.shuffled(config.BOT_NAMES).filter((name) => name !== "You");
     const botAnimals = this.mixedBotAnimals(botCount);
     for (let i = 0; i < botCount; i += 1) {
       const animal = botAnimals[i];
       const name = botNames[i] || `Rainlake ${i + 1}`;
-      const color = config.PLAYER_COLORS[(i + 1) % config.PLAYER_COLORS.length];
+      const color = config.PLAYER_COLORS[(players.length + i) % config.PLAYER_COLORS.length];
       const botDifficulty =
         difficulty === "chaos" ? "smart" : difficulty === "smart" || difficulty === "easy" ? difficulty : i % 4 === 0 ? "smart" : "normal";
       const player = this.makePlayer(`b${i}`, name, animal, color, true, botDifficulty);
@@ -182,6 +242,10 @@ class PondFrontServerGame {
       evolutionTitle: "Starter",
       coreTileId: null,
       personality: "human",
+      preferredTeamId: null,
+      connected: true,
+      isHost: false,
+      socketId: null,
       buildings: {},
       stats: {
         tilesCaptured: 0,
@@ -204,6 +268,7 @@ class PondFrontServerGame {
     if (this.ended) return;
     this.combat.update(this, dt);
     this.diplomacy.update(this);
+    this.teamManager.update(this);
     this.objectives.update(this);
     this.eventsManager.update(this);
     this.economy.update(this.players, dt, this.now(), this);
@@ -213,8 +278,10 @@ class PondFrontServerGame {
   }
 
   handleAction(body) {
-    const player = this.getPlayer(config.HUMAN_ID);
+    const actorId = body.playerId || config.HUMAN_ID;
+    const player = this.getPlayer(actorId);
     if (!player || player.defeated) return { ok: false, message: "You are out of the pond." };
+    if (player.isBot) return { ok: false, message: "Bots cannot be controlled by this client." };
     const percent = Math.max(0.01, Math.min(1, Number(body.percent) || 0.25));
 
     if (body.type === "expand" || body.type === "attack") {
@@ -270,6 +337,7 @@ class PondFrontServerGame {
       });
     }
     if (body.type === "diplomacy") return this.diplomacy.handle(this, player, body.targetId, body.command);
+    if (body.type === "teamCommand") return this.teamManager.handleCommand(this, player, body);
     if (body.type === "ping") return this.handlePing(player, body);
     if (body.type === "restartTutorial") {
       this.pushEvent({ kind: "notice", message: "Tutorial restarted.", at: this.now() });
@@ -307,6 +375,25 @@ class PondFrontServerGame {
   }
 
   checkWin() {
+    if (this.teamManager?.active()) {
+      const teams = this.teamManager.territoryStats(this.players, this.tileManager.playable().length);
+      const winnerTeam = teams.find((team) => team.territoryPct >= (teamConfig.teamWinControl || config.WIN_CONTROL));
+      if (winnerTeam) {
+        const leadMember = this.players
+          .filter((player) => player.teamId === winnerTeam.id && !player.defeated)
+          .sort((a, b) => b.territory - a.territory)[0];
+        this.end(leadMember?.id || null, winnerTeam.id);
+        return;
+      }
+      if (this.timeLeft() <= 0) {
+        const leaderTeam = teams[0];
+        const leadMember = this.players
+          .filter((player) => player.teamId === leaderTeam?.id && !player.defeated)
+          .sort((a, b) => b.territory - a.territory)[0];
+        this.end(leadMember?.id || null, leaderTeam?.id || null);
+      }
+      return;
+    }
     const active = this.players.filter((player) => !player.defeated);
     const winner = active.find((player) => this.territoryPercent(player) >= config.WIN_CONTROL);
     if (winner) {
@@ -319,25 +406,35 @@ class PondFrontServerGame {
     }
   }
 
-  end(winnerId) {
+  end(winnerId, winnerTeamId = null) {
     this.ended = true;
     this.winnerId = winnerId;
+    this.winnerTeamId = winnerTeamId;
     const winner = this.getPlayer(winnerId);
+    const winnerTeam = this.teamManager?.territoryStats(this.players, this.tileManager.playable().length).find((team) => team.id === winnerTeamId);
     this.pushEvent({
       kind: "ended",
       winnerId,
-      message: winner ? `${winner.name} controls the pond.` : "The match ended.",
+      winnerTeamId,
+      message: winnerTeam ? `${winnerTeam.name} controls the pond together.` : winner ? `${winner.name} controls the pond.` : "The match ended.",
       at: this.now(),
     });
   }
 
-  snapshot() {
+  snapshot(viewerId = config.HUMAN_ID) {
+    const viewer = this.getPlayer(viewerId) || this.players.find((player) => !player.isBot) || this.getPlayer(config.HUMAN_ID);
+    const effectiveViewerId = viewer?.id || config.HUMAN_ID;
     const playable = this.tileManager.playable().length;
     const players = this.players.map((player) => ({
       id: player.id,
       name: player.name,
       animal: player.animal,
       personality: player.personality,
+      role: player.role || (player.isBot ? "rival" : "commander"),
+      teamId: player.teamId || null,
+      teamName: player.teamName || "",
+      teamColor: player.teamColor || "",
+      teamBadge: player.teamBadge || "",
       color: player.color,
       energy: Math.round(player.energy),
       maxEnergy: Math.round(player.maxEnergy),
@@ -370,16 +467,18 @@ class PondFrontServerGame {
       objectives: this.objectives.snapshot().objectives,
       camps: this.objectives.snapshot().camps,
       lakeEvent: this.eventsManager.snapshot(this.now()),
-      missions: this.missions.snapshot(config.HUMAN_ID),
+      missions: this.missions.snapshot(effectiveViewerId),
       wars: this.warSnapshot(),
-      relationships: this.diplomacy.snapshot(config.HUMAN_ID, this.now()),
+      relationships: this.diplomacy.snapshot(effectiveViewerId, this.now()),
       matchSettings: this.matchSettings,
+      teamState: this.teamManager.snapshot(this),
       ended: this.ended,
       winnerId: this.winnerId,
+      winnerTeamId: this.winnerTeamId || null,
       winControl: config.WIN_CONTROL,
       cols: this.tileManager.cols,
       rows: this.tileManager.rows,
-      humanId: config.HUMAN_ID,
+      humanId: effectiveViewerId,
       playable,
       tiles: this.tileManager.tiles.map((tile) => ({
         id: tile.id,
@@ -401,7 +500,7 @@ class PondFrontServerGame {
       })),
       players,
       activeAttacks: this.combat.snapshot(),
-      events: this.visibleEventsFor(config.HUMAN_ID).slice(-config.MAX_EVENTS),
+      events: this.visibleEventsFor(effectiveViewerId).slice(-config.MAX_EVENTS),
       config: {
         tileTypes: config.TILE_TYPES,
         buildings: config.BUILDINGS,
@@ -410,9 +509,10 @@ class PondFrontServerGame {
         lakeEvents,
         diplomacy: diplomacyConfig,
         combat: combatConfig,
+        teams: teamConfig,
         mapSizes: config.MAP_SIZES,
         balance,
-        buildingCosts: this.playerBuildingCosts(this.getPlayer(config.HUMAN_ID)),
+        buildingCosts: this.playerBuildingCosts(viewer),
       },
     };
   }
@@ -495,6 +595,8 @@ class PondFrontServerGame {
 
   visibleEventsFor(viewerId) {
     return this.events.filter((event) => {
+      if (event.kind === "teamCommand") return Boolean(event.teamId && this.getPlayer(viewerId)?.teamId === event.teamId);
+      if (event.kind === "teamResponse") return Boolean(event.teamId && this.getPlayer(viewerId)?.teamId === event.teamId);
       if (event.kind !== "ping" && event.kind !== "signal") return true;
       if (event.visibility === "public") return true;
       if (event.playerId === viewerId || event.targetId === viewerId) return true;
@@ -539,6 +641,7 @@ class PondFrontServerGame {
 }
 
 const game = new PondFrontServerGame();
+const lobbyManager = new LobbyManager();
 
 function sendJson(res, status, data) {
   const json = JSON.stringify(data);
@@ -588,6 +691,29 @@ function serveFile(res, filePath) {
   });
 }
 
+function createLobbyMatch({ animal, difficulty, settings }) {
+  const match = new PondFrontServerGame({ skipInitialReset: true });
+  match.reset(animal || "duck", difficulty || "normal", settings || {});
+  return match;
+}
+
+function actionResponse(match, body, viewerId) {
+  const result = match.handleAction(body);
+  match.objectives.update(match);
+  match.economy.recalculate(match.players, match.now(), match);
+  match.missions.update(match);
+  if (result.message) match.pushEvent({ kind: "notice", message: result.message, ok: result.ok, at: match.now() });
+  return { result, state: match.snapshot(viewerId) };
+}
+
+function lobbyQuery(url) {
+  return {
+    roomCode: url.searchParams.get("roomCode") || "",
+    playerId: url.searchParams.get("playerId") || "",
+    playerToken: url.searchParams.get("playerToken") || "",
+  };
+}
+
 const server = http.createServer(async (req, res) => {
   const url = new URL(req.url, `http://${req.headers.host || "localhost"}`);
 
@@ -608,24 +734,96 @@ const server = http.createServer(async (req, res) => {
       mapSize: body.mapSize,
       matchLength: body.matchLength,
       practice: body.practice,
+      gameMode: body.gameMode,
+      coopTeammates: body.coopTeammates,
+      teamBotDifficulty: body.teamBotDifficulty,
+      teamCount: body.teamCount,
+      botsPerTeam: body.botsPerTeam,
+      allowBots: body.allowBots,
     });
-    sendJson(res, 200, game.snapshot());
+    sendJson(res, 200, game.snapshot(config.HUMAN_ID));
+    return;
+  }
+
+  if (req.method === "POST" && url.pathname === "/api/lobby/create") {
+    const body = await readJson(req);
+    const result = lobbyManager.createLobby(body);
+    sendJson(res, result.ok ? 200 : 400, result);
+    return;
+  }
+
+  if (req.method === "POST" && url.pathname === "/api/lobby/join") {
+    const body = await readJson(req);
+    const result = lobbyManager.joinLobby(body.roomCode, body);
+    sendJson(res, result.ok ? 200 : 400, result);
+    return;
+  }
+
+  if (req.method === "GET" && url.pathname === "/api/lobby/state") {
+    const query = lobbyQuery(url);
+    const result = lobbyManager.state(query.roomCode, query.playerId, query.playerToken);
+    sendJson(res, result.ok ? 200 : 400, result);
+    return;
+  }
+
+  if (req.method === "POST" && url.pathname === "/api/lobby/update") {
+    const body = await readJson(req);
+    const result = lobbyManager.updateLobby(body.roomCode, body.playerId, body.playerToken, body);
+    sendJson(res, result.ok ? 200 : 400, result);
+    return;
+  }
+
+  if (req.method === "POST" && url.pathname === "/api/lobby/leave") {
+    const body = await readJson(req);
+    const result = lobbyManager.leaveLobby(body.roomCode, body.playerId, body.playerToken);
+    sendJson(res, result.ok ? 200 : 400, result);
+    return;
+  }
+
+  if (req.method === "POST" && url.pathname === "/api/lobby/start") {
+    const body = await readJson(req);
+    const result = lobbyManager.startLobbyMatch(body.roomCode, body.playerId, body.playerToken, createLobbyMatch);
+    sendJson(res, result.ok ? 200 : 400, result);
     return;
   }
 
   if (req.method === "GET" && url.pathname === "/api/state") {
-    sendJson(res, 200, game.snapshot());
+    const query = lobbyQuery(url);
+    if (query.roomCode) {
+      const session = lobbyManager.validateSession(query.roomCode, query.playerId, query.playerToken);
+      if (!session.ok) {
+        sendJson(res, 400, session);
+        return;
+      }
+      if (!session.lobby.match) {
+        sendJson(res, 400, { ok: false, message: "Lobby match has not started." });
+        return;
+      }
+      sendJson(res, 200, session.lobby.match.snapshot(session.player.id));
+      return;
+    }
+    sendJson(res, 200, game.snapshot(config.HUMAN_ID));
     return;
   }
 
   if (req.method === "POST" && url.pathname === "/api/action") {
     const body = await readJson(req);
-    const result = game.handleAction(body);
-    game.objectives.update(game);
-    game.economy.recalculate(game.players, game.now(), game);
-    game.missions.update(game);
-    if (result.message) game.pushEvent({ kind: "notice", message: result.message, ok: result.ok, at: game.now() });
-    sendJson(res, result.ok ? 200 : 400, { ...result, state: game.snapshot() });
+    if (body.roomCode) {
+      const session = lobbyManager.validateSession(body.roomCode, body.playerId, body.playerToken);
+      if (!session.ok) {
+        sendJson(res, 400, session);
+        return;
+      }
+      if (!session.lobby.match) {
+        sendJson(res, 400, { ok: false, message: "Lobby match has not started." });
+        return;
+      }
+      const { result, state } = actionResponse(session.lobby.match, { ...body, playerId: session.player.id }, session.player.id);
+      sendJson(res, result.ok ? 200 : 400, { ...result, state });
+      return;
+    }
+    const { result, state } = actionResponse(game, { ...body, playerId: config.HUMAN_ID }, config.HUMAN_ID);
+    sendJson(res, result.ok ? 200 : 400, { ...result, state });
     return;
   }
 
@@ -655,6 +853,7 @@ if (require.main === module) {
     const dt = Math.min(1, (now - lastTick) / 1000);
     lastTick = now;
     game.tick(dt);
+    lobbyManager.tick(dt);
   }, config.TICK_RATE_MS);
 
   server.listen(PORT, () => {
@@ -662,4 +861,4 @@ if (require.main === module) {
   });
 }
 
-module.exports = { PondFrontServerGame, game, server };
+module.exports = { PondFrontServerGame, game, lobbyManager, server };

@@ -61,7 +61,9 @@ class CombatManager {
     const progress = target.captureProgress?.[player.id] || 0;
     const remaining = Math.max(0, cost - progress);
     const available = this.spendEnergy(player, percent);
-    if (available < 1 || player.energy < 1) return { ok: false, resultType: "notEnoughEnergy", message: "Not enough Animal Energy." };
+    if (available < 1 || player.energy < 1) {
+      return { ok: false, resultType: "notEnoughEnergy", message: "Not enough Animal Energy. Send a higher percent or wait for income." };
+    }
 
     const spend = Math.min(available, remaining);
     player.energy -= spend;
@@ -98,7 +100,7 @@ class CombatManager {
         unusedEnergy: Math.round(Math.max(0, available - spend)),
         cost,
         progress: cost,
-        message: "Expanded.",
+        message: `Expanded: captured ${config.TILE_TYPES[target.type]?.label || "tile"} for ${Math.round(spend)} energy.`,
       };
     }
 
@@ -123,7 +125,8 @@ class CombatManager {
       unusedEnergy: Math.round(Math.max(0, available - spend)),
       cost,
       progress: Math.round(currentProgress),
-      message: `Expansion Progress ${Math.round(currentProgress)}/${cost}.`,
+      remaining: Math.round(Math.max(0, cost - currentProgress)),
+      message: `Expansion progress ${Math.round(currentProgress)}/${cost}. Send more energy to finish capture.`,
     };
   }
 
@@ -140,7 +143,7 @@ class CombatManager {
     if (!reach.reachable) return { ok: false, resultType: "tooFar", message: "Too far from border." };
 
     const spend = this.spendEnergy(player, percent);
-    if (spend < 5) return { ok: false, resultType: "notEnoughEnergy", message: "Not enough Animal Energy." };
+    if (spend < 5) return { ok: false, resultType: "notEnoughEnergy", message: "Not enough Animal Energy. Attacks need at least 5 energy." };
 
     const exhaustion = Math.min(balance.maxWarExhaustion, player.flags?.warExhaustion || 0);
     const attackInfo = this.attackModifierInfo(game, player, target, reach.source, false);
@@ -348,7 +351,7 @@ class CombatManager {
       targetOwner: wave.defenderId,
       at: now,
     });
-    this.finishWave(game, wave, "Enemy defense too strong.");
+    this.finishWave(game, wave, "Attack blocked: reinforced border too strong. Send more energy or choose a weaker border.");
   }
 
   finishWave(game, wave, reason) {
@@ -434,7 +437,7 @@ class CombatManager {
     const tile = this.tileManager.getById(tileId);
     if (!tile || tile.owner !== player.id) return { ok: false, message: "Choose your territory to defend." };
     const spend = this.spendEnergy(player, percent) * balance.defendSpendMultiplier;
-    if (spend < 3) return { ok: false, message: "Not enough Animal Energy." };
+    if (spend < 3) return { ok: false, message: "Not enough Animal Energy. Defending needs at least 3 energy." };
     player.energy -= spend;
     player.stats.energyUsed += spend;
     player.stats.defenses = (player.stats.defenses || 0) + 1;
@@ -442,8 +445,13 @@ class CombatManager {
     const shellBoost = player.animal === "turtle" && now < (player.abilityActiveUntil || 0) ? 1.18 : 1;
     tile.defenseEnergy = Math.min(90, tile.defenseEnergy + spend * balance.defendEnergyMultiplier * animalBoost * shellBoost);
     tile.lastChanged = now;
-    this.pushEvent({ kind: "defend", to: tile.id, amount: Math.round(spend), playerId: player.id, at: now });
-    return { ok: true, message: "Border defense reinforced." };
+    this.pushEvent({ kind: "defend", to: tile.id, amount: Math.round(spend), playerId: player.id, defense: Math.round(tile.defenseEnergy), at: now });
+    return {
+      ok: true,
+      resultType: "reinforced",
+      defenseEnergy: Math.round(tile.defenseEnergy),
+      message: `Border reinforced: ${Math.round(tile.defenseEnergy)} stored defense energy. Enemy attacks now cost more.`,
+    };
   }
 
   activateAbility(game, player, options = {}) {

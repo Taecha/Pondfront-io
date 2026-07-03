@@ -77,11 +77,19 @@ class DiplomacyManager {
   }
 
   areAllied(a, b) {
-    return Boolean(a && b && a !== b && this.player(a)?.allies?.has(b));
+    const actor = this.player(a);
+    const target = this.player(b);
+    const sameTeam = Boolean(actor?.teamId && target?.teamId && actor.teamId === target.teamId);
+    return Boolean(a && b && a !== b && (sameTeam || actor?.allies?.has(b)));
   }
 
   canAttack(attackerId, targetId, now = Date.now() / 1000) {
     if (!attackerId || !targetId || attackerId === targetId) return { ok: false, reason: "No combat target." };
+    const attacker = this.player(attackerId);
+    const target = this.player(targetId);
+    if (attacker?.teamId && target?.teamId && attacker.teamId === target.teamId) {
+      return { ok: false, reason: "Cannot attack teammate." };
+    }
     const relation = this.cleanup(this.peek(attackerId, targetId), now);
     if (this.areAllied(attackerId, targetId)) return { ok: false, reason: "Cannot attack ally." };
     if (relation?.truceUntil > now) return { ok: false, reason: `Truce active for ${Math.ceil(relation.truceUntil - now)}s.` };
@@ -102,6 +110,14 @@ class DiplomacyManager {
     const now = game.now();
     const normalized = this.normalizeCommand(command);
     const relation = this.cleanup(this.entry(actor.id, target.id), now);
+    const sameTeam = Boolean(actor.teamId && target.teamId && actor.teamId === target.teamId);
+
+    if (sameTeam && ["breakAlliance", "declareWar", "markEnemy"].includes(normalized)) {
+      return { ok: false, message: "Team members cannot break team protection or declare war." };
+    }
+    if (sameTeam && normalized === "requestAlliance") {
+      return { ok: true, message: `${target.name} is already your teammate.` };
+    }
 
     if (["requestAlliance", "offerTruce"].includes(normalized) && this.isCoolingDown(actor.id, target.id, normalized, now)) {
       return { ok: false, message: "Diplomacy request cooldown active." };
@@ -324,8 +340,9 @@ class DiplomacyManager {
     const relation = this.cleanup(this.peek(actorId, targetId), now);
     const canAttack = this.canAttack(actorId, targetId, now);
     const allied = this.areAllied(actorId, targetId);
+    const teammate = Boolean(actor?.teamId && target?.teamId && actor.teamId === target.teamId);
     const markedEnemy = Boolean(actor?.enemies?.has(targetId));
-    const activeState = this.stateFor(actorId, targetId, relation, allied, markedEnemy, now);
+    const activeState = this.stateFor(actorId, targetId, relation, allied, markedEnemy, now, teammate);
     const definition = states[activeState] || states.neutral;
     return {
       playerId: targetId,
@@ -335,6 +352,10 @@ class DiplomacyManager {
       icon: definition.icon,
       color: definition.color,
       allied,
+      teammate,
+      teamId: target?.teamId || null,
+      teamName: target?.teamName || "",
+      teamColor: target?.teamColor || "",
       markedEnemy,
       canAttack: canAttack.ok,
       blockReason: canAttack.reason,
@@ -356,7 +377,8 @@ class DiplomacyManager {
     };
   }
 
-  stateFor(actorId, targetId, relation, allied, markedEnemy, now) {
+  stateFor(actorId, targetId, relation, allied, markedEnemy, now, teammate = false) {
+    if (teammate) return "teammate";
     if (allied) return "allied";
     if (relation?.truceUntil > now) return "truce";
     if (relation?.requestExpiresAt > now && relation.requestedBy) return "requested";

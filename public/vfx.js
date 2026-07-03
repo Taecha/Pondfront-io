@@ -13,10 +13,12 @@
       this.effects = [];
       this.particles = [];
       this.notices = [];
+      this.shake = { power: 0, until: 0, started: 0 };
       this.settings = {
         level: "high",
         floatingText: true,
         attackArrows: true,
+        screenShake: true,
         reducedMotion: false,
       };
       this.maxEffects = 180;
@@ -46,8 +48,7 @@
         this.spawnRipple(event.to, color, 0.72);
         this.spawnFloatingText(event.to, `${event.progress}/${event.cost}`, "#edf8fb");
       } else if (event.kind === "attackWave") {
-        if (this.settings.attackArrows) this.spawnAttackArrow(event.from, event.to, color, event.amount ? `-${event.amount} Energy` : "");
-        this.spawnPulse(event.to, color, 1.25);
+        this.spawnAttackPowerEffect(event.from, event.to, color, event.amount || 0, event.abilityModifier);
       } else if (event.kind === "waveCapture") {
         this.spawnCaptureEffect(event.to, color, "Captured");
         this.spawnAttackArrow(event.from, event.to, color, "");
@@ -69,10 +70,19 @@
       } else if (event.kind === "buildComplete") {
         this.spawnBuildEffect(event.to, event.buildingType);
       } else if (event.kind === "buildUpgrade") {
-        this.spawnBuildEffect(event.to, event.buildingType);
-        this.spawnFloatingText(event.to, "Building Upgraded", "#f2d87a");
+        this.spawnBuildEffect(event.to, event.buildingType, true);
       } else if (event.kind === "buildRemove") {
         this.spawnBlockedEffect(event.to, "Removed");
+      } else if (event.kind === "objectiveAppeared") {
+        this.spawnObjectiveEffect(event.to, "#f2d87a", "Objective!");
+      } else if (event.kind === "objectiveCaptured") {
+        this.spawnObjectiveEffect(event.to, color, "Objective Captured!");
+      } else if (event.kind === "campCaptured") {
+        this.spawnObjectiveEffect(event.to, color, "Camp Captured!");
+      } else if (event.kind === "waveEnd" && (event.captured || 0) === 0) {
+        this.spawnScreenNotice("Enemy Blocked!", "#edf8fb");
+      } else if (event.kind === "ended") {
+        this.spawnScreenNotice(event.message || "Match Over", event.winnerId === state?.humanId ? "#f2d87a" : "#e9857c");
       } else if (event.kind === "ping") {
         const label = root.PondInfo?.PING_LABELS?.[event.pingType] || "Ping";
         this.spawnPulse(event.to, color, 1.25);
@@ -81,6 +91,24 @@
         const label = event.subtype === "alliance" ? "Alliance Formed" : event.subtype === "broken" ? "Alliance Broken" : "Diplomacy Updated";
         this.spawnScreenNotice(label, event.subtype === "broken" ? "#d96b61" : "#87d7ea");
       }
+    }
+
+    spawnAttackPowerEffect(fromTile, toTile, color = "#d8ad48", amount = 0, modifier = "") {
+      const label = amount >= 85 ? "Massive Wave!" : amount >= 45 ? "Big Push!" : amount >= 22 ? "Strong Push" : "";
+      const size = amount >= 85 ? 1.85 : amount >= 45 ? 1.45 : amount >= 22 ? 1.12 : 0.9;
+      if (this.settings.attackArrows) this.spawnAttackArrow(fromTile, toTile, color, modifier || (amount ? `-${amount}` : ""));
+      this.spawnPulse(toTile, color, 1.1 * size);
+      this.spawnRipple(toTile, color, 0.92 * size);
+      const point = this.tileWorldPoint(toTile);
+      if (point) {
+        this.effects.push({ kind: "attackBurst", ...point, color, size, born: performance.now(), life: this.life(820 + amount * 3) });
+        this.spawnParticles(point, color, this.count(amount >= 85 ? 26 : amount >= 45 ? 18 : 9), amount >= 85 ? 118 : 76, "attack");
+      }
+      if (label) {
+        this.spawnFloatingText(toTile, label, amount >= 85 ? "#f2d87a" : "#edf8fb");
+        this.spawnScreenNotice(label, amount >= 85 ? "#f2d87a" : color);
+      }
+      if (amount >= 45) this.screenShake(amount >= 85 ? 7 : 4, amount >= 85 ? 440 : 260);
     }
 
     spawnRipple(tileId, color = "#9ee7f4", size = 1) {
@@ -126,15 +154,16 @@
       this.spawnFloatingText(tileId, text, "#edf8fb");
     }
 
-    spawnBuildEffect(tileId, buildingType) {
+    spawnBuildEffect(tileId, buildingType, upgraded = false) {
       const point = this.tileWorldPoint(tileId);
       if (!point) return;
       const meta = BUILDING_META[buildingType] || { label: "Built", color: "#87d7ea", particle: "#edf8fb" };
-      this.effects.push({ kind: "build", ...point, buildingType, color: meta.color, born: performance.now(), life: this.life(1050) });
-      this.spawnRipple(tileId, meta.color, buildingType === "mudTunnel" ? 1.35 : 1.1);
-      this.spawnPulse(tileId, meta.color, buildingType === "jumpPad" ? 1.35 : 1);
-      this.spawnFloatingText(tileId, meta.label, meta.color);
-      this.spawnParticles(point, meta.particle, this.count(14), 54, buildingType);
+      this.effects.push({ kind: "build", ...point, buildingType, color: meta.color, upgraded, born: performance.now(), life: this.life(upgraded ? 1280 : 1050) });
+      this.spawnRipple(tileId, meta.color, buildingType === "mudTunnel" ? 1.45 : upgraded ? 1.32 : 1.1);
+      this.spawnPulse(tileId, meta.color, buildingType === "jumpPad" ? 1.45 : upgraded ? 1.25 : 1);
+      this.spawnFloatingText(tileId, upgraded ? "Building Upgraded!" : meta.label, meta.color);
+      if (upgraded) this.spawnFloatingText(tileId, "Level Up!", "#f2d87a");
+      this.spawnParticles(point, meta.particle, this.count(upgraded ? 22 : 14), upgraded ? 74 : 54, buildingType);
     }
 
     spawnDefendEffect(tileIds = []) {
@@ -155,12 +184,45 @@
       const isFrog = normalized.includes("frog") || normalized.includes("leap");
       const isTurtle = normalized.includes("turtle") || normalized.includes("shell");
       const isCarp = normalized.includes("carp") || normalized.includes("current");
-      const color = isSnake ? "#5fbf83" : isFrog ? "#bc6ca2" : isTurtle ? "#6fc5d8" : isCarp ? "#f0cc74" : "#f2d87a";
+      const color = isSnake ? "#5fbf83" : isFrog ? "#48e08f" : isTurtle ? "#6fc5d8" : isCarp ? "#f0b44f" : "#f2d87a";
       const text = isSnake ? "Ambush Ready!" : isFrog ? "Big Leap!" : isTurtle ? "Shell Guard!" : isCarp ? "Golden Current!" : "Flock Rush!";
       const kind = isSnake ? "snakeSkill" : isFrog ? "frogSkill" : isTurtle ? "turtleSkill" : isCarp ? "carpSkill" : "duckSkill";
       this.effects.push({ kind, ...center, color, born: performance.now(), life: this.life(1250) });
       this.spawnFloatingText(center, playerName ? `${playerName}: ${abilityName || text}` : abilityName || text, color);
       this.spawnParticles(center, color, this.count(isFrog ? 18 : isTurtle ? 20 : isCarp ? 28 : 24), isFrog ? 88 : isCarp ? 96 : 72, kind);
+      if (isFrog || isTurtle || isCarp) this.screenShake(isFrog ? 3 : isTurtle ? 2 : 2.5, 240);
+    }
+
+    spawnObjectiveEffect(tileId, color = "#f2d87a", text = "Objective!") {
+      const point = this.tileWorldPoint(tileId);
+      if (!point) return;
+      this.effects.push({ kind: "objectiveAura", ...point, color, born: performance.now(), life: this.life(1550) });
+      this.spawnRipple(tileId, color, 1.8);
+      this.spawnPulse(tileId, color, 1.55);
+      this.spawnFloatingText(tileId, text, color);
+      this.spawnScreenNotice(text, color);
+      this.spawnParticles(point, color, this.count(28), 96, "objective");
+      this.screenShake(3, 280);
+    }
+
+    screenShake(power = 3, duration = 260) {
+      if (!this.settings.screenShake || this.settings.reducedMotion || this.settings.level === "low") return;
+      const now = performance.now();
+      this.shake = {
+        power: Math.max(this.shake.power || 0, power),
+        started: now,
+        until: Math.max(this.shake.until || 0, now + duration),
+      };
+    }
+
+    shakeOffset(now = performance.now()) {
+      if (!this.settings.screenShake || now >= this.shake.until) return { x: 0, y: 0 };
+      const t = Math.max(0, Math.min(1, (now - this.shake.started) / Math.max(1, this.shake.until - this.shake.started)));
+      const power = this.shake.power * (1 - t);
+      return {
+        x: Math.sin(now * 0.07) * power + Math.sin(now * 0.021) * power * 0.45,
+        y: Math.cos(now * 0.061) * power,
+      };
     }
 
     spawnScreenNotice(text, color = "#87d7ea") {
@@ -197,7 +259,50 @@
 
       this.drawEffects(ctx, now);
       this.drawParticles(ctx, now);
+      this.drawAmbient(ctx, now);
       this.drawNotices(ctx, now);
+    }
+
+    drawAmbient(ctx, now) {
+      if (this.settings.reducedMotion || this.settings.level === "low" || !this.renderer.visibleTiles) return;
+      const tiles = this.renderer
+        .visibleTiles(0)
+        .filter((tile) => tile.type === "reeds" || tile.type === "lily" || tile.objectiveId || tile.campId)
+        .slice(0, this.settings.level === "high" ? 90 : 42);
+      if (!tiles.length) return;
+      const size = this.renderer.baseTile * this.renderer.camera.zoom;
+      if (size < 7) return;
+      ctx.save();
+      tiles.forEach((tile) => {
+        const p = this.renderer.tileCenter(tile);
+        const seed = tile.id * 17.13;
+        const pulse = 0.5 + Math.sin(now * 0.0028 + seed) * 0.5;
+        if (tile.type === "lily") {
+          ctx.globalAlpha = 0.08 + pulse * 0.08;
+          ctx.fillStyle = "#a8ffae";
+          ctx.beginPath();
+          ctx.arc(p.x, p.y, Math.max(2, size * (0.28 + pulse * 0.08)), 0, Math.PI * 2);
+          ctx.fill();
+        }
+        if (tile.type === "reeds") {
+          ctx.globalAlpha = 0.18 + pulse * 0.22;
+          ctx.fillStyle = pulse > 0.64 ? "#f2d87a" : "#9ee7f4";
+          const ox = Math.sin(now * 0.0016 + seed) * size * 0.24;
+          const oy = Math.cos(now * 0.0019 + seed) * size * 0.18;
+          ctx.beginPath();
+          ctx.arc(p.x + ox, p.y + oy, Math.max(1, size * 0.035), 0, Math.PI * 2);
+          ctx.fill();
+        }
+        if (tile.objectiveId || tile.campId) {
+          ctx.globalAlpha = 0.13 + pulse * 0.12;
+          ctx.strokeStyle = tile.objectiveId ? "#f2d87a" : "#8ee6a2";
+          ctx.lineWidth = Math.max(1, size * 0.025);
+          ctx.beginPath();
+          ctx.arc(p.x, p.y, size * (0.5 + pulse * 0.22), 0, Math.PI * 2);
+          ctx.stroke();
+        }
+      });
+      ctx.restore();
     }
 
     drawEffects(ctx, now) {
@@ -272,6 +377,30 @@
             ctx.beginPath();
             ctx.moveTo(p.x + Math.cos(angle) * tileSize * 0.22, p.y + Math.sin(angle) * tileSize * 0.22);
             ctx.lineTo(p.x + Math.cos(angle) * tileSize * 0.43, p.y + Math.sin(angle) * tileSize * 0.43);
+            ctx.stroke();
+          }
+        } else if (effect.kind === "attackBurst") {
+          const r = tileSize * effect.size * (0.18 + t * 0.72);
+          ctx.lineWidth = Math.max(2, tileSize * 0.06 * effect.size);
+          ctx.beginPath();
+          ctx.arc(p.x, p.y, r, 0, Math.PI * 2);
+          ctx.stroke();
+          ctx.globalAlpha = Math.max(0, alpha * 0.24);
+          ctx.beginPath();
+          ctx.ellipse(p.x, p.y, r * 1.35, r * 0.58, Math.sin(t * Math.PI) * 0.2, 0, Math.PI * 2);
+          ctx.fill();
+        } else if (effect.kind === "objectiveAura") {
+          const r = tileSize * (0.55 + t * 1.4);
+          ctx.lineWidth = Math.max(2, tileSize * 0.055);
+          ctx.beginPath();
+          ctx.arc(p.x, p.y, r, 0, Math.PI * 2);
+          ctx.stroke();
+          ctx.globalAlpha = Math.max(0, alpha * 0.36);
+          for (let i = 0; i < 8; i += 1) {
+            const angle = i * (Math.PI / 4) + t * 1.2;
+            ctx.beginPath();
+            ctx.moveTo(p.x + Math.cos(angle) * r * 0.45, p.y + Math.sin(angle) * r * 0.45);
+            ctx.lineTo(p.x + Math.cos(angle) * r * 0.95, p.y + Math.sin(angle) * r * 0.95);
             ctx.stroke();
           }
         } else if (effect.kind === "duckSkill" || effect.kind === "snakeSkill" || effect.kind === "frogSkill" || effect.kind === "turtleSkill" || effect.kind === "carpSkill") {

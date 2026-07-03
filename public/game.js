@@ -4,6 +4,7 @@
       this.canvas = document.querySelector("#mapCanvas");
       this.miniMap = document.querySelector("#miniMap");
       this.ui = new root.PondUI();
+      this.audio = this.ui.audio || null;
       this.renderer = new root.PondRenderer(this.canvas, this.miniMap);
       this.contextMenu = root.PondContextMenu ? new root.PondContextMenu() : null;
       this.state = null;
@@ -27,7 +28,10 @@
       this.minimapPointerId = null;
       this.minimapShrinkTimer = null;
       this.pollTimer = null;
+      this.lobbyPollTimer = null;
+      this.lobbySession = null;
       this.fetching = false;
+      this.fetchingLobby = false;
       this.seenEventIds = new Set();
       this.bind();
       this.loop();
@@ -35,9 +39,17 @@
 
     bind() {
       this.ui.on("start", (payload) => this.start(payload));
+      this.ui.on("createLobby", (payload) => this.createLobby(payload));
+      this.ui.on("joinLobby", (payload) => this.joinLobby(payload));
+      this.ui.on("lobbyUpdatePlayer", (payload) => this.updateLobbyPlayer(payload));
+      this.ui.on("lobbyUpdateSettings", (payload) => this.updateLobbySettings(payload));
+      this.ui.on("lobbyReady", (payload) => this.setLobbyReady(payload.ready));
+      this.ui.on("lobbyStart", () => this.startLobbyMatch());
+      this.ui.on("lobbyLeave", () => this.leaveLobby());
       this.ui.on("action", (payload) => this.handleAction(payload));
       this.ui.on("camera", (payload) => this.handleCamera(payload));
       this.ui.on("diplomacy", (command) => this.handleDiplomacy(command));
+      this.ui.on("teamCommand", (command) => this.handleTeamCommand(command));
       this.ui.on("viewChanged", () => this.updateUi());
       this.contextMenu?.on("action", (payload) => this.handleContextAction(payload));
       this.contextMenu?.on("preview", (payload) => this.setActionPreview(payload));
@@ -54,6 +66,7 @@
       this.canvas.addEventListener("pointercancel", () => {
         this.clearLongPress();
         this.pointer = null;
+        document.body.classList.remove("map-panning");
         this.activePointers.clear();
         this.pinch = null;
         this.stopInertia();
@@ -73,6 +86,10 @@
     async start(payload) {
       this.ui.nodes.startButton.disabled = true;
       try {
+        this.clearLobbyPolling();
+        this.lobbySession = null;
+        await this.audio?.unlock();
+        this.audio?.play("start");
         const animal = root.PondAnimals?.[payload.animal] ? payload.animal : "duck";
         const difficulty = ["easy", "normal", "smart", "chaos"].includes(payload.difficulty) ? payload.difficulty : "normal";
         const state = await this.request("/api/start", {
@@ -85,6 +102,11 @@
             mapSize: payload.mapSize,
             matchLength: payload.matchLength,
             practice: Boolean(payload.practice),
+            gameMode: payload.gameMode,
+            coopTeammates: payload.coopTeammates,
+            teamBotDifficulty: payload.teamBotDifficulty,
+            teamCount: payload.teamCount,
+            botsPerTeam: payload.botsPerTeam,
           }),
         });
         this.resetSelection();
@@ -101,6 +123,185 @@
       }
     }
 
+    async createLobby(payload) {
+      this.ui.setLobbyLoading("create", true);
+      this.ui.setLobbyError("");
+      try {
+        const data = await this.request("/api/lobby/create", {
+          method: "POST",
+          body: JSON.stringify(payload),
+        });
+        this.lobbySession = { ...data.session, inGame: false };
+        this.ui.showWaitingRoom(data.lobby, this.lobbySession);
+        this.ui.toast(`Lobby created: ${data.lobby.roomCode}`);
+        this.startLobbyPolling();
+      } catch (error) {
+        this.ui.setLobbyError(error.message || "Connection failed.", "create");
+        this.ui.toast(error.message || "Connection failed.", true);
+      } finally {
+        this.ui.setLobbyLoading("create", false);
+      }
+    }
+
+    async joinLobby(payload) {
+      if (!payload.roomCode) {
+        this.ui.setLobbyError("Invalid room code.", "join");
+        return;
+      }
+      this.ui.setLobbyLoading("join", true);
+      this.ui.setLobbyError("");
+      try {
+        const data = await this.request("/api/lobby/join", {
+          method: "POST",
+          body: JSON.stringify(payload),
+        });
+        this.lobbySession = { ...data.session, inGame: false };
+        this.ui.showWaitingRoom(data.lobby, this.lobbySession);
+        this.ui.toast(`Joined ${data.lobby.roomCode}.`);
+        this.startLobbyPolling();
+      } catch (error) {
+        this.ui.setLobbyError(error.message || "Connection failed.", "join");
+        this.ui.toast(error.message || "Connection failed.", true);
+      } finally {
+        this.ui.setLobbyLoading("join", false);
+      }
+    }
+
+    startLobbyPolling() {
+      this.clearLobbyPolling();
+      this.lobbyPollTimer = setInterval(() => this.fetchLobbyState(), 900);
+      this.fetchLobbyState();
+    }
+
+    clearLobbyPolling() {
+      clearInterval(this.lobbyPollTimer);
+      this.lobbyPollTimer = null;
+    }
+
+    async fetchLobbyState() {
+      if (!this.lobbySession || this.fetchingLobby || this.lobbySession.inGame) return;
+      this.fetchingLobby = true;
+      try {
+        const data = await this.request(`/api/lobby/state?${this.lobbyQuery()}`);
+        this.lobbySession = { ...this.lobbySession, ...data.session, inGame: data.lobby?.status === "inGame" };
+        if (data.matchState) {
+          this.enterLobbyMatch(data);
+          return;
+        }
+        this.ui.updateLobbyState(data.lobby, this.lobbySession);
+      } catch (error) {
+        this.ui.setLobbyError(error.message || "Connection failed.");
+      } finally {
+        this.fetchingLobby = false;
+      }
+    }
+
+    async updateLobbyPlayer(payload) {
+      if (!this.lobbySession) return;
+      try {
+        const data = await this.request("/api/lobby/update", {
+          method: "POST",
+          body: JSON.stringify({ ...this.lobbyAuth(), ...payload }),
+        });
+        this.lobbySession = { ...this.lobbySession, ...data.session };
+        this.ui.updateLobbyState(data.lobby, this.lobbySession);
+      } catch (error) {
+        this.ui.setLobbyError(error.message || "Could not update lobby.");
+      }
+    }
+
+    async updateLobbySettings(settings) {
+      if (!this.lobbySession) return;
+      try {
+        const data = await this.request("/api/lobby/update", {
+          method: "POST",
+          body: JSON.stringify({ ...this.lobbyAuth(), settings }),
+        });
+        this.lobbySession = { ...this.lobbySession, ...data.session };
+        this.ui.updateLobbyState(data.lobby, this.lobbySession);
+      } catch (error) {
+        this.ui.setLobbyError(error.message || "Only the host can change settings.");
+      }
+    }
+
+    async setLobbyReady(ready) {
+      if (!this.lobbySession) return;
+      this.ui.setLobbyLoading("ready", true);
+      try {
+        const data = await this.request("/api/lobby/update", {
+          method: "POST",
+          body: JSON.stringify({ ...this.lobbyAuth(), ready }),
+        });
+        this.lobbySession = { ...this.lobbySession, ...data.session };
+        this.ui.updateLobbyState(data.lobby, this.lobbySession);
+      } catch (error) {
+        this.ui.setLobbyError(error.message || "Could not change ready state.");
+      } finally {
+        this.ui.setLobbyLoading("ready", false);
+      }
+    }
+
+    async startLobbyMatch() {
+      if (!this.lobbySession) return;
+      this.ui.setLobbyLoading("start", true);
+      try {
+        const data = await this.request("/api/lobby/start", {
+          method: "POST",
+          body: JSON.stringify(this.lobbyAuth()),
+        });
+        this.enterLobbyMatch(data);
+      } catch (error) {
+        this.ui.setLobbyError(error.message || "Could not start match.");
+        this.ui.toast(error.message || "Could not start match.", true);
+      } finally {
+        this.ui.setLobbyLoading("start", false);
+      }
+    }
+
+    async leaveLobby() {
+      if (!this.lobbySession) {
+        this.ui.showHome();
+        return;
+      }
+      try {
+        await this.request("/api/lobby/leave", {
+          method: "POST",
+          body: JSON.stringify(this.lobbyAuth()),
+        });
+      } catch {
+        // Leaving should always return the player to the menu, even if the lobby vanished.
+      }
+      this.clearLobbyPolling();
+      this.lobbySession = null;
+      this.ui.showHome();
+      this.ui.toast("Left lobby.");
+    }
+
+    enterLobbyMatch(data) {
+      this.clearLobbyPolling();
+      this.lobbySession = { ...this.lobbySession, ...data.session, inGame: true };
+      this.resetSelection();
+      this.seenEventIds.clear();
+      this.setState(data.matchState, { silent: true });
+      this.ui.showGame();
+      this.ui.toast("Lobby match started. Expand from your border.");
+      this.startPolling();
+      requestAnimationFrame(() => this.renderer.resize());
+    }
+
+    lobbyAuth() {
+      return {
+        roomCode: this.lobbySession?.roomCode,
+        playerId: this.lobbySession?.playerId,
+        playerToken: this.lobbySession?.playerToken,
+      };
+    }
+
+    lobbyQuery() {
+      const auth = this.lobbyAuth();
+      return new URLSearchParams(auth).toString();
+    }
+
     startPolling() {
       clearInterval(this.pollTimer);
       this.pollTimer = setInterval(() => this.fetchState(), 450);
@@ -111,7 +312,7 @@
       if (this.fetching) return;
       this.fetching = true;
       try {
-        const state = await this.request("/api/state");
+        const state = await this.request(this.lobbySession?.inGame ? `/api/state?${this.lobbyQuery()}` : "/api/state");
         this.setState(state);
       } catch (error) {
         this.ui.toast("Server connection paused.", true);
@@ -140,6 +341,7 @@
       this.renderer.setState(state);
       const newEvents = state.events.filter((event) => !this.seenEventIds.has(event.id));
       state.events.forEach((event) => this.seenEventIds.add(event.id));
+      this.audio?.addEvents(newEvents, state);
       this.renderer.addEvents(newEvents);
       this.pruneSelection();
       if (!options.silent) this.showEventToasts(newEvents);
@@ -182,6 +384,14 @@
           const label = root.PondInfo?.PING_LABELS?.[event.pingType] || "Signal";
           this.ui.toast(`${actor?.name || "Player"}: ${label}.`);
         }
+        if (event.kind === "teamCommand" && this.involvesHumanTeam(event)) {
+          const actor = this.player(event.playerId);
+          this.ui.toast(`Team command sent: ${event.label || "Command"}${actor ? ` by ${actor.name}` : ""}.`);
+        }
+        if (event.kind === "teamResponse" && this.involvesHumanTeam(event)) {
+          const actor = this.player(event.playerId);
+          this.ui.toast(`${actor?.name || "Teammate"} is responding.`);
+        }
         if (event.kind === "waveEnd" && this.involvesHuman(event)) {
           const captured = event.captured || 0;
           this.ui.toast(captured > 0 ? `Frontline wave captured ${captured} tiles.` : event.message || "Attack wave stopped.", captured === 0);
@@ -208,6 +418,11 @@
         this.state &&
           (event.playerId === this.state.humanId || event.targetId === this.state.humanId || event.targetOwner === this.state.humanId),
       );
+    }
+
+    involvesHumanTeam(event) {
+      const human = this.human();
+      return Boolean(human?.teamId && event.teamId === human.teamId);
     }
 
     updateUi() {
@@ -256,6 +471,16 @@
       if (!tile || !human) {
         this.ui.toast("Choose a target tile first.", true);
         this.renderer.vfx?.spawnScreenNotice("Invalid Target", "#d96b61");
+        return;
+      }
+
+      if (type === "upgradeBuilding" || type === "removeBuilding") {
+        if (tile.owner !== human.id || !tile.building) {
+          this.ui.toast("Choose one of your buildings.", true);
+          this.renderer.vfx?.spawnBlockedEffect(tile.id, "Invalid");
+          return;
+        }
+        await this.postAction({ type, tileId: tile.id });
         return;
       }
 
@@ -362,17 +587,38 @@
       });
     }
 
+    async handleTeamCommand(command) {
+      if (!this.state || this.state.ended) return;
+      const human = this.human();
+      if (!human?.teamId) {
+        this.ui.toast("Start Co-Op Team or Team Battle to use team commands.", true);
+        return;
+      }
+      const tile = this.selectedTile() || this.hoverTile() || this.tileMap.get(human.coreTileId);
+      if (!tile) {
+        this.ui.toast("Select a tile for the team command.", true);
+        return;
+      }
+      await this.postAction({
+        type: "teamCommand",
+        command,
+        tileId: tile.id,
+        targetId: this.selectedPlayerId || tile.owner || null,
+      });
+    }
+
     async postAction(body) {
       try {
+        const payload = this.lobbySession?.inGame ? { ...body, ...this.lobbyAuth() } : body;
         const response = await fetch("/api/action", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(body),
+          body: JSON.stringify(payload),
         });
         const data = await response.json().catch(() => ({}));
         if (data.state) this.setState(data.state, { silent: true });
-        if (!response.ok) this.feedbackFailedAction(body, data.message || "Command failed.");
-        else if (body.type === "ability") this.ui.pulseAbility(false);
+        if (!response.ok) this.feedbackFailedAction(payload, data.message || "Command failed.");
+        else if (payload.type === "ability") this.ui.pulseAbility(false);
         this.ui.toast(data.message || (response.ok ? "Command sent." : "Command failed."), !response.ok);
       } catch (error) {
         this.ui.toast("Server did not receive the command.", true);
@@ -380,6 +626,7 @@
     }
 
     feedbackFailedAction(body, message) {
+      this.audio?.play("warning", { cooldown: 120 });
       if (message.includes("Energy")) this.ui.flashEnergy();
       if (body.type === "ability") {
         this.ui.pulseAbility(true);
@@ -387,7 +634,16 @@
         return;
       }
       if (body.tileId != null) {
-        const label = message.includes("defense") ? "Defended" : message.includes("ally") ? "Ally" : "Invalid";
+        const lower = message.toLowerCase();
+        const label = lower.includes("reinforced") || lower.includes("defense")
+          ? "Reinforced"
+          : lower.includes("ally")
+            ? "Ally"
+            : lower.includes("truce")
+              ? "Truce"
+              : lower.includes("far") || lower.includes("border")
+                ? "Border"
+                : "Invalid";
         this.renderer.vfx?.spawnBlockedEffect(body.tileId, label);
       } else {
         this.renderer.vfx?.spawnScreenNotice(message, "#d96b61");
@@ -450,6 +706,7 @@
 
       this.canvas.setPointerCapture?.(event.pointerId);
       this.contextMenu?.close();
+      const wantsSourceSelect = event.pointerType !== "touch" && event.button === 0 && (event.shiftKey || event.ctrlKey || event.metaKey);
       this.pointer = {
         id: event.pointerId,
         startX: event.clientX,
@@ -469,7 +726,7 @@
 
       if (event.button !== 0) return;
       const humanId = this.state.humanId;
-      if (event.pointerType !== "touch" && tile?.owner === humanId && this.isBorder(tile, humanId)) {
+      if (wantsSourceSelect && tile?.owner === humanId && this.isBorder(tile, humanId)) {
         this.pointer.selecting = true;
         this.addSource(tile, event.shiftKey || event.ctrlKey || event.metaKey);
         this.selectTile(tile, { preserveSources: true });
@@ -506,6 +763,7 @@
 
       if (event.pointerType === "touch" || this.pointer.panning || (this.pointer.moved && !this.pointer.selecting)) {
         this.pointer.panning = true;
+        document.body.classList.add("map-panning");
         this.renderer.pan(dx, dy);
         this.panVelocity = { x: dx, y: dy };
       } else if (this.pointer.selecting && tile?.owner === this.state.humanId && this.isBorder(tile, this.state.humanId)) {
@@ -538,6 +796,7 @@
       const wasClick = !this.pointer.moved && !this.pointer.panning && !this.pointer.selecting;
       const wasSourceDrag = this.pointer.selecting;
       this.pointer = null;
+      document.body.classList.remove("map-panning");
       this.clearLongPress();
 
       if (wasClick) {
@@ -665,6 +924,8 @@
 
     handleKey(event) {
       if (!this.state) return;
+      const tag = event.target?.tagName?.toLowerCase();
+      if (["input", "select", "textarea"].includes(tag)) return;
       if (event.key === "Escape") {
         this.contextMenu?.close();
         this.preview = null;
@@ -672,6 +933,22 @@
         this.updateUi();
       }
       if (event.key.toLowerCase() === "f") this.renderer.fit(true);
+      const speed = event.shiftKey ? 92 : 54;
+      const key = event.key.toLowerCase();
+      const moves = {
+        arrowup: [0, speed],
+        w: [0, speed],
+        arrowdown: [0, -speed],
+        s: [0, -speed],
+        arrowleft: [speed, 0],
+        a: [speed, 0],
+        arrowright: [-speed, 0],
+        d: [-speed, 0],
+      };
+      if (moves[key]) {
+        event.preventDefault();
+        this.renderer.pan(moves[key][0], moves[key][1]);
+      }
     }
 
     clearLongPress() {
@@ -714,6 +991,7 @@
         );
         add("Preview Expansion Cost", { action: "previewCost" }, { icon: "$", hint: `Progress ${progress}/${cost}` });
         add("View Terrain Info", { action: "viewTerrain" }, { icon: "i", hint: root.PondInfo?.terrainText(tile.type) });
+        this.teamCommandMenuItems(tile, ["objective", "attack"]).forEach((item) => items.push(item));
         return { title: type.label, subtitle: "Neutral pond tile", items };
       }
 
@@ -744,6 +1022,7 @@
         add("Set Rally Point", { action: "rally" }, { icon: "R", hint: "Mark this as your focus point" });
         add("Use Ability Here", { action: "ability" }, { icon: "A", hint: root.PondInfo?.abilityTip(human.animal) });
         add("View Tile Info", { action: "viewTile" }, { icon: "i", hint: "Show tile details in the panel" });
+        this.teamCommandMenuItems(tile, ["help", "defend", "protect"]).forEach((item) => items.push(item));
         add("Ping Defend Here", { action: "ping", pingType: "defend" }, { icon: "P", hint: "Signal a defensive focus" });
         return { title: "Your Territory", subtitle: type.label, items };
       }
@@ -754,6 +1033,7 @@
         add("Request Help", { action: "ping", pingType: "help", targetId: tile.owner }, { icon: "H", hint: "Ask ally to support this area" });
         add("Ping Defend Here", { action: "ping", pingType: "defend", targetId: tile.owner }, { icon: "D", hint: "Ask ally to defend here" });
         add("Ping Attack Here", { action: "ping", pingType: "attack", targetId: tile.owner }, { icon: "A", hint: "Coordinate an ally attack" });
+        this.teamCommandMenuItems(tile, ["help", "defend", "objective"]).forEach((item) => items.push(item));
         add("Ping Danger", { action: "ping", pingType: "danger", targetId: tile.owner }, { icon: "!", hint: "Warn your ally" });
         add("View Ally Info", { action: "viewPlayer", targetId: tile.owner }, { icon: "i", hint: "Open player details" });
         add("Break Alliance", { action: "diplomacy", command: "breakAlliance", targetId: tile.owner }, { icon: "B", danger: true, hint: "End friendly status" });
@@ -770,6 +1050,8 @@
       }
 
       sep();
+      this.teamCommandMenuItems(tile, ["attack", "push", "objective", "retreat"]).forEach((item) => items.push(item));
+      if (items.length && !items[items.length - 1].separator) sep();
       if (relation?.pendingForViewer) {
         add("Accept Alliance", { action: "diplomacy", command: "acceptAlliance", targetId: tile.owner }, { icon: "A", hint: "Accept pending request" });
         add("Reject Request", { action: "diplomacy", command: "rejectAlliance", targetId: tile.owner }, { icon: "R", danger: true, hint: "Decline pending request" });
@@ -782,6 +1064,20 @@
       add("View Enemy Info", { action: "viewPlayer", targetId: tile.owner }, { icon: "i", hint: "Show strength and relation" });
       add("Send Warning", { action: "ping", pingType: "warning", targetId: tile.owner }, { icon: "!", danger: true, hint: "Public warning signal" });
       return { title: owner?.name || "Enemy", subtitle: attackable ? "Enemy border" : "Enemy interior", items };
+    }
+
+    teamCommandMenuItems(tile, commandIds = []) {
+      if (!this.state?.teamState?.active || !this.human()?.teamId) return [];
+      const commands = root.PondTeams?.commands || {};
+      return commandIds
+        .filter((id) => commands[id])
+        .map((id) => ({
+          label: `Team: ${commands[id].label}`,
+          icon: "T",
+          hint: "Send a co-op command to teammate bots",
+          payload: { action: "teamCommand", command: id, tileId: tile.id, targetId: tile.owner || null },
+          preview: { action: "teamCommand", command: id, tileId: tile.id, targetId: tile.owner || null },
+        }));
     }
 
     buildingMenuItems(human, tile) {
@@ -844,6 +1140,10 @@
       }
       if (payload.action === "ping") {
         await this.postAction({ type: "ping", tileId: tile?.id, pingType: payload.pingType, targetId: payload.targetId });
+        return;
+      }
+      if (payload.action === "teamCommand") {
+        await this.postAction({ type: "teamCommand", tileId: tile?.id, command: payload.command, targetId: payload.targetId || tile?.owner || null });
         return;
       }
       if (payload.action === "diplomacy") {
@@ -1173,6 +1473,16 @@
       return Boolean(tile && this.state.config.tileTypes[tile.type]?.blocks);
     }
 
+    isTileUnderAttack(tile) {
+      if (!tile) return false;
+      return (this.state?.activeAttacks || []).some((wave) => {
+        if (wave.targetStartTile === tile.id) return true;
+        if (wave.frontierTiles?.includes(tile.id)) return true;
+        if (wave.capturedTiles?.includes(tile.id)) return true;
+        return false;
+      });
+    }
+
     neutralExpansionCost(tile, jumped = false) {
       const human = this.human();
       const type = this.state?.config.tileTypes[tile?.type];
@@ -1273,10 +1583,17 @@
     tileContext(tile) {
       const human = this.human();
       if (!this.state || !human || !tile) return {};
+      const borderTools = root.PondBorderStatus;
+      const tileType = this.state.config.tileTypes[tile.type];
+      const ownerIsHuman = tile.owner === human.id;
+      const underAttack = this.isTileUnderAttack(tile);
       const context = {
         canExpand: !tile.owner && !this.isBlocked(tile) && Boolean(this.closestSource(tile)),
-        canDefend: tile.owner === human.id && this.isBorder(tile, human.id),
-        canBuild: tile.owner === human.id && !tile.building,
+        canDefend: ownerIsHuman && (this.isBorder(tile, human.id) || Boolean(tile.building)),
+        canBuild: ownerIsHuman && !tile.building,
+        canUpgradeBuilding: ownerIsHuman && Boolean(tile.building) && (tile.buildingLevel || 1) < 3,
+        canRemoveBuilding: ownerIsHuman && Boolean(tile.building),
+        underAttack,
         pendingAbility: this.pendingAbilityTarget,
         pendingBuildType: this.pendingBuildType,
         validAbilityTarget: this.isLeapTarget(tile),
@@ -1287,6 +1604,10 @@
         const jumped = Boolean(source && !this.neighbors(source).some((neighbor) => neighbor.id === tile.id));
         const expansionCost = this.neutralExpansionCost(tile, jumped);
         const expansionProgress = Number(tile.captureProgress?.[human.id] || 0);
+        const sendEnergy = Math.round(human.energy * this.ui.percent);
+        const remaining = Math.max(0, Math.round(expansionCost - expansionProgress));
+        const willCapture = context.canExpand && sendEnergy >= remaining;
+        const status = borderTools?.statusFor?.({ tile, tileType, canExpand: context.canExpand, underAttack }) || null;
         return {
           ...context,
           jumped,
@@ -1294,27 +1615,80 @@
           goldenCurrent: human.animal === "carp" && this.state.serverTime < human.abilityActiveUntil,
           expansionCost,
           expansionProgress,
-          estimateText: `${Math.round(expansionProgress)}/${expansionCost} capture`,
+          expansionRemaining: remaining,
+          sendEnergy,
+          willCapture,
+          status,
+          estimateText: willCapture
+            ? `Will capture with ${sendEnergy} energy`
+            : `${Math.round(expansionProgress)}/${expansionCost} capture, ${remaining} left`,
+          resultText: willCapture ? "Capture now" : `Needs ${remaining} energy`,
+          warning: context.canExpand ? "" : "Too far from your border.",
         };
       }
-      if (!tile.owner || tile.owner === human.id) return context;
+      if (!tile.owner || ownerIsHuman) {
+        const defenseTotal = Math.round((tile.defenseEnergy || 0) + (tileType?.defenseBonus || 0));
+        const status = borderTools?.statusFor?.({ tile, tileType, ownerIsHuman, underAttack }) || null;
+        return {
+          ...context,
+          status,
+          defenseLevel: borderTools?.defenseLevel?.(defenseTotal) || "Low",
+          defenseTotal,
+          warning: underAttack ? "This front is being attacked. Defend here to raise capture cost." : "",
+        };
+      }
       const relation = this.relationship(tile.owner);
-      if (relation && !relation.canAttack) return { ...context, kind: "blockedAttack", reason: relation.blockReason, relationship: relation };
+      if (relation && !relation.canAttack) {
+        const status = borderTools?.statusFor?.({ tile, tileType, relation, canAttack: false, underAttack }) || null;
+        return { ...context, kind: "blockedAttack", reason: relation.blockReason, relationship: relation, status, warning: relation.blockReason };
+      }
       const source = this.closestSource(tile);
       const connected = Boolean(source && this.neighbors(source).some((neighbor) => neighbor.id === tile.id));
-      if (!connected) return { kind: "blockedAttack", reason: "Too far from border" };
+      if (!connected) {
+        const status = borderTools?.statusFor?.({ tile, tileType, relation, canAttack: false, underAttack }) || null;
+        return { ...context, kind: "blockedAttack", reason: "Too far from border", relationship: relation, status, warning: "Attack from a connected front-line border." };
+      }
 
       const energy = Math.round(human.energy * this.ui.percent);
       const estimate = this.estimateWave(tile, energy);
       const fogged = this.state.lakeEvent?.active?.type === "foggyMarsh";
+      const estimatedCost = Number(estimate.nextCost) || 0;
+      const terrainDefense = Math.round(tileType?.defenseBonus || 0);
+      const reinforcedBonus = Math.round((tile.defenseEnergy || 0) * 0.82 + terrainDefense * 1.25 + this.specialCostBonus(tile));
+      const status = borderTools?.statusFor?.({
+        tile,
+        tileType,
+        relation,
+        canAttack: true,
+        underAttack,
+        estimatedCost,
+      }) || null;
+      const risk = borderTools?.riskLevel?.(energy, estimatedCost, estimate.tiles) || "Unknown";
+      const warning =
+        estimatedCost && energy < estimatedCost
+          ? `Too weak: first tile costs about ${estimatedCost} energy.`
+          : status?.id === "reinforced" || status?.id === "strong"
+            ? "Strong border: send 50-100% or pick a weaker edge."
+            : risk === "Bad Attack" || risk === "Very Risky"
+              ? "Risky attack. Defend or save energy before pushing."
+              : "";
       return {
         ...context,
         kind: "attackBorder",
         canAttack: true,
+        relationship: relation,
+        status,
+        risk,
         percent: Math.round(this.ui.percent * 100),
         strength: energy,
+        sendEnergy: energy,
         tiles: fogged ? "?" : estimate.tiles,
         nextCost: fogged ? "?" : estimate.nextCost,
+        rawNextCost: estimate.nextCost,
+        terrainDefense,
+        reinforcedBonus,
+        defenseLevel: borderTools?.defenseLevel?.((tile.defenseEnergy || 0) + terrainDefense) || "Low",
+        warning,
         estimateText: fogged ? "Hidden by Foggy Marsh" : `${estimate.tiles} tiles with ${Math.round(this.ui.percent * 100)}%`,
       };
     }
@@ -1403,7 +1777,9 @@
     }
   }
 
-  root.addEventListener("DOMContentLoaded", () => {
-    root.pondFrontGame = new PondGameClient();
-  });
+  const startClient = () => {
+    if (!root.pondFrontGame) root.pondFrontGame = new PondGameClient();
+  };
+  if (root.document?.readyState === "loading") root.addEventListener("DOMContentLoaded", startClient, { once: true });
+  else startClient();
 })(window);

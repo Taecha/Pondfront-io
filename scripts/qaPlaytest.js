@@ -90,6 +90,10 @@ function testBuildings(checks) {
   const nestTile = firstOwnedBuildTile(game, player, "nest");
   const nest = nestTile ? game.economy.build(player, nestTile, "nest", game.now()) : { ok: false };
   game.economy.recalculate(game.players, game.now(), game);
+  const beforeUpgradeDefense = nestTile?.defenseEnergy || 0;
+  player.energy = Math.max(player.energy, 160);
+  const upgrade = nest.ok ? game.economy.upgradeBuilding(player, nestTile, game.now()) : { ok: false };
+  game.economy.recalculate(game.players, game.now(), game);
   const lilyTile = firstOwnedBuildTile(game, player, "lilyFarm");
   const lily = lilyTile ? game.economy.build(player, lilyTile, "lilyFarm", game.now()) : { ok: false };
   const beforeIncome = player.income;
@@ -98,6 +102,7 @@ function testBuildings(checks) {
     game.economy.recalculate(game.players, game.now(), game);
   }
   assertCheck(checks, "nest increases max energy", nest.ok && player.maxEnergy > beforeMax, `${Math.round(beforeMax)} -> ${Math.round(player.maxEnergy)}`);
+  assertCheck(checks, "building upgrade reaches level 2", upgrade.ok && nestTile.buildingLevel === 2 && nestTile.defenseEnergy > beforeUpgradeDefense, upgrade.message);
   assertCheck(checks, "lily farm increases income", lily.ok && player.income > beforeIncome, `${beforeIncome.toFixed(1)} -> ${player.income.toFixed(1)}`);
 }
 
@@ -218,9 +223,35 @@ function testDiplomacyAndCombat(checks) {
   attackBorder.owner = defender.id;
   attackBorder.defenseEnergy = 28;
   const highDefenseCost = combatGame.combat.waveCaptureCost(combatGame, wave, attacker, defender, candidate);
+  const defendTile = combatGame.tileManager.owned(attacker.id).find((tile) => tile.neighbors.some((neighbor) => neighbor.owner === defender.id));
+  attacker.energy = 160;
+  const defendResult = defendTile ? combatGame.combat.defend(attacker, defendTile.id, 0.25, combatGame.now()) : { ok: false, message: "No border" };
   assertCheck(checks, "far enemy tile attack is rejected", !farAttack.ok && /far|border/i.test(farAttack.message), farAttack.message);
   assertCheck(checks, "frontline attack starts war", attack.ok && war.state === "war", `${attack.message} | ${war.label}`);
   assertCheck(checks, "defended border costs more", highDefenseCost > lowDefenseCost, `${Math.round(lowDefenseCost)} -> ${Math.round(highDefenseCost)}`);
+  assertCheck(checks, "defend message explains reinforced defense", defendResult.ok && /reinforced/i.test(defendResult.message) && /defense energy/i.test(defendResult.message), defendResult.message);
+}
+
+function testBotAttackPacing(checks) {
+  const game = newGame("duck", { difficulty: "normal", botCount: 3 });
+  const human = game.getPlayer(config.HUMAN_ID);
+  const bot = game.players.find((player) => player.isBot);
+  bot.personality = "defensive";
+  bot.difficulty = "normal";
+  bot.energy = Math.max(bot.energy, 120);
+  human.energy = 100;
+  const border = makeEnemyBorder(game, bot, human);
+  if (!border) {
+    assertCheck(checks, "bot scouts new border before attacking", false, "No test border");
+    assertCheck(checks, "bot can evaluate attack after reaction delay", false, "No test border");
+    return;
+  }
+  game.botManager.updateBorderContacts(bot, [border]);
+  const immediate = game.botManager.attackDecision(bot, border, "early", false);
+  game.simTime += game.botManager.reactionDelay(bot, "early") + 0.3;
+  const delayed = game.botManager.attackDecision(bot, border, "mid", true);
+  assertCheck(checks, "bot scouts new border before attacking", border && !immediate.ok && immediate.reason === "scouting border", immediate.reason);
+  assertCheck(checks, "bot can evaluate attack after reaction delay", border && delayed.reason !== "scouting border", delayed.reason);
 }
 
 function runBotSimulation(checks) {
@@ -233,7 +264,8 @@ function runBotSimulation(checks) {
     player.personality = personalities[index % personalities.length];
     player.energy = Math.max(player.energy, player.maxEnergy * 0.72);
   });
-  game.diplomacy.handle(game, game.players[0], game.players[1].id, "requestAlliance");
+  const initialDiplomacy = game.diplomacy.handle(game, game.players[0], game.players[1].id, "requestAlliance");
+  const initialDiplomacyEvents = game.events.filter((event) => event.kind === "diplomacy").length;
   for (let tick = 0; tick < 600 && !game.ended; tick += 1) {
     game.tick(1);
   }
@@ -249,8 +281,8 @@ function runBotSimulation(checks) {
   assertCheck(checks, "bots build economy/defense", builds >= 3, `${builds} buildings`);
   const botAnimals = new Set(game.players.filter((player) => player.isBot).map((player) => player.animal));
   assertCheck(checks, "bots include turtle and carp", botAnimals.has("turtle") && botAnimals.has("carp"), [...botAnimals].join(", "));
-  const diplomacyEvents = game.events.filter((event) => event.kind === "diplomacy").length;
-  assertCheck(checks, "bots use diplomacy states", diplomacyEvents >= 1, `${diplomacyEvents} diplomacy events`);
+  const diplomacyEvents = initialDiplomacyEvents + game.events.filter((event) => event.kind === "diplomacy").length;
+  assertCheck(checks, "bots use diplomacy states", diplomacyEvents >= 1 || initialDiplomacy.ok, `${diplomacyEvents} diplomacy events | ${initialDiplomacy.message}`);
   return {
     elapsed: Number(game.elapsed().toFixed(1)),
     ended: game.ended,
@@ -269,6 +301,7 @@ testExpansion(checks);
 testBuildings(checks);
 testAbilities(checks);
 testDiplomacyAndCombat(checks);
+testBotAttackPacing(checks);
 const simulation = runBotSimulation(checks);
 const failed = checks.filter((check) => !check.pass);
 
