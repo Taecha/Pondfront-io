@@ -17,6 +17,7 @@ const TeamManager = require("./server/TeamManager");
 const LobbyManager = require("./server/LobbyManager");
 const SupportManager = require("./server/SupportManager");
 const CoreManager = require("./server/CoreManager");
+const SpecialManager = require("./server/SpecialManager");
 const ObjectiveManager = require("./server/ObjectiveManager");
 const EventManager = require("./server/EventManager");
 const ProgressionManager = require("./server/ProgressionManager");
@@ -35,6 +36,7 @@ const combatConfig = require("./shared/combatConfig");
 const teamConfig = require("./shared/teamConfig");
 const botDifficultyConfig = require("./shared/botDifficultyConfig");
 const sandboxConfig = require("./shared/sandboxConfig");
+const specialConfig = require("./shared/specialConfig");
 
 const ROOT = __dirname;
 const PUBLIC = path.join(ROOT, "public");
@@ -72,6 +74,7 @@ class PondFrontServerGame {
       pings: 0,
       objectives: 0,
       camps: 0,
+      specials: 0,
     };
     this.wars = new Map();
     this.tileManager = new TileManager(Date.now() % 999999, this.matchSettings.map);
@@ -88,6 +91,7 @@ class PondFrontServerGame {
     this.combat = new CombatManager(this.tileManager, (event) => this.pushEvent(event));
     this.support = new SupportManager((event) => this.pushEvent(event));
     this.core = new CoreManager(this.tileManager, (event) => this.pushEvent(event));
+    this.specials = new SpecialManager(this.tileManager, (event) => this.pushEvent(event));
     this.sandbox = this.matchSettings.sandbox?.enabled ? new SandboxManager(this, this.matchSettings.sandbox) : null;
     this.players = this.createPlayers(animal, this.matchSettings.difficulty);
     this.teamManager.setup(this.players, this.matchSettings);
@@ -155,6 +159,8 @@ class PondFrontServerGame {
     const matchSeconds =
       sandboxEnabled ? Math.max(map.matchSeconds, 7200) : settings.practice && mapSize === "small" ? Math.round(map.matchSeconds * 0.75) : Math.round(map.matchSeconds * lengthMultiplier);
     const sandboxRules = settings.sandboxRules || settings.rules || {};
+    const requestedWinCondition = String(settings.winCondition || "");
+    const winCondition = sandboxEnabled ? "sandbox" : requestedWinCondition === "territoryControl" ? "territoryControl" : "elimination";
     return {
       difficulty,
       botCount,
@@ -167,6 +173,7 @@ class PondFrontServerGame {
       botsPerTeam,
       matchLength,
       matchSeconds,
+      winCondition,
       mapSize,
       map: { ...map, id: mapSize },
       playerName: this.cleanPlayerName(settings.playerName),
@@ -245,14 +252,10 @@ class PondFrontServerGame {
       const name = botNames[i] || `Rainlake ${i + 1}`;
       const color = config.PLAYER_COLORS[(players.length + i) % config.PLAYER_COLORS.length];
       const botDifficulty = this.matchSettings.sandbox?.enabled
-        ? sandboxConfig.botDifficulties[difficulty]?.serverDifficulty || (difficulty === "passive" ? "easy" : difficulty)
-        : difficulty === "chaos"
-          ? "smart"
-          : difficulty === "smart" || difficulty === "easy"
-            ? difficulty
-            : i % 4 === 0
-              ? "smart"
-              : "normal";
+        ? sandboxConfig.botDifficulties[difficulty]?.serverDifficulty || difficulty
+        : ["easy", "normal", "smart", "chaos"].includes(difficulty)
+          ? difficulty
+          : "normal";
       const player = this.makePlayer(`b${i}`, name, animal, color, true, botDifficulty);
       const sandboxPersonality = this.matchSettings.sandbox?.botPersonality;
       player.personality = this.matchSettings.sandbox?.enabled
@@ -319,6 +322,7 @@ class PondFrontServerGame {
       abilityActiveUntil: 0,
       attackCooldownUntil: 0,
       currentPushCooldownUntil: 0,
+      specialCooldowns: {},
       flags: {},
       xp: 0,
       level: 1,
@@ -349,6 +353,7 @@ class PondFrontServerGame {
         buildingsBuilt: 0,
         buildingUpgrades: 0,
         abilitiesUsed: 0,
+        specialsUsed: 0,
         objectivesCaptured: 0,
         campsCaptured: 0,
         bestAttackWave: 0,
@@ -380,6 +385,7 @@ class PondFrontServerGame {
     this.teamManager.update(this);
     this.objectives.update(this);
     this.eventsManager.update(this);
+    this.specials?.update(this);
     this.core.update(this);
     this.economy.update(this.players, effectiveDt, this.now(), this);
     this.players.forEach((player) => {
@@ -467,6 +473,11 @@ class PondFrontServerGame {
       this.sandbox?.afterAction(this, player, body, result);
       return result;
     }
+    if (body.type === "special") {
+      const result = this.specials.activate(this, player, String(body.specialType || ""), Number(body.tileId), body);
+      this.sandbox?.afterAction(this, player, body, result);
+      return result;
+    }
     if (body.type === "startContinuousAttack") {
       const target = this.tileManager.getById(Number(body.tileId));
       const defender = target?.owner ? this.getPlayer(target.owner) : null;
@@ -523,53 +534,116 @@ class PondFrontServerGame {
   }
 
   checkWin() {
-    if (this.sandbox?.enabled && this.sandbox.rules?.elimination === false) return;
+    const state = this.winCheckState();
+    this.lastWinCheck = state.debug;
+    if (!state.canEnd) return;
+
     if (this.teamManager?.active()) {
-      const teamStats = this.teamManager.territoryStats(this.players, this.tileManager.playable().length);
-      const leadingTeam = teamStats.slice().sort((a, b) => b.territoryPct - a.territoryPct)[0];
-      if (leadingTeam?.territoryPct >= config.WIN_CONTROL || this.timeLeft() <= 0) {
-        const leadMember = this.players
-          .filter((player) => player.teamId === leadingTeam?.id && !player.defeated)
-          .sort((a, b) => b.territory - a.territory)[0];
-        this.end(leadMember?.id || null, leadingTeam?.id || null);
+      if (this.matchSettings.winCondition === "territoryControl") {
+        const leadingTeam = state.teamStats[0];
+        if (leadingTeam?.territoryPct >= config.WIN_CONTROL) {
+          const leadMember = state.alivePlayers
+            .filter((player) => player.teamId === leadingTeam.id)
+            .sort((a, b) => this.ownedTileCount(b) - this.ownedTileCount(a))[0];
+          this.end(leadMember?.id || null, leadingTeam.id, "territoryControl", state);
+        }
         return;
       }
-      const aliveTeamIds = [
-        ...new Set(
-          this.players
-            .filter((player) => !player.defeated && player.teamId && player.territory > 0)
-            .map((player) => player.teamId),
-        ),
-      ];
-      if (aliveTeamIds.length === 1) {
+
+      if (state.aliveTeams.length === 1) {
+        const aliveTeamId = state.aliveTeams[0].id;
         const leadMember = this.players
-          .filter((player) => player.teamId === aliveTeamIds[0] && !player.defeated)
-          .sort((a, b) => b.territory - a.territory)[0];
-        this.end(leadMember?.id || null, aliveTeamIds[0]);
+          .filter((player) => player.teamId === aliveTeamId && this.isPlayerAlive(player))
+          .sort((a, b) => this.ownedTileCount(b) - this.ownedTileCount(a))[0];
+        this.end(leadMember?.id || null, aliveTeamId, "teamElimination", state);
       }
       return;
     }
-    const active = this.players.filter((player) => !player.defeated && player.territory > 0);
-    const leader = active.slice().sort((a, b) => b.territory - a.territory)[0];
-    if (leader && (this.territoryPercent(leader) >= config.WIN_CONTROL || this.timeLeft() <= 0)) {
-      this.end(leader.id);
+
+    if (this.matchSettings.winCondition === "territoryControl") {
+      const leader = state.alivePlayers.slice().sort((a, b) => this.ownedTileCount(b) - this.ownedTileCount(a))[0];
+      if (leader && this.territoryPercent(leader) >= config.WIN_CONTROL) this.end(leader.id, null, "territoryControl", state);
       return;
     }
-    if (active.length <= 1) this.end(active[0]?.id || null);
+
+    if (state.alivePlayers.length <= 1) this.end(state.alivePlayers[0]?.id || null, null, "elimination", state);
   }
 
-  end(winnerId, winnerTeamId = null) {
+  winCheckState() {
+    const alivePlayers = this.players.filter((player) => this.isPlayerAlive(player));
+    const teamStats = this.teamManager?.active() ? this.teamManager.territoryStats(this.players, this.tileManager.playable().length) : [];
+    const aliveTeams = this.teamManager?.active() ? teamStats.filter((team) => this.isTeamAlive(team.id)) : [];
+    let canEnd = true;
+    let reason = "Waiting for a valid win condition.";
+    let blockedReason = "";
+
+    if (this.sandbox?.enabled && this.sandbox.rules?.elimination === false) {
+      canEnd = false;
+      reason = "Sandbox Mode - match ending disabled.";
+      blockedReason = reason;
+    } else if (this.teamManager?.active()) {
+      if (this.matchSettings.winCondition === "territoryControl") {
+        const leadingTeam = teamStats[0];
+        reason = leadingTeam?.territoryPct >= config.WIN_CONTROL ? "Territory control reached by a team." : "No team has reached territory control.";
+      } else {
+        reason = aliveTeams.length === 1 ? "One active team remains." : "More than one active team remains.";
+      }
+    } else if (this.matchSettings.winCondition === "territoryControl") {
+      const leader = alivePlayers.slice().sort((a, b) => this.ownedTileCount(b) - this.ownedTileCount(a))[0];
+      reason = leader && this.territoryPercent(leader) >= config.WIN_CONTROL ? "Territory control reached." : "No animal has reached territory control.";
+    } else {
+      reason = alivePlayers.length <= 1 ? "One active animal remains." : "More than one active animal remains.";
+    }
+
+    const aliveBots = alivePlayers.filter((player) => player.isBot);
+    const eliminated = this.players.filter((player) => player.defeated || player.flags?.surrendered).length;
+    if (process.env.NODE_ENV === "development" && (this.lastAliveLogAt == null || this.now() - this.lastAliveLogAt > 12)) {
+      this.lastAliveLogAt = this.now();
+      aliveBots.slice(0, 6).forEach((bot) => {
+        console.log(
+          `[BOT ALIVE CHECK] ${bot.name}: ownedTiles=${this.ownedTileCount(bot)} hasCore=${this.hasOwnedCore(bot)} eliminated=${Boolean(bot.defeated)} alive=${this.isPlayerAlive(bot)}`,
+        );
+      });
+    }
+
+    return {
+      canEnd,
+      alivePlayers,
+      aliveTeams,
+      aliveBots,
+      eliminated,
+      teamStats,
+      debug: {
+        mode: this.matchSettings.winCondition,
+        alivePlayers: alivePlayers.length,
+        aliveTeams: this.teamManager?.active() ? aliveTeams.length : null,
+        aliveBots: aliveBots.length,
+        eliminated,
+        canEnd,
+        reason,
+        blockedReason,
+      },
+    };
+  }
+
+  end(winnerId, winnerTeamId = null, reason = "elimination", state = null) {
     if (this.ended) return;
     this.ended = true;
     this.winnerId = winnerId;
     this.winnerTeamId = winnerTeamId;
     const winner = this.getPlayer(winnerId);
     const winnerTeam = this.teamManager?.territoryStats(this.players, this.tileManager.playable().length).find((team) => team.id === winnerTeamId);
+    const finalState = state || this.winCheckState();
     this.pushEvent({
       kind: "ended",
+      eventType: "matchEnded",
       winnerId,
       winnerTeamId,
-      message: winnerTeam ? `${winnerTeam.name} controls the pond together.` : winner ? `${winner.name} controls the pond.` : "The match ended.",
+      reason,
+      remainingPlayers: finalState.alivePlayers?.length || 0,
+      remainingTeams: finalState.aliveTeams?.length || 0,
+      finalStats: this.finalStatsSnapshot(finalState),
+      message: winnerTeam ? `${winnerTeam.name} is the last team standing.` : winner ? `${winner.name} is the last animal standing.` : "The match ended.",
       elapsed: Math.round(this.elapsed()),
       at: this.now(),
     });
@@ -582,6 +656,21 @@ class PondFrontServerGame {
       return;
     }
     this.accountServices?.stats?.recordMatch(this);
+  }
+
+  finalStatsSnapshot(state = null) {
+    const playable = this.tileManager.playable().length || 1;
+    const alivePlayers = state?.alivePlayers || this.players.filter((player) => this.isPlayerAlive(player));
+    return {
+      remainingPlayers: alivePlayers.map((player) => ({
+        id: player.id,
+        name: player.name,
+        animal: player.animal,
+        ownedTiles: this.ownedTileCount(player),
+        territoryPct: this.ownedTileCount(player) / playable,
+      })),
+      remainingTeams: state?.aliveTeams || [],
+    };
   }
 
   surrenderPlayer(player, targetId = null, reason = "surrendered") {
@@ -598,12 +687,14 @@ class PondFrontServerGame {
       tile.buildingLevel = 0;
       tile.lastChanged = now;
     });
-    player.defeated = true;
     player.stats.surrendered = 1;
+    player.flags = player.flags || {};
+    player.flags.surrendered = true;
     if (target) {
       target.stats.playersDefeated = (target.stats.playersDefeated || 0) + 1;
       target.stats.surrenderedEnemies = (target.stats.surrenderedEnemies || 0) + 1;
     }
+    this.eliminatePlayer(player, target, reason, { notify: false });
     this.pushEvent({
       kind: "surrender",
       playerId: player.id,
@@ -615,6 +706,37 @@ class PondFrontServerGame {
     });
     this.economy.recalculate(this.players, now, this);
     return { ok: true, message: `${player.name} surrendered.` };
+  }
+
+  eliminatePlayer(player, attacker = null, reason = "eliminated", options = {}) {
+    if (!player || player.defeated) return false;
+    player.defeated = true;
+    player.flags = player.flags || {};
+    player.flags.eliminatedAt = this.now();
+    player.flags.eliminationReason = reason;
+    this.clearPlayerActivity(player.id);
+    if (attacker && attacker.id !== player.id) attacker.stats.playersDefeated = (attacker.stats.playersDefeated || 0) + 1;
+    if (options.notify !== false) {
+      this.pushEvent({
+        kind: "eliminated",
+        playerId: player.id,
+        targetId: attacker?.id || null,
+        at: this.now(),
+        message: attacker ? `${player.name} was eliminated by ${attacker.name}.` : `${player.name} was eliminated.`,
+      });
+    }
+    return true;
+  }
+
+  clearPlayerActivity(playerId) {
+    if (!playerId || !this.combat) return;
+    this.combat.activeAttacks = this.combat.activeAttacks.filter((wave) => wave.attackerId !== playerId && wave.defenderId !== playerId);
+    this.combat.continuousAttacks = this.combat.continuousAttacks.filter((order) => order.attackerId !== playerId && order.defenderId !== playerId);
+    this.combat.currentPushes = this.combat.currentPushes.filter((push) => push.attackerId !== playerId && push.defenderId !== playerId);
+    if (this.specials) {
+      this.specials.pending = this.specials.pending.filter((strike) => strike.playerId !== playerId && strike.targetOwner !== playerId);
+      this.specials.zones = this.specials.zones.filter((zone) => zone.ownerId !== playerId);
+    }
   }
 
   snapshot(viewerId = config.HUMAN_ID) {
@@ -642,6 +764,9 @@ class PondFrontServerGame {
       coreLost: Boolean(player.coreLost || player.flags?.coreLost),
       territory: player.territory,
       territoryPct: playable ? player.territory / playable : 0,
+      ownedTiles: this.ownedTileCount(player),
+      hasCore: this.hasOwnedCore(player),
+      alive: this.isPlayerAlive(player),
       defeated: player.defeated,
       isBot: player.isBot,
       xp: Math.round(player.xp || 0),
@@ -652,6 +777,8 @@ class PondFrontServerGame {
       abilityReadyAt: player.abilityReadyAt,
       abilityActiveUntil: player.abilityActiveUntil,
       abilityStatus: this.combat.abilityStatus(player, this.now()),
+      specialCooldowns: player.specialCooldowns || {},
+      specialStatus: this.specials?.specialStatus(player, this.now()) || {},
       progression: this.progression.progress(player),
       attackCooldownUntil: player.attackCooldownUntil || 0,
       currentPushCooldownUntil: player.currentPushCooldownUntil || 0,
@@ -668,14 +795,15 @@ class PondFrontServerGame {
       matchRewards: player.matchRewards || null,
     }));
 
+    const winState = this.winCheckState();
+
     return {
       serverTime: this.now(),
       timeLeft: this.timeLeft(),
       elapsed: this.elapsed(),
-      animalsLeft: players.filter((player) => !player.defeated && player.territory > 0).length,
-      teamsLeft: this.teamManager?.active()
-        ? new Set(players.filter((player) => !player.defeated && player.teamId && player.territory > 0).map((player) => player.teamId)).size
-        : 0,
+      animalsLeft: winState.alivePlayers.length,
+      teamsLeft: this.teamManager?.active() ? winState.aliveTeams.length : 0,
+      winDebug: winState.debug,
       regions: this.tileManager.regions,
       objectives: this.objectives.snapshot().objectives,
       camps: this.objectives.snapshot().camps,
@@ -719,6 +847,7 @@ class PondFrontServerGame {
       })),
       players,
       activeAttacks: this.combat.snapshot(this.now()),
+      specials: this.specials?.snapshot(this.now()) || { pending: [], zones: [] },
       events: this.visibleEventsFor(effectiveViewerId).slice(-config.MAX_EVENTS),
       config: {
         tileTypes: config.TILE_TYPES,
@@ -736,6 +865,7 @@ class PondFrontServerGame {
         badges: badgeConfig,
         progression: progressionConfig,
         sandbox: sandboxConfig,
+        specials: specialConfig,
         buildingCosts: this.playerBuildingCosts(viewer),
       },
     };
@@ -758,6 +888,33 @@ class PondFrontServerGame {
   territoryPercent(player) {
     const playable = this.tileManager.playable().length;
     return playable ? player.territory / playable : 0;
+  }
+
+  ownedTileCount(playerOrId) {
+    const id = typeof playerOrId === "string" ? playerOrId : playerOrId?.id;
+    if (!id) return 0;
+    return this.tileManager.owned(id).length;
+  }
+
+  hasOwnedCore(player) {
+    if (!player || player.coreTileId == null) return false;
+    const core = this.tileManager.getById(player.coreTileId);
+    return Boolean(core && core.owner === player.id);
+  }
+
+  isPlayerAlive(player) {
+    if (!player) return false;
+    if (player.defeated || player.flags?.surrendered || player.removed || player.spectator) return false;
+    if (!player.isBot && player.connected === false) return false;
+    return this.ownedTileCount(player) > 0;
+  }
+
+  isTeamAlive(teamOrId) {
+    const teamId = typeof teamOrId === "string" ? teamOrId : teamOrId?.id;
+    if (!teamId) return false;
+    const members = this.players.filter((player) => player.teamId === teamId);
+    if (!members.some((player) => this.isPlayerAlive(player))) return false;
+    return members.some((player) => this.ownedTileCount(player) > 0);
   }
 
   roundIncomeBreakdown(breakdown = {}) {
@@ -861,6 +1018,7 @@ class PondFrontServerGame {
     if (event.kind === "ping") this.metrics.pings += 1;
     if (event.kind === "objectiveCaptured") this.metrics.objectives += 1;
     if (event.kind === "campCaptured") this.metrics.camps += 1;
+    if (event.kind === "specialLaunch" || event.kind === "specialDefense") this.metrics.specials += 1;
   }
 }
 
