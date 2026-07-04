@@ -138,6 +138,7 @@
         animalStat: document.querySelector("#animalStat"),
         teamStat: document.querySelector("#teamStat"),
         timerStat: document.querySelector("#timerStat"),
+        winDebugPanel: document.querySelector("#winDebugPanel"),
         controlMeter: document.querySelector("#controlMeter"),
         lakeEventBanner: document.querySelector("#lakeEventBanner"),
         lakeEventTitle: document.querySelector("#lakeEventTitle"),
@@ -156,6 +157,8 @@
         mobileActionTitle: document.querySelector("#mobileActionTitle"),
         mobileActionMeta: document.querySelector("#mobileActionMeta"),
         mobileActionDetail: document.querySelector("#mobileActionDetail"),
+        mobileAttackActions: document.querySelector("#mobileAttackActions"),
+        mobileAttackButtons: [...document.querySelectorAll("[data-mobile-attack]")],
         mobileMainAction: document.querySelector("#mobileMainAction"),
         mobileInfoAction: document.querySelector("#mobileInfoAction"),
         mobileCancelAction: document.querySelector("#mobileCancelAction"),
@@ -182,7 +185,8 @@
         leaderboardToggle: document.querySelector("#leaderboardToggle"),
         toast: document.querySelector("#toast"),
         toastStack: document.querySelector("#toastStack"),
-        percentButtons: [...document.querySelectorAll("[data-percent]")],
+        percentButtons: [...document.querySelectorAll(".percent-row [data-percent]")],
+        attackStyleButtons: [...document.querySelectorAll("[data-attack-style]")],
         expandButton: document.querySelector("#expandButton"),
         attackButton: document.querySelector("#attackButton"),
         currentPushButton: document.querySelector("#currentPushButton"),
@@ -190,6 +194,7 @@
         buildButton: document.querySelector("#buildButton"),
         teamButton: document.querySelector("#teamButton"),
         abilityButton: document.querySelector("#abilityButton"),
+        specialButton: document.querySelector("#specialButton"),
         buildSelect: document.querySelector("#buildSelect"),
         diplomacyButtons: [...document.querySelectorAll("[data-diplomacy]")],
         strategicView: document.querySelector("#strategicView"),
@@ -198,8 +203,12 @@
         showBorderStatus: document.querySelector("#showBorderStatus"),
         uiScale: document.querySelector("#uiScale"),
         effectsLevel: document.querySelector("#effectsLevel"),
+        visualQuality: document.querySelector("#visualQuality"),
+        particlesLevel: document.querySelector("#particlesLevel"),
+        mapDecorations: document.querySelector("#mapDecorations"),
         floatingText: document.querySelector("#floatingText"),
         attackArrows: document.querySelector("#attackArrows"),
+        abilityEffects: document.querySelector("#abilityEffects"),
         screenShake: document.querySelector("#screenShake"),
         reducedMotion: document.querySelector("#reducedMotion"),
         autoLowPerformance: document.querySelector("#autoLowPerformance"),
@@ -210,6 +219,7 @@
         masterVolume: document.querySelector("#masterVolume"),
         sfxVolume: document.querySelector("#sfxVolume"),
         musicVolume: document.querySelector("#musicVolume"),
+        ambientVolume: document.querySelector("#ambientVolume"),
         tutorial: document.querySelector("#tutorial"),
         closeTutorial: document.querySelector("#closeTutorial"),
         resultScreen: document.querySelector("#resultScreen"),
@@ -228,6 +238,9 @@
         buildSheet: document.querySelector("#buildSheet"),
         buildSheetList: document.querySelector("#buildSheetList"),
         closeBuildSheet: document.querySelector("#closeBuildSheet"),
+        specialSheet: document.querySelector("#specialSheet"),
+        specialSheetList: document.querySelector("#specialSheetList"),
+        closeSpecialSheet: document.querySelector("#closeSpecialSheet"),
         teamSheet: document.querySelector("#teamSheet"),
         teamSheetTitle: document.querySelector("#teamSheetTitle"),
         teamSheetBody: document.querySelector("#teamSheetBody"),
@@ -239,6 +252,8 @@
       if (this.nodes.showBorderStatus) this.nodes.showBorderStatus.checked = true;
       if (this.isMobile()) {
         if (this.nodes.effectsLevel) this.nodes.effectsLevel.value = "medium";
+        if (this.nodes.visualQuality) this.nodes.visualQuality.value = "medium";
+        if (this.nodes.particlesLevel) this.nodes.particlesLevel.value = "medium";
         if (this.nodes.screenShake) this.nodes.screenShake.checked = false;
       }
       this.setUiScale(localStorage.getItem("pondfront:ui-scale") || "compact");
@@ -357,6 +372,13 @@
           this.setPercent(Number(button.dataset.percent));
         });
       });
+      this.nodes.attackStyleButtons.forEach((button) => {
+        button.addEventListener("click", () => {
+          const percent = Number(button.dataset.percent || 0.25);
+          this.setPercent(percent);
+          this.emit("action", { type: "attack", percent, style: button.dataset.attackStyle });
+        });
+      });
 
       this.nodes.expandButton.addEventListener("click", () => this.emit("action", { type: "expand" }));
       this.nodes.attackButton.addEventListener("click", () => this.emit("action", { type: "attack" }));
@@ -369,6 +391,7 @@
       this.nodes.teamButton?.addEventListener("click", () => this.openTeamSheet());
       this.nodes.mobileTeamButton?.addEventListener("click", () => this.openTeamSheet());
       this.nodes.abilityButton.addEventListener("click", () => this.emit("action", { type: "ability" }));
+      this.nodes.specialButton?.addEventListener("click", () => this.openSpecialSheet());
       this.nodes.diplomacyButtons.forEach((button) => {
         button.addEventListener("click", () => this.emit("diplomacy", button.dataset.command || button.dataset.diplomacy));
       });
@@ -385,8 +408,12 @@
       this.nodes.showBorderStatus?.addEventListener("change", () => this.emit("viewChanged"));
       this.nodes.uiScale?.addEventListener("change", () => this.setUiScale(this.nodes.uiScale.value));
       this.nodes.effectsLevel.addEventListener("change", () => this.emit("viewChanged"));
+      this.nodes.visualQuality?.addEventListener("change", () => this.emit("viewChanged"));
+      this.nodes.particlesLevel?.addEventListener("change", () => this.emit("viewChanged"));
+      this.nodes.mapDecorations?.addEventListener("change", () => this.emit("viewChanged"));
       this.nodes.floatingText.addEventListener("change", () => this.emit("viewChanged"));
       this.nodes.attackArrows.addEventListener("change", () => this.emit("viewChanged"));
+      this.nodes.abilityEffects?.addEventListener("change", () => this.emit("viewChanged"));
       this.nodes.screenShake?.addEventListener("change", () => this.emit("viewChanged"));
       this.nodes.reducedMotion.addEventListener("change", () => this.emit("viewChanged"));
       this.nodes.autoLowPerformance.addEventListener("change", () => this.emit("viewChanged"));
@@ -398,6 +425,7 @@
         this.nodes.masterVolume,
         this.nodes.sfxVolume,
         this.nodes.musicVolume,
+        this.nodes.ambientVolume,
       ].forEach((node) => node?.addEventListener("input", () => this.updateAudioSettings()));
       this.nodes.mobileMuteButton?.addEventListener("click", () => {
         this.audio?.unlock();
@@ -438,9 +466,17 @@
       });
       this.nodes.mobileMainAction?.addEventListener("click", () => {
         const type = this.nodes.mobileMainAction.dataset.actionType;
+        const percent = Number(this.nodes.mobileMainAction.dataset.percent || this.percent);
         if (!type) return;
         if (type === "build") this.openBuildSheet();
-        else this.emit("action", { type });
+        else this.emit("action", { type, percent, specialType: this.nodes.mobileMainAction.dataset.specialType || "" });
+      });
+      this.nodes.mobileAttackButtons?.forEach((button) => {
+        button.addEventListener("click", () => {
+          const percent = Number(button.dataset.mobileAttack || 0.25);
+          this.setPercent(percent);
+          this.emit("action", { type: "attack", percent, style: this.attackStyleName(percent) });
+        });
       });
       this.nodes.mobileInfoAction?.addEventListener("click", () => this.openMobileInfoSheet());
       this.nodes.mobileCancelAction?.addEventListener("click", () => {
@@ -466,6 +502,14 @@
           this.nodes.buildSheet.classList.add("hidden");
           this.emit("action", { type: buildingButton.dataset.buildingAction });
         }
+      });
+      this.nodes.closeSpecialSheet?.addEventListener("click", () => this.nodes.specialSheet.classList.add("hidden"));
+      this.nodes.specialSheet?.addEventListener("click", (event) => {
+        if (event.target === this.nodes.specialSheet) this.nodes.specialSheet.classList.add("hidden");
+        const button = event.target.closest("[data-special-choice]");
+        if (!button) return;
+        this.nodes.specialSheet.classList.add("hidden");
+        this.emit("action", { type: "special", specialType: button.dataset.specialChoice });
       });
       this.nodes.closeTeamSheet?.addEventListener("click", () => this.nodes.teamSheet.classList.add("hidden"));
       this.nodes.teamSheet?.addEventListener("click", (event) => {
@@ -497,6 +541,7 @@
       if (this.nodes.masterVolume) this.nodes.masterVolume.value = settings.masterVolume;
       if (this.nodes.sfxVolume) this.nodes.sfxVolume.value = settings.sfxVolume;
       if (this.nodes.musicVolume) this.nodes.musicVolume.value = settings.musicVolume;
+      if (this.nodes.ambientVolume) this.nodes.ambientVolume.value = settings.ambientVolume ?? 1;
       this.updateMuteButton();
     }
 
@@ -510,6 +555,7 @@
         masterVolume: Number(this.nodes.masterVolume?.value ?? 0.72),
         sfxVolume: Number(this.nodes.sfxVolume?.value ?? 0.78),
         musicVolume: Number(this.nodes.musicVolume?.value ?? 0.28),
+        ambientVolume: Number(this.nodes.ambientVolume?.value ?? 1),
       });
       this.updateMuteButton();
     }
@@ -820,7 +866,43 @@
         candidate.classList.toggle("active", active);
         candidate.setAttribute("aria-pressed", String(active));
       });
+      this.nodes.attackStyleButtons?.forEach((candidate) => {
+        const candidatePercent = Number(candidate.dataset.percent);
+        const active = Math.abs(candidatePercent - next) < 0.001;
+        candidate.classList.toggle("active", active);
+        candidate.setAttribute("aria-pressed", String(active));
+      });
+      this.nodes.mobileAttackButtons?.forEach((candidate) => {
+        const candidatePercent = Number(candidate.dataset.mobileAttack);
+        const active = Math.abs(candidatePercent - next) < 0.001;
+        candidate.classList.toggle("active", active);
+        candidate.setAttribute("aria-pressed", String(active));
+      });
       this.updateActionLabels(this.lastHuman);
+    }
+
+    attackStyleName(percent = this.percent) {
+      const value = Number(percent);
+      if (value >= 0.99) return "max";
+      if (value >= 0.74) return "wave";
+      if (value >= 0.49) return "push";
+      return "bite";
+    }
+
+    attackStyleLabel(percent = this.percent) {
+      const style = this.attackStyleName(percent);
+      if (style === "max") return "Max Wave";
+      if (style === "wave") return "Full Wave";
+      if (style === "push") return "Strong Push";
+      return "Quick Bite";
+    }
+
+    attackStyleShort(percent = this.percent) {
+      const style = this.attackStyleName(percent);
+      if (style === "max") return "Max";
+      if (style === "wave") return "Wave";
+      if (style === "push") return "Push";
+      return "Bite";
     }
 
     showGame() {
@@ -852,6 +934,7 @@
       }
       this.nodes.timerStat.textContent = `${this.formatTime(state.elapsed || 0)} | ${state.teamState?.active ? `${state.teamsLeft || 0} teams` : `${state.animalsLeft || 0} left`}`;
       this.nodes.controlMeter.style.transform = `scaleX(${Math.max(0, Math.min(1, human.territoryPct))})`;
+      this.updateWinDebug(state);
       this.nodes.teamButton?.classList.toggle("active", Boolean(state.teamState?.active));
       if (this.nodes.teamButton) this.nodes.teamButton.disabled = !state.teamState?.active;
       if (this.nodes.mobileTeamButton) {
@@ -897,14 +980,30 @@
       this.updateLeaderboard(state);
       this.updateActionLabels(human);
       this.updateMobileActionCard(state, selectedTile, context);
+      if (!this.nodes.specialSheet?.classList.contains("hidden")) this.openSpecialSheet();
       if (!this.nodes.teamSheet?.classList.contains("hidden")) this.renderTeamSheet();
       if (state.ended) this.showResult(state, human);
+    }
+
+    updateWinDebug(state) {
+      if (!this.nodes.winDebugPanel) return;
+      const debug = state.winDebug;
+      const isLocal = ["localhost", "127.0.0.1", ""].includes(window.location.hostname);
+      if (!debug || !isLocal) {
+        this.nodes.winDebugPanel.classList.add("hidden");
+        return;
+      }
+      this.nodes.winDebugPanel.classList.remove("hidden");
+      const teamText = debug.aliveTeams == null ? "N/A" : debug.aliveTeams;
+      const blocked = debug.blockedReason ? ` | Blocked: ${debug.blockedReason}` : "";
+      this.nodes.winDebugPanel.textContent = `Win Check: ${debug.mode} | Alive animals: ${debug.alivePlayers} | Alive teams: ${teamText} | Bots: ${debug.aliveBots} | Out: ${debug.eliminated} | End: ${debug.canEnd ? "checking" : "disabled"} | ${debug.reason}${blocked}`;
     }
 
     updateMobileActionCard(state, tile, context = {}) {
       if (!this.nodes.mobileActionCard) return;
       if (!tile || !this.isMobile()) {
         this.nodes.mobileActionCard.classList.add("hidden");
+        this.nodes.mobileAttackActions?.classList.add("hidden");
         return;
       }
       const summary = root.PondInfo?.tileSummary(state, tile, context);
@@ -915,7 +1014,10 @@
       this.nodes.mobileActionDetail.textContent = action.detail || summary.detail;
       this.nodes.mobileMainAction.textContent = action.label;
       this.nodes.mobileMainAction.dataset.actionType = action.type || "";
+      this.nodes.mobileMainAction.dataset.percent = action.percent || "";
+      this.nodes.mobileMainAction.dataset.specialType = action.specialType || "";
       this.nodes.mobileMainAction.disabled = !action.type;
+      this.nodes.mobileAttackActions?.classList.toggle("hidden", !context.canAttack);
       this.nodes.mobileActionCard.classList.remove("hidden");
     }
 
@@ -934,15 +1036,23 @@
           ? { label: `Build ${building?.label || "Here"}`, type: "build", detail: `Place ${building?.label || "building"} on this tile.` }
           : { label: "Choose Tile", type: "", detail: `Tap a glowing owned tile for ${building?.label || "this building"}.` };
       }
+      if (context.pendingSpecialType) {
+        const special = state.config.specials?.[context.pendingSpecialType] || {};
+        return context.validSpecialTarget
+          ? { label: special.short || special.label || "Special", type: "special", specialType: context.pendingSpecialType, detail: `Confirm ${special.label || "special"} here.` }
+          : { label: "Choose Target", type: "", detail: `Tap a glowing tile for ${special.label || "this special"}.` };
+      }
       if (context.canExpand) {
         return { label: `Expand ${percent}%`, type: "expand", detail: context.estimateText || "Capture neutral water." };
       }
       if (context.canAttack) {
-        const activeContinuous = state.activeAttacks?.some((wave) => wave.continuous && wave.attackerId === human.id);
+        const attackLabel = this.attackStyleLabel(this.percent);
+        const energy = Math.round(human.energy * this.percent);
         return {
-          label: activeContinuous ? "Stop Attack" : `Start Attack ${percent}%`,
+          label: `${this.attackStyleShort(this.percent)} ${energy}`,
           type: "attack",
-          detail: activeContinuous ? "Stop your current frontline order." : context.estimateText || "Start a continuous border push.",
+          percent: this.percent,
+          detail: context.estimateText || `${attackLabel} sends ${energy} energy now. Border attacks have no cooldown.`,
         };
       }
       if (tile.owner === human.id && tile.building) {
@@ -1208,24 +1318,78 @@
     updateActionLabels(human) {
       if (human) this.lastHuman = human;
       const energy = human ? Math.round(human.energy * this.percent) : 0;
-      const activeContinuous = this.lastState?.activeAttacks?.some((wave) => wave.continuous && wave.attackerId === human?.id);
+      const combat = this.lastState?.config?.combat || {};
+      const minAttackEnergy = combat.minimumAttackEnergy || 5;
+      const maxWaves = combat.maxActiveAttacksPerPlayer || 3;
+      const activeWaves = this.lastState?.activeAttacks?.filter((wave) => !wave.currentPush && wave.attackerId === human?.id) || [];
+      const activeWaveCount = activeWaves.length;
+      const selectedId = this.lastTile?.id;
+      const mergingSelected =
+        selectedId != null &&
+        activeWaves.some((wave) => wave.targetStartTile === selectedId || (wave.frontierTiles || []).includes(selectedId));
       const construction = this.constructionLeft(this.lastTile, this.lastState);
       const currentPushLeft = Math.max(0, Math.ceil((human?.currentPushCooldownUntil || 0) - (this.lastState?.serverTime || 0)));
+      const specials = this.lastState?.config?.specials || {};
+      const specialStatus = human?.specialStatus || {};
+      const nextSpecialReady = Object.keys(specials).some((id) => {
+        const status = specialStatus[id] || {};
+        const cost = status.cost ?? specials[id]?.cost ?? 0;
+        return human && !human.defeated && human.energy >= cost && Math.ceil(status.cooldownLeft || 0) <= 0;
+      });
+      const shortestSpecialLeft = Object.keys(specials).reduce((best, id) => {
+        const left = Math.ceil(specialStatus[id]?.cooldownLeft || 0);
+        return left > 0 ? Math.min(best, left) : best;
+      }, Infinity);
       this.nodes.expandButton.textContent = `Expand ${energy}`;
-      this.nodes.attackButton.textContent = activeContinuous ? "Stop Attack" : `Start Attack ${energy}`;
-      this.nodes.attackButton.classList.toggle("active", Boolean(activeContinuous));
+      this.nodes.attackButton.textContent = `${this.attackStyleShort(this.percent)} ${energy}`;
+      this.nodes.attackButton.disabled = !human || human.defeated || energy < minAttackEnergy || (activeWaveCount >= maxWaves && !mergingSelected);
+      this.nodes.attackButton.classList.toggle("active", activeWaveCount > 0);
+      this.nodes.attackButton.dataset.tip =
+        energy < minAttackEnergy
+          ? `Need at least ${minAttackEnergy} Animal Energy to attack.`
+          : activeWaveCount >= maxWaves && !mergingSelected
+            ? `Too many active waves (${activeWaveCount}/${maxWaves}). Attack the same front to merge energy, or wait for one to finish.`
+            : `Border Attack: no cooldown. Sends ${energy} Animal Energy immediately. Active waves ${activeWaveCount}/${maxWaves}.`;
+      this.nodes.attackStyleButtons?.forEach((button) => {
+        const percent = Number(button.dataset.percent || 0.25);
+        const send = human ? Math.round(human.energy * percent) : 0;
+        const short = this.attackStyleShort(percent);
+        const label = `${short} ${Math.round(percent * 100)}% - Send ${send}`;
+        button.textContent = label;
+        button.disabled = !human || human.defeated || send < minAttackEnergy || (activeWaveCount >= maxWaves && !mergingSelected);
+        button.title =
+          send < minAttackEnergy
+            ? `Need at least ${minAttackEnergy} Animal Energy.`
+            : `${this.attackStyleLabel(percent)}: no cooldown. Sends ${send} energy now. Active waves ${activeWaveCount}/${maxWaves}.`;
+      });
+      this.nodes.mobileAttackButtons?.forEach((button) => {
+        const percent = Number(button.dataset.mobileAttack || 0.25);
+        const send = human ? Math.round(human.energy * percent) : 0;
+        button.textContent = `${this.attackStyleShort(percent)} ${send}`;
+        button.disabled = !human || human.defeated || send < minAttackEnergy || (activeWaveCount >= maxWaves && !mergingSelected);
+        button.title = send < minAttackEnergy ? "Need more energy" : `Send ${send} Animal Energy`;
+      });
       if (this.nodes.currentPushButton) {
         this.nodes.currentPushButton.textContent = currentPushLeft > 0 ? `Current ${currentPushLeft}s` : `Current ${energy}`;
         this.nodes.currentPushButton.disabled = currentPushLeft > 0 || !human || human.defeated || energy < 10;
         this.nodes.currentPushButton.dataset.tip =
           currentPushLeft > 0
             ? `Current Push cooldown: ${currentPushLeft}s.`
-            : "Current Push: delayed long-range water route attack. Defenders get warning and can reinforce before impact.";
+            : "Current Push: special delayed long-range water route attack with cooldown. Border attacks have no cooldown and only cost energy.";
       }
       this.nodes.defendButton.textContent = `Defend ${Math.round(energy * 0.75)}`;
       this.nodes.buildButton.textContent = construction > 0 ? `Building ${construction}s` : "Build";
       this.nodes.buildButton.classList.toggle("cooldown", construction > 0);
       this.nodes.buildButton.classList.toggle("ready", construction <= 0 && Boolean(human));
+      if (this.nodes.specialButton) {
+        this.nodes.specialButton.textContent = nextSpecialReady ? "Special Ready" : Number.isFinite(shortestSpecialLeft) ? `Special ${shortestSpecialLeft}s` : "Special";
+        this.nodes.specialButton.disabled = !human || human.defeated || this.lastState?.ended;
+        this.nodes.specialButton.classList.toggle("ready", nextSpecialReady);
+        this.nodes.specialButton.classList.toggle("cooldown", !nextSpecialReady && Number.isFinite(shortestSpecialLeft));
+        this.nodes.specialButton.dataset.tip = nextSpecialReady
+          ? "Choose Lily Barrage, Dragonfly Guard, or Reed Shield."
+          : "Pond specials cost a lot of Animal Energy and have cooldowns.";
+      }
     }
 
     toast(message, bad = false) {
@@ -1269,11 +1433,15 @@
         autoStrategicView: this.nodes.autoStrategicView.checked,
         showIcons: this.nodes.showIcons.checked,
         showBorderStatus: this.nodes.showBorderStatus?.checked !== false,
+        visualQuality: this.nodes.visualQuality?.value || "high",
+        mapDecorations: this.nodes.mapDecorations?.checked !== false,
         isMobile: this.isMobile(),
         effects: {
           level: this.nodes.effectsLevel.value,
+          particles: this.nodes.particlesLevel?.value || this.nodes.effectsLevel.value,
           floatingText: this.nodes.floatingText.checked,
           attackArrows: this.nodes.attackArrows.checked,
+          abilityEffects: this.nodes.abilityEffects?.checked !== false,
           screenShake: this.nodes.screenShake?.checked !== false,
           reducedMotion: this.nodes.reducedMotion.checked,
           autoLowPerformance: this.nodes.autoLowPerformance.checked,
@@ -1362,6 +1530,31 @@
         </div>
       `;
       this.nodes.mobileSheet.classList.remove("hidden");
+    }
+
+    openSpecialSheet() {
+      const state = this.lastState;
+      const human = this.lastHuman;
+      if (!state || !human || !this.nodes.specialSheetList) return;
+      const specials = state.config.specials || root.PondSpecials || {};
+      const status = human.specialStatus || {};
+      this.nodes.specialSheetList.innerHTML = Object.entries(specials)
+        .map(([id, special]) => {
+          const cooldownLeft = Math.ceil(status[id]?.cooldownLeft || 0);
+          const cost = status[id]?.cost ?? special.cost ?? 0;
+          const energyLocked = human.energy < cost;
+          const disabled = cooldownLeft > 0 || energyLocked || human.defeated || state.ended;
+          const reason = cooldownLeft > 0 ? `Cooldown ${cooldownLeft}s` : energyLocked ? `Need ${cost} energy` : "Select a target on the map";
+          return `<button class="special-card special-${this.escape(id)}" data-special-choice="${this.escape(id)}" ${disabled ? "disabled" : ""}>
+            <strong>${this.escape(special.label || id)} <em>${this.escape(special.role || "")}</em></strong>
+            <span>Cost ${cost} | ${this.escape(special.target || "Map target")}</span>
+            <small>${this.escape(special.description || "")}</small>
+            <small><b>Counterplay:</b> ${this.escape(special.counterplay || "Defend, spread out, or wait it out.")}</small>
+            <i>${this.escape(reason)}</i>
+          </button>`;
+        })
+        .join("");
+      this.nodes.specialSheet?.classList.remove("hidden");
     }
 
     openBuildSheet() {

@@ -7,7 +7,7 @@
   const mapSizes = ["small", "medium", "large", "huge"];
   const botCounts = [0, 2, 4, 8, 12, 16];
   const botDifficulties = {
-    passive: { label: "Passive", serverDifficulty: "easy", personality: "passive" },
+    passive: { label: "Passive", serverDifficulty: "passive", personality: "passive" },
     easy: { label: "Easy", serverDifficulty: "easy", personality: "expander" },
     normal: { label: "Normal", serverDifficulty: "normal", personality: "fighter" },
     smart: { label: "Hard", serverDifficulty: "smart", personality: "fighter" },
@@ -30,7 +30,7 @@
     botsFight: true,
     objectives: true,
     currentPush: true,
-    elimination: true,
+    elimination: false,
   };
   const presets = {
     empty: {

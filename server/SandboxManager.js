@@ -68,7 +68,9 @@ class SandboxManager {
       });
     game.pushEvent({
       kind: "notice",
-      message: "Sandbox Mode active. Stats, XP, coins, achievements, and match history are disabled.",
+      message: this.rules.elimination
+        ? "Sandbox Mode active with elimination enabled. Stats, XP, coins, achievements, and match history are disabled."
+        : "Sandbox Mode - match ending disabled. Stats, XP, coins, achievements, and match history are disabled.",
       at: game.now(),
     });
   }

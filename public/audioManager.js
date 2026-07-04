@@ -8,6 +8,7 @@
     masterVolume: 0.72,
     sfxVolume: 0.78,
     musicVolume: 0.28,
+    ambientVolume: 1,
   };
 
   class PondAudioManager {
@@ -41,6 +42,7 @@
         masterVolume: this.clamp01(next.masterVolume ?? this.settings.masterVolume),
         sfxVolume: this.clamp01(next.sfxVolume ?? this.settings.sfxVolume),
         musicVolume: this.clamp01(next.musicVolume ?? this.settings.musicVolume),
+        ambientVolume: this.clamp01(next.ambientVolume ?? this.settings.ambientVolume ?? 1),
       };
       localStorage.setItem(STORAGE_KEY, JSON.stringify(this.settings));
       this.applyVolumes();
@@ -77,7 +79,7 @@
       const now = this.ctx.currentTime;
       const master = this.settings.muted || !this.settings.soundEnabled ? 0 : this.settings.masterVolume;
       const sfx = this.settings.sfxVolume;
-      const music = this.settings.musicEnabled ? this.settings.musicVolume : 0;
+      const music = this.settings.musicEnabled ? this.settings.musicVolume * (this.settings.ambientVolume ?? 1) : 0;
       const set = (node, value) => {
         if (immediate) node.gain.value = value;
         else node.gain.setTargetAtTime(value, now, 0.035);
@@ -108,6 +110,28 @@
         expand: () => this.chime([440, 560], 0.08, out, 0.13 * intensity),
         expandProgress: () => this.tone(330, 0.07, "triangle", 0.06, out, 1.16),
         attack: () => this.sweep(180, 720, 0.22, "sawtooth", 0.14 * intensity, out),
+        maxAttack: () => {
+          this.noise(0.18, 0.16 * intensity, out, 520);
+          this.sweep(120, 780, 0.32, "sawtooth", 0.18 * intensity, out);
+          setTimeout(() => this.tone(92, 0.16, "triangle", 0.09, out, 0.72), 95);
+        },
+        currentPush: () => {
+          this.sweep(220, 660, 0.2, "triangle", 0.12 * intensity, out);
+          setTimeout(() => this.noise(0.13, 0.065, out, 1180), 60);
+        },
+        currentImpact: () => {
+          this.noise(0.2, 0.16 * intensity, out, 420);
+          this.sweep(520, 160, 0.22, "triangle", 0.13 * intensity, out);
+        },
+        specialLaunch: () => {
+          this.chime([520, 740, 980], 0.09, out, 0.13 * intensity);
+          setTimeout(() => this.noise(0.12, 0.06, out, 1200), 80);
+        },
+        specialImpact: () => {
+          this.noise(0.18, 0.14 * intensity, out, 560);
+          this.chime([240, 420, 660], 0.08, out, 0.12 * intensity);
+        },
+        specialDefense: () => this.chime([360, 520, 700, 920], 0.075, out, 0.11 * intensity),
         capture: () => this.chime([520, 720, 880], 0.075, out, 0.14 * intensity),
         blocked: () => {
           this.noise(0.12, 0.17, out, 520);
@@ -115,7 +139,9 @@
         },
         defend: () => this.chime([240, 360, 480], 0.09, out, 0.12),
         build: () => this.chime([360, 520, 680], 0.08, out, 0.12),
+        buildComplete: () => this.chime([420, 560, 760, 960], 0.075, out, 0.13),
         upgrade: () => this.chime([480, 640, 840, 1080], 0.075, out, 0.14),
+        upgradeComplete: () => this.chime([520, 740, 980, 1280], 0.07, out, 0.16),
         abilityDuck: () => this.flutter(out, "#duck"),
         abilitySnake: () => {
           this.noise(0.18, 0.08, out, 850);
@@ -128,7 +154,18 @@
         abilityTurtle: () => this.chime([150, 220, 330], 0.13, out, 0.16),
         abilityCarp: () => this.chime([560, 840, 1120, 1400], 0.08, out, 0.12),
         objective: () => this.chime([392, 659, 988], 0.14, out, 0.14),
+        objectiveSpawn: () => this.chime([330, 494, 740, 988], 0.12, out, 0.12),
+        objectiveCapture: () => this.chime([494, 659, 880, 1174], 0.1, out, 0.15),
         alliance: () => this.chime([420, 540, 700], 0.1, out, 0.1),
+        allianceBreak: () => {
+          this.sweep(520, 190, 0.16, "triangle", 0.11, out);
+          setTimeout(() => this.noise(0.1, 0.09, out, 680), 75);
+        },
+        support: () => this.chime([500, 620, 820], 0.08, out, 0.1),
+        elimination: () => {
+          this.noise(0.2, 0.12, out, 360);
+          this.chime([260, 196, 146], 0.12, out, 0.1);
+        },
         warning: () => this.sweep(340, 160, 0.16, "square", 0.09, out),
         victory: () => this.chime([392, 523, 659, 784, 1046], 0.13, out, 0.16),
         defeat: () => this.chime([330, 260, 196], 0.17, out, 0.12),
@@ -143,21 +180,33 @@
         if (event.kind === "attackWave") {
           const amount = event.amount || 0;
           this.duckMusicForCombat();
-          this.play("attack", { intensity: amount >= 80 ? 1.55 : amount >= 40 ? 1.2 : 0.9, cooldown: 90 });
+          this.play(amount >= 85 ? "maxAttack" : "attack", { intensity: amount >= 85 ? 1.65 : amount >= 45 ? 1.24 : 0.9, cooldown: 90 });
         }
         if (event.kind === "waveCapture") this.play("capture", { cooldown: 55 });
+        if (event.kind === "borderWeakened") this.play("expandProgress", { cooldown: 90, intensity: 0.9 });
+        if (event.kind === "waveContested") this.play("warning", { cooldown: 180, intensity: 0.75 });
         if (event.kind === "waveResist" || (event.kind === "waveEnd" && (event.captured || 0) === 0)) this.play("blocked", { cooldown: 110 });
-        if (event.kind === "continuousAttackStart" || event.kind === "waterRouteAttack") this.play("attack", { intensity: 0.95, cooldown: 140 });
-        if (event.kind === "supportSent") this.play("alliance", { cooldown: 180 });
+        if (event.kind === "continuousAttackStart") this.play("attack", { intensity: 0.95, cooldown: 140 });
+        if (event.kind === "waterRouteAttack") this.play("currentPush", { intensity: 1.05, cooldown: 140 });
+        if (event.kind === "currentPushWarning") this.play("warning", { cooldown: 420, intensity: 0.82 });
+        if (event.kind === "currentPushImpact") this.play("currentImpact", { intensity: event.captured > 0 ? 1.25 : 0.92, cooldown: 280 });
+        if (event.kind === "currentPushBlocked") this.play("blocked", { cooldown: 180 });
+        if (event.kind === "specialLaunch") this.play("specialLaunch", { cooldown: 260, intensity: 1.05 });
+        if (event.kind === "specialDefense") this.play("specialDefense", { cooldown: 220, intensity: event.specialType === "dragonflyGuard" ? 1.08 : 0.92 });
+        if (event.kind === "specialImpact") this.play("specialImpact", { cooldown: 260, intensity: event.captured > 0 ? 1.24 : 0.9 });
+        if (event.kind === "supportSent") this.play("support", { cooldown: 180 });
         if (event.kind === "coreUnderAttack") this.play("warning", { cooldown: 260 });
-        if (event.kind === "coreCaptured" || event.kind === "surrender" || event.kind === "eliminated") this.play("objective", { cooldown: 260 });
+        if (event.kind === "coreCaptured" || event.kind === "surrender") this.play("objectiveCapture", { cooldown: 260 });
+        if (event.kind === "eliminated") this.play("elimination", { cooldown: 260 });
         if (event.kind === "defend") this.play("defend", { cooldown: 100 });
         if (event.kind === "buildStarted") this.play("build", { cooldown: 120, intensity: 0.72 });
-        if (event.kind === "buildComplete") this.play("build", { cooldown: 120 });
+        if (event.kind === "buildComplete") this.play("buildComplete", { cooldown: 120 });
         if (event.kind === "buildUpgradeStarted") this.play("upgrade", { cooldown: 140, intensity: 0.72 });
-        if (event.kind === "buildUpgrade") this.play("upgrade", { cooldown: 120 });
-        if (event.kind === "objectiveAppeared" || event.kind === "objectiveCaptured" || event.kind === "campCaptured") this.play("objective", { cooldown: 220 });
+        if (event.kind === "buildUpgrade") this.play("upgradeComplete", { cooldown: 120 });
+        if (event.kind === "objectiveAppeared") this.play("objectiveSpawn", { cooldown: 220 });
+        if (event.kind === "objectiveCaptured" || event.kind === "campCaptured") this.play("objectiveCapture", { cooldown: 220 });
         if (event.kind === "diplomacy" && ["alliance", "allianceAccepted"].includes(event.subtype)) this.play("alliance", { cooldown: 180 });
+        if (event.kind === "diplomacy" && ["broken", "war", "enemy"].includes(event.subtype)) this.play("allianceBreak", { cooldown: 180 });
         if (event.kind === "notice" && event.ok === false) this.play("warning", { cooldown: 140 });
         if (event.kind === "ability") {
           const player = state.players?.find((candidate) => candidate.id === event.playerId);
@@ -213,7 +262,7 @@
 
     duckMusicForCombat() {
       if (!this.ctx || !this.musicGain || !this.settings.musicEnabled) return;
-      const target = Math.max(0.05, this.settings.musicVolume * 0.52);
+      const target = Math.max(0.05, this.settings.musicVolume * (this.settings.ambientVolume ?? 1) * 0.52);
       this.musicGain.gain.setTargetAtTime(target, this.ctx.currentTime, 0.08);
       clearTimeout(this.combatMusicTimer);
       this.combatMusicTimer = setTimeout(() => this.applyVolumes(), 2400);

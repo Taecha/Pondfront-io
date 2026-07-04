@@ -18,7 +18,7 @@
           <section class="lobby-hero">
             <p class="eyebrow">Real-time Pond Territory Strategy</p>
             <h1>PondFront.io</h1>
-            <p class="start-copy">Expand your pond empire, manage Animal Energy, form alliances, and control 70% of the lake.</p>
+            <p class="start-copy">Expand your pond empire, manage Animal Energy, form alliances, and be the last animal standing.</p>
             <div class="lobby-badges">
               <span>84x54 lake</span>
               <span>Animal powers</span>
@@ -291,7 +291,7 @@
             <label class="check-row" for="sandboxBotsFight"><input id="sandboxBotsFight" data-sandbox-rule="botsFight" type="checkbox" checked /> Bots Fight</label>
             <label class="check-row" for="sandboxObjectives"><input id="sandboxObjectives" data-sandbox-rule="objectives" type="checkbox" checked /> Objectives</label>
             <label class="check-row" for="sandboxCurrentPush"><input id="sandboxCurrentPush" data-sandbox-rule="currentPush" type="checkbox" checked /> Current Push</label>
-            <label class="check-row" for="sandboxElimination"><input id="sandboxElimination" data-sandbox-rule="elimination" type="checkbox" checked /> Elimination</label>
+            <label class="check-row" for="sandboxElimination"><input id="sandboxElimination" data-sandbox-rule="elimination" type="checkbox" /> Sandbox Elimination</label>
           </div>
           <div class="lobby-flow-actions">
             <button id="sandboxStartButton" class="primary" type="button">Start Sandbox</button>
@@ -482,7 +482,7 @@
               <article><strong>Combat</strong><p>Attack connected enemy borders with energy waves and reinforce your own fronts.</p></article>
               <article><strong>Buildings</strong><p>Build farms, nests, guards, tunnels, and jump pads to shape your economy.</p></article>
               <article><strong>Diplomacy</strong><p>Request alliances, mark enemies, send signals, and break deals when the lake changes.</p></article>
-              <article><strong>Winning</strong><p>Control 70% of the playable lake, or lead the territory count when time runs out.</p></article>
+              <article><strong>Winning</strong><p>Eliminate rivals until one animal or team remains. Sandbox ending is off unless enabled.</p></article>
             </div>
           </div>
         </section>
@@ -509,6 +509,7 @@
             <div class="stat"><span>Elapsed <button class="info-button" data-tip-key="win" aria-label="Win condition info">?</button></span><strong id="timerStat">00:00</strong></div>
           </div>
         </header>
+        <div id="winDebugPanel" class="win-debug-panel hidden"></div>
 
         <section class="play-area">
           <canvas id="mapCanvas" aria-label="PondFront strategy map"></canvas>
@@ -534,6 +535,12 @@
               <strong id="mobileActionTitle">Select Tile</strong>
               <span id="mobileActionMeta">Tap a border target.</span>
               <small id="mobileActionDetail">Ready</small>
+            </div>
+            <div id="mobileAttackActions" class="mobile-attack-actions hidden" aria-label="Attack styles">
+              <button data-mobile-attack="0.25" type="button">Bite 25%</button>
+              <button data-mobile-attack="0.5" type="button">Push 50%</button>
+              <button data-mobile-attack="0.75" type="button">Wave 75%</button>
+              <button data-mobile-attack="1" type="button">Max</button>
             </div>
             <button id="mobileMainAction" type="button">Action</button>
             <button id="mobileInfoAction" type="button">Info</button>
@@ -744,13 +751,34 @@
             <label>
               Effects
               <select id="effectsLevel" aria-label="Effects level">
+                <option value="ultra">Ultra</option>
                 <option value="high" selected>High</option>
                 <option value="medium">Medium</option>
                 <option value="low">Low</option>
               </select>
             </label>
+            <label>
+              Visual
+              <select id="visualQuality" aria-label="Visual quality">
+                <option value="ultra">Ultra</option>
+                <option value="high" selected>High</option>
+                <option value="medium">Medium</option>
+                <option value="low">Low</option>
+              </select>
+            </label>
+            <label>
+              Particles
+              <select id="particlesLevel" aria-label="Particle level">
+                <option value="high" selected>High</option>
+                <option value="ultra">Ultra</option>
+                <option value="medium">Medium</option>
+                <option value="low">Low</option>
+              </select>
+            </label>
+            <label><input id="mapDecorations" type="checkbox" checked /> Decorations</label>
             <label><input id="floatingText" type="checkbox" checked /> Text</label>
             <label><input id="attackArrows" type="checkbox" checked /> Arrows</label>
+            <label><input id="abilityEffects" type="checkbox" checked /> Abilities</label>
             <label><input id="screenShake" type="checkbox" checked /> Shake</label>
             <label><input id="reducedMotion" type="checkbox" /> Reduced motion</label>
             <label><input id="autoLowPerformance" type="checkbox" checked /> Auto low</label>
@@ -761,6 +789,7 @@
             <label class="range-setting">Master <input id="masterVolume" type="range" min="0" max="1" step="0.05" value="0.72" /></label>
             <label class="range-setting">SFX <input id="sfxVolume" type="range" min="0" max="1" step="0.05" value="0.78" /></label>
             <label class="range-setting">Music <input id="musicVolume" type="range" min="0" max="1" step="0.05" value="0.28" /></label>
+            <label class="range-setting">Ambient <input id="ambientVolume" type="range" min="0" max="1" step="0.05" value="1" /></label>
           </div>
         </section>
 
@@ -772,14 +801,21 @@
             <button data-percent="0.75">75%</button>
             <button data-percent="1">100%</button>
           </div>
+          <div class="attack-style-row" aria-label="Attack styles">
+            <button data-attack-style="bite" data-percent="0.25" title="Quick Bite: commit 25% energy to weaken or nip a border.">Bite 25%</button>
+            <button data-attack-style="push" data-percent="0.5" title="Strong Push: commit 50% energy for a normal frontline wave.">Push 50%</button>
+            <button data-attack-style="wave" data-percent="0.75" title="Full Wave: commit 75% energy to push through a softened front.">Wave 75%</button>
+            <button data-attack-style="max" data-percent="1" title="Max Wave: commit all energy for a big but risky attack.">Max 100%</button>
+          </div>
           <div class="action-row">
             <button id="expandButton" data-tip-key="expand" title="Expand into selected neutral water.">Expand</button>
-            <button id="attackButton" data-tip-key="attack" title="Attack selected enemy border with chosen energy percent.">Attack</button>
+            <button id="attackButton" data-tip-key="attack" title="Commit the chosen Animal Energy into the selected enemy border.">Attack</button>
             <button id="currentPushButton" data-tip-key="currentPush" title="Send a delayed water-route attack that can be defended against.">Current Push</button>
             <button id="defendButton" data-tip-key="defend" title="Store energy in your selected territory.">Defend</button>
             <button id="buildButton" data-tip-key="build" title="Build economy or defense on selected owned tile.">Build</button>
             <button id="teamButton" title="Open co-op team commands.">Team</button>
             <button id="abilityButton" data-tip-key="ability" title="Use your animal ability.">Ability</button>
+            <button id="specialButton" data-tip-key="special" title="Open pond special strikes and defenses.">Special</button>
           </div>
           <select id="buildSelect" title="Choose building type.">
             <option value="nest">Nest</option>
@@ -793,7 +829,7 @@
         <section id="tutorial" class="tutorial">
           <div>
             <span class="label">Quick Start</span>
-            <h2>Control 70% of the lake</h2>
+            <h2>Be the last animal standing</h2>
             <ol>
               <li>Click a glowing neutral border tile, then Expand.</li>
               <li>Animal Energy grows with territory and special zones.</li>
@@ -842,6 +878,19 @@
               <button id="closeBuildSheet" class="icon-button" type="button">X</button>
             </header>
             <div id="buildSheetList" class="build-sheet-list"></div>
+          </div>
+        </section>
+
+        <section id="specialSheet" class="mobile-sheet hidden" aria-modal="true" role="dialog">
+          <div>
+            <header>
+              <div>
+                <span class="label">Special</span>
+                <h2>Pond Specials</h2>
+              </div>
+              <button id="closeSpecialSheet" class="icon-button" type="button">X</button>
+            </header>
+            <div id="specialSheetList" class="build-sheet-list special-sheet-list"></div>
           </div>
         </section>
 
@@ -902,6 +951,7 @@
     <script src="/shared/diplomacyConfig.js"></script>
     <script src="/shared/combatConfig.js"></script>
     <script src="/shared/botDifficultyConfig.js"></script>
+    <script src="/shared/specialConfig.js"></script>
     <script src="/shared/sandboxConfig.js"></script>
     <script src="/shared/teamConfig.js"></script>
     <script src="/shared/borderStatus.js"></script>

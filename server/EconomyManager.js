@@ -131,13 +131,7 @@ class EconomyManager {
       }
       if (!(game?.sandbox?.enabled && game.sandbox.rules?.infiniteEnergy && !player.isBot)) player.energy = Math.min(player.energy, player.maxEnergy);
       if (player.territory <= 0 && !player.defeated && !(game?.sandbox?.enabled && game.sandbox.rules?.elimination === false)) {
-        player.defeated = true;
-        game?.pushEvent?.({
-          kind: "eliminated",
-          playerId: player.id,
-          message: `${player.name} was eliminated.`,
-          at: now,
-        });
+        game?.eliminatePlayer?.(player, null, "no territory");
       }
     });
   }

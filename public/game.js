@@ -31,6 +31,7 @@
       this.mode = "expand";
       this.pendingAbilityTarget = false;
       this.pendingBuildType = null;
+      this.pendingSpecialType = null;
       this.pointer = null;
       this.activePointers = new Map();
       this.pinch = null;
@@ -429,11 +430,17 @@
         if (event.kind === "supportSent" && this.involvesHuman(event)) {
           this.ui.toast(event.message || "Support sent.");
         }
+        if (event.kind === "attackWave" && this.involvesHuman(event)) {
+          this.ui.toast(event.message || `Frontline wave committed ${Math.round(event.amount || 0)} energy.`);
+        }
+        if (event.kind === "waveContested" && this.involvesHuman(event)) {
+          this.ui.toast(event.message || "Contested border: waves are fighting.", true);
+        }
         if (event.kind === "continuousAttackStart" && this.involvesHuman(event)) {
-          this.ui.toast(`Continuous attack started: ${Math.round(event.drainPerSecond || 0)} energy/s.`);
+          this.ui.toast(`Legacy attack converted into a committed wave.`);
         }
         if (event.kind === "continuousAttackStop" && this.involvesHuman(event)) {
-          this.ui.toast(event.message || "Continuous attack stopped.", true);
+          this.ui.toast(event.message || "Committed waves stop automatically.", true);
         }
         if (event.kind === "waterRouteAttack" && this.involvesHuman(event)) {
           this.ui.toast(event.message || "Current Push launched. Watch the water route.");
@@ -538,16 +545,16 @@
         await this.handleAbilityAction(payload);
         return;
       }
-      if (type === "attack" && this.activeContinuousAttack()) {
-        await this.postAction({ type: "stopContinuousAttack" });
+      if (type === "special") {
+        await this.handleSpecialAction(payload);
         return;
       }
-
       const tile = this.selectedTile();
       const human = this.human();
       if (type === "build" && this.shouldWaitForBuildTarget(payload.buildingType, tile, human)) {
         this.pendingBuildType = payload.buildingType || this.ui.nodes.buildSelect.value;
         this.pendingAbilityTarget = false;
+        this.pendingSpecialType = null;
         this.mode = "build";
         this.preview = {
           mode: "build",
@@ -604,7 +611,9 @@
         return;
       }
 
-      const spend = human.energy * this.ui.percent;
+      const sendPercent = Math.max(0.1, Math.min(1, Number(payload.percent || this.ui.percent) || this.ui.percent));
+      if (payload.percent) this.ui.setPercent(sendPercent);
+      const spend = human.energy * sendPercent;
       if ((type === "expand" || type === "attack" || type === "waterRoute") && spend < (type === "waterRoute" ? 10 : 4)) {
         this.ui.toast("Not enough Animal Energy to send.", true);
         this.ui.flashEnergy();
@@ -618,9 +627,9 @@
 
       this.mode = type;
       const action = {
-        type: type === "attack" ? "startContinuousAttack" : type,
+        type,
         tileId: tile.id,
-        percent: this.ui.percent,
+        percent: sendPercent,
         buildingType: payload.buildingType,
       };
       if (type === "expand" || type === "attack" || type === "waterRoute") action.sourceIds = this.validSourceTiles().map((source) => source.id);
@@ -642,6 +651,7 @@
       if (human.animal === "frog" && !this.isLeapTarget(selected)) {
         this.pendingAbilityTarget = true;
         this.pendingBuildType = null;
+        this.pendingSpecialType = null;
         this.mode = "ability";
         this.preview = {
           mode: "expand",
@@ -657,6 +667,50 @@
       this.preview = null;
       this.mode = "expand";
       await this.postAction({ type: "ability", tileId: selected?.id });
+    }
+
+    async handleSpecialAction(payload = {}) {
+      const human = this.human();
+      if (!human) return;
+      const specialType = payload.specialType || this.pendingSpecialType || "lilyBarrage";
+      const special = this.state.config.specials?.[specialType] || root.PondSpecials?.[specialType];
+      if (!special) {
+        this.ui.toast("Unknown pond special.", true);
+        return;
+      }
+      const status = human.specialStatus?.[specialType] || {};
+      const cooldownLeft = Math.ceil(status.cooldownLeft || 0);
+      const cost = status.cost ?? special.cost ?? 0;
+      if (cooldownLeft > 0) {
+        this.ui.toast(`${special.label} cooldown ${cooldownLeft}s.`, true);
+        return;
+      }
+      if (human.energy < cost) {
+        this.ui.toast(`${special.label} needs ${cost} Animal Energy.`, true);
+        this.ui.flashEnergy();
+        return;
+      }
+
+      const selected = payload.tileId != null ? this.tileMap.get(payload.tileId) : this.selectedTile();
+      if (!this.isValidSpecialTarget(selected, specialType)) {
+        this.pendingSpecialType = specialType;
+        this.pendingAbilityTarget = false;
+        this.pendingBuildType = null;
+        this.mode = "special";
+        this.preview = {
+          mode: specialType === "lilyBarrage" ? "attack" : "defend",
+          tileIds: this.specialTargetIds(specialType),
+          label: `${special.label} target`,
+        };
+        this.ui.toast(`${special.label}: tap a glowing ${special.target?.toLowerCase() || "target tile"}.`);
+        this.updateUi();
+        return;
+      }
+
+      this.pendingSpecialType = null;
+      this.preview = null;
+      this.mode = specialType === "lilyBarrage" ? "attack" : "defend";
+      await this.postAction({ type: "special", specialType, tileId: selected.id });
     }
 
     shouldWaitForBuildTarget(buildingType, tile, human) {
@@ -951,7 +1005,7 @@
         return;
       }
       if (tile.owner && tile.owner !== human.id && this.tileContext(tile).canAttack) {
-        await this.postAction({ type: "startContinuousAttack", tileId: tile.id, percent: this.ui.percent, sourceIds: this.validSourceTiles().map((source) => source.id) });
+        await this.postAction({ type: "attack", tileId: tile.id, percent: this.ui.percent, sourceIds: this.validSourceTiles().map((source) => source.id) });
         return;
       }
       if (tile.owner === human.id && this.isBorder(tile, human.id)) {
@@ -966,6 +1020,7 @@
       this.preview = null;
       this.pendingAbilityTarget = false;
       this.pendingBuildType = null;
+      this.pendingSpecialType = null;
       this.resetSelection();
       this.updateUi();
       this.ui.toast("Selection cleared.");
@@ -996,6 +1051,20 @@
         this.preview = null;
         this.mode = "build";
         await this.postAction({ type: "build", tileId: tile.id, buildingType });
+        return true;
+      }
+      if (this.pendingSpecialType) {
+        const specialType = this.pendingSpecialType;
+        const special = this.state.config.specials?.[specialType] || root.PondSpecials?.[specialType] || {};
+        if (!this.isValidSpecialTarget(tile, specialType)) {
+          this.ui.toast(`${special.label || "Special"} cannot target that tile.`, true);
+          this.renderer.vfx?.spawnBlockedEffect(tile.id, "Invalid");
+          return true;
+        }
+        this.pendingSpecialType = null;
+        this.preview = null;
+        this.mode = specialType === "lilyBarrage" ? "attack" : "defend";
+        await this.postAction({ type: "special", specialType, tileId: tile.id });
         return true;
       }
       return false;
@@ -1108,6 +1177,7 @@
           [0.25, 0.5, 1].forEach((percent) =>
             add(`Defend ${Math.round(percent * 100)}%`, { action: "defend", percent }, { icon: "D", hint: "Store energy in this border" }),
           );
+          add("Reed Shield", { action: "special", specialType: "reedShield" }, { icon: "R", disabled: !this.isValidSpecialTarget(tile, "reedShield"), hint: "Raise reeds to strengthen this border" });
         } else {
           add("Defend Border", { action: "defend", percent: 0.25 }, { icon: "D", disabled: true, hint: "Choose an outer border tile" });
         }
@@ -1119,6 +1189,7 @@
 
         sep();
         add("Set Rally Point", { action: "rally" }, { icon: "R", hint: "Mark this as your focus point" });
+        add("Dragonfly Guard", { action: "special", specialType: "dragonflyGuard" }, { icon: "G", disabled: !this.isValidSpecialTarget(tile, "dragonflyGuard"), hint: "Protect this area from pond specials" });
         add("Use Ability Here", { action: "ability" }, { icon: "A", hint: root.PondInfo?.abilityTip(human.animal) });
         add("View Tile Info", { action: "viewTile" }, { icon: "i", hint: "Show tile details in the panel" });
         this.teamCommandMenuItems(tile, ["help", "defend", "protect"]).forEach((item) => items.push(item));
@@ -1134,6 +1205,7 @@
           add(`Send Support ${Math.round(percent * 100)}%`, { action: "support", percent, targetId: tile.owner }, { icon: "S", hint: "Transfer Animal Energy with 75% efficiency" }),
         );
         add("Ping Defend Here", { action: "ping", pingType: "defend", targetId: tile.owner }, { icon: "D", hint: "Ask ally to defend here" });
+        add("Dragonfly Guard", { action: "special", specialType: "dragonflyGuard" }, { icon: "G", disabled: !this.isValidSpecialTarget(tile, "dragonflyGuard"), hint: "Protect allied territory from pond specials" });
         add("Ping Attack Here", { action: "ping", pingType: "attack", targetId: tile.owner }, { icon: "A", hint: "Coordinate an ally attack" });
         this.teamCommandMenuItems(tile, ["help", "defend", "objective"]).forEach((item) => items.push(item));
         add("Ping Danger", { action: "ping", pingType: "danger", targetId: tile.owner }, { icon: "!", hint: "Warn your ally" });
@@ -1144,8 +1216,9 @@
 
       const attackable = this.isAttackableBorder(tile);
       if (attackable) {
+        const styleLabels = { 0.1: "Probe", 0.25: "Quick Bite", 0.5: "Strong Push", 0.75: "Full Wave", 1: "Max Wave" };
         [0.1, 0.25, 0.5, 0.75, 1].forEach((percent) =>
-          add(`Start Attack ${Math.round(percent * 100)}%`, { action: "attack", percent, targetId: tile.owner }, { icon: "A", danger: percent >= 0.75, hint: "Start a continuous frontline attack" }),
+          add(`${styleLabels[percent] || "Attack"} ${Math.round(percent * 100)}%`, { action: "attack", percent, targetId: tile.owner }, { icon: "A", danger: percent >= 0.75, hint: "Start a continuous frontline attack" }),
         );
       } else {
         add(relation && !relation.canAttack ? relation.blockReason : "Too Far To Attack", { action: "viewPlayer", targetId: tile.owner }, { icon: "X", disabled: true, hint: relation?.blockReason || "Need a connected enemy border" });
@@ -1154,6 +1227,7 @@
       sep();
       if (relation?.canAttack) {
         add("Current Push 50%", { action: "waterRoute", percent: 0.5, targetId: tile.owner }, { icon: "~", hint: "Try a slower attack through open water routes" });
+        add("Lily Barrage", { action: "special", specialType: "lilyBarrage", targetId: tile.owner }, { icon: "L", disabled: !this.isValidSpecialTarget(tile, "lilyBarrage"), hint: "Long-range pond-energy strike with warning" });
       }
       this.teamCommandMenuItems(tile, ["attack", "push", "objective", "retreat"]).forEach((item) => items.push(item));
       if (items.length && !items[items.length - 1].separator) sep();
@@ -1254,6 +1328,10 @@
         await this.handleAbilityAction({ tileId: tile?.id });
         return;
       }
+      if (payload.action === "special") {
+        await this.handleSpecialAction({ tileId: tile?.id, specialType: payload.specialType });
+        return;
+      }
       if (payload.action === "upgradeBuilding" || payload.action === "removeBuilding") {
         await this.postAction({ type: payload.action, tileId: tile?.id });
         return;
@@ -1276,7 +1354,7 @@
         return;
       }
       if (["expand", "attack", "defend"].includes(payload.action)) {
-        const action = { type: payload.action === "attack" ? "startContinuousAttack" : payload.action, tileId: tile?.id, percent: this.ui.percent };
+        const action = { type: payload.action, tileId: tile?.id, percent: this.ui.percent };
         if (payload.action === "expand") action.sourceIds = this.validSourceTiles().map((source) => source.id);
         if (payload.action === "attack") action.sourceIds = this.validSourceTiles().map((source) => source.id);
         await this.postAction(action);
@@ -1363,6 +1441,17 @@
         return;
       }
 
+      if (payload.action === "special") {
+        const special = this.state.config.specials?.[payload.specialType] || root.PondSpecials?.[payload.specialType] || {};
+        this.preview = {
+          mode: payload.specialType === "lilyBarrage" ? "attack" : "defend",
+          tileIds: this.isValidSpecialTarget(tile, payload.specialType) ? [tile.id] : this.specialTargetIds(payload.specialType),
+          toId: tile.id,
+          label: special.label || "Special",
+        };
+        return;
+      }
+
       if (payload.action === "build") {
         const valid = this.canBuildHere(human, tile, payload.buildingType);
         this.preview = {
@@ -1420,6 +1509,7 @@
         this.mode = "build";
         this.ui.nodes.buildSelect.value = this.pendingBuildType;
       }
+      if (this.pendingSpecialType) this.mode = "special";
       this.updateUi();
     }
 
@@ -1456,6 +1546,10 @@
 
       if (this.mode === "ability" && human.animal === "frog") {
         return this.leapTargetIds();
+      }
+
+      if (this.mode === "special") {
+        return this.specialTargetIds(this.pendingSpecialType || "lilyBarrage");
       }
 
       if (this.mode === "build") {
@@ -1507,6 +1601,37 @@
       return true;
     }
 
+    specialTargetIds(specialType) {
+      if (!this.state) return [];
+      return this.state.tiles.filter((tile) => this.isValidSpecialTarget(tile, specialType)).map((tile) => tile.id);
+    }
+
+    isValidSpecialTarget(tile, specialType) {
+      const human = this.human();
+      const special = this.state?.config?.specials?.[specialType] || root.PondSpecials?.[specialType];
+      if (!human || !tile || !special || this.isBlocked(tile)) return false;
+      const inRange = this.state.tiles
+        .filter((owned) => owned.owner === human.id)
+        .some((owned) => this.distance(owned, tile) <= (special.range || 18));
+      if (!inRange) return false;
+      if (specialType === "lilyBarrage") {
+        if (!tile.owner || tile.owner === human.id) return false;
+        const relation = this.relationship(tile.owner);
+        if (relation && !relation.canAttack) return false;
+        if (tile.isCore && !this.neighbors(tile).some((neighbor) => neighbor.owner && neighbor.owner !== tile.owner)) return false;
+        return true;
+      }
+      if (specialType === "dragonflyGuard") {
+        if (!tile.owner) return false;
+        const owner = this.player(tile.owner);
+        return tile.owner === human.id || this.isAllied(tile.owner) || (human.teamId && owner?.teamId === human.teamId);
+      }
+      if (specialType === "reedShield") {
+        return tile.owner === human.id && this.isBorder(tile, human.id);
+      }
+      return false;
+    }
+
     leapTargetIds() {
       if (!this.state) return [];
       return this.state.tiles.filter((tile) => this.isLeapTarget(tile)).map((tile) => tile.id);
@@ -1543,6 +1668,7 @@
       this.preview = null;
       this.pendingAbilityTarget = false;
       this.pendingBuildType = null;
+      this.pendingSpecialType = null;
       this.mode = "expand";
     }
 
@@ -1578,11 +1704,6 @@
 
     player(id) {
       return this.state?.players.find((candidate) => candidate.id === id) || null;
-    }
-
-    activeContinuousAttack() {
-      const humanId = this.state?.humanId;
-      return (this.state?.activeAttacks || []).find((wave) => wave.continuous && wave.attackerId === humanId) || null;
     }
 
     isAllied(playerId) {
@@ -1716,8 +1837,10 @@
         underAttack,
         pendingAbility: this.pendingAbilityTarget,
         pendingBuildType: this.pendingBuildType,
+        pendingSpecialType: this.pendingSpecialType,
         validAbilityTarget: this.isLeapTarget(tile),
         validBuildTarget: this.pendingBuildType ? this.canBuildHere(human, tile, this.pendingBuildType) : false,
+        validSpecialTarget: this.pendingSpecialType ? this.isValidSpecialTarget(tile, this.pendingSpecialType) : false,
       };
       if (!tile.owner && !this.isBlocked(tile)) {
         const source = this.closestSource(tile);
@@ -1785,31 +1908,59 @@
       const estimate = this.estimateWave(tile, energy);
       const fogged = this.state.lakeEvent?.active?.type === "foggyMarsh";
       const estimatedCost = Number(estimate.nextCost) || 0;
+      const attackProgress = Number(tile.captureProgress?.[human.id] || 0);
+      const adjustedCost = Math.max(0, estimatedCost - attackProgress);
+      const pressureConfig = this.attackPressureConfig();
+      const threshold = Number(pressureConfig.captureThreshold || 0.82);
       const terrainDefense = Math.round(tileType?.defenseBonus || 0);
-      const reinforcedBonus = Math.round((tile.defenseEnergy || 0) * 0.82 + terrainDefense * 1.25 + this.specialCostBonus(tile));
+      const formula = this.combatFormula();
+      const reinforcedBonus = Math.round(
+        this.effectiveDefenseEnergy(this.player(tile.owner), tile) * (formula.defenseEnergyMultiplier || 0.58) +
+          Math.min(5, terrainDefense) * (formula.terrainDefenseMultiplier || 1.05) +
+          this.specialCostBonus(tile),
+      );
       const status = borderTools?.statusFor?.({
         tile,
         tileType,
         relation,
         canAttack: true,
         underAttack,
-        estimatedCost,
+        estimatedCost: adjustedCost || estimatedCost,
       }) || null;
-      const risk = borderTools?.riskLevel?.(energy, estimatedCost, estimate.tiles) || "Unknown";
+      const risk = borderTools?.riskLevel?.(energy, adjustedCost || estimatedCost, estimate.tiles) || "Unknown";
       const warning =
-        estimatedCost && energy < estimatedCost
-          ? `Too weak: first tile costs about ${estimatedCost} energy.`
+        adjustedCost && energy < adjustedCost * threshold
+          ? `Quick Bite will weaken this border. Send about ${Math.ceil(adjustedCost - energy)} more energy to break it now.`
           : status?.id === "reinforced" || status?.id === "strong"
-            ? "Strong border: send 50-100% or pick a weaker edge."
+            ? "Strong border: Push 50% or Wave 75% after a Bite weakens it."
             : risk === "Bad Attack" || risk === "Very Risky"
-              ? "Risky attack. Defend or save energy before pushing."
+              ? "Risky attack. Bite first, or save energy for a stronger wave."
               : "";
       const currentPushPreview = this.estimateCurrentPush(tile, human);
-      const recommendedAction = currentPushPreview.valid && estimate.tiles <= 1 && energy > 18 ? "Current Push" : "Border Attack";
+      const styleLabel = this.ui.attackStyleLabel?.(this.ui.percent) || "Border Attack";
+      const recommendedAction =
+        attackProgress > 0 && adjustedCost <= energy * 1.15
+          ? "Strong Push"
+          : estimate.tiles >= 4 || this.ui.percent >= 0.75
+            ? "Full Wave"
+            : adjustedCost && energy < adjustedCost
+              ? "Quick Bite"
+              : "Strong Push";
       const recommendedReason =
-        recommendedAction === "Current Push"
-          ? "Border is reachable by water and normal attack looks weak."
-          : "Enemy border is connected to your front line.";
+        recommendedAction === "Quick Bite"
+          ? "Small attacks now weaken the front for your next push."
+          : recommendedAction === "Full Wave"
+            ? "A larger send can roll through several connected tiles."
+            : attackProgress > 0
+              ? "This border already has pressure on it and is close to breaking."
+              : "Enemy border is connected to your front line.";
+      const estimateText = fogged
+        ? "Hidden by Foggy Marsh"
+        : attackProgress > 0
+          ? `Weakened ${Math.round(attackProgress)}/${estimatedCost}; ${Math.ceil(adjustedCost)} left`
+          : estimate.tiles > 0
+            ? `${styleLabel}: ${estimate.tiles} tile${estimate.tiles === 1 ? "" : "s"}, first cost ~${estimatedCost}`
+            : `${styleLabel}: weakens border (${Math.min(energy, estimatedCost)}/${estimatedCost})`;
       return {
         ...context,
         kind: "attackBorder",
@@ -1821,8 +1972,12 @@
         strength: energy,
         sendEnergy: energy,
         tiles: fogged ? "?" : estimate.tiles,
-        nextCost: fogged ? "?" : estimate.nextCost,
+        nextCost: fogged ? "?" : Math.ceil(adjustedCost || estimate.nextCost),
         rawNextCost: estimate.nextCost,
+        attackProgress,
+        attackRemaining: Math.ceil(adjustedCost),
+        pressureThreshold: Math.ceil(estimatedCost * threshold),
+        defenseReasons: this.attackDefenseReasons(tile, this.player(tile.owner), estimatedCost, adjustedCost),
         terrainDefense,
         reinforcedBonus,
         defenseLevel: borderTools?.defenseLevel?.((tile.defenseEnergy || 0) + terrainDefense) || "Low",
@@ -1830,7 +1985,7 @@
         currentPushPreview,
         recommendedAction,
         recommendedReason,
-        estimateText: fogged ? "Hidden by Foggy Marsh" : `${estimate.tiles} tiles with ${Math.round(this.ui.percent * 100)}%`,
+        estimateText,
       };
     }
 
@@ -1891,12 +2046,18 @@
       const queue = [{ tile: startTile, distance: 0 }];
 
       while (queue.length && captured < 38) {
-        queue.sort((a, b) => a.distance - b.distance || this.estimateTileCost(a.tile, a.distance, defender) - this.estimateTileCost(b.tile, b.distance, defender));
+        queue.sort(
+          (a, b) =>
+            a.distance - b.distance ||
+            this.estimateAdjustedTileCost(a.tile, a.distance, defender, human.id).adjustedCost -
+              this.estimateAdjustedTileCost(b.tile, b.distance, defender, human.id).adjustedCost,
+        );
         const current = queue.shift();
-        const cost = this.estimateTileCost(current.tile, current.distance, defender);
-        if (!nextCost) nextCost = Math.round(cost);
-        if (cost > remaining) break;
-        remaining -= cost;
+        const { rawCost, adjustedCost } = this.estimateAdjustedTileCost(current.tile, current.distance, defender, human.id);
+        if (!nextCost) nextCost = Math.round(rawCost);
+        const closeEnough = rawCost > 0 && remaining / rawCost >= (this.attackPressureConfig().captureThreshold || 0.82);
+        if (adjustedCost > remaining && !closeEnough) break;
+        remaining -= Math.min(adjustedCost, remaining);
         captured += 1;
         this.neighbors(current.tile).forEach((neighbor) => {
           if (seen.has(neighbor.id) || neighbor.owner !== defender.id || this.isBlocked(neighbor)) return;
@@ -1920,12 +2081,18 @@
       const queue = [{ tile: startTile, distance: 0 }];
 
       while (queue.length && ids.length < 38) {
-        queue.sort((a, b) => a.distance - b.distance || this.estimateTileCost(a.tile, a.distance, defender) - this.estimateTileCost(b.tile, b.distance, defender));
+        queue.sort(
+          (a, b) =>
+            a.distance - b.distance ||
+            this.estimateAdjustedTileCost(a.tile, a.distance, defender, human.id).adjustedCost -
+              this.estimateAdjustedTileCost(b.tile, b.distance, defender, human.id).adjustedCost,
+        );
         const current = queue.shift();
-        const cost = this.estimateTileCost(current.tile, current.distance, defender);
-        if (!nextCost) nextCost = Math.round(cost);
-        if (cost > remaining) break;
-        remaining -= cost;
+        const { rawCost, adjustedCost } = this.estimateAdjustedTileCost(current.tile, current.distance, defender, human.id);
+        if (!nextCost) nextCost = Math.round(rawCost);
+        const closeEnough = rawCost > 0 && remaining / rawCost >= (this.attackPressureConfig().captureThreshold || 0.82);
+        if (adjustedCost > remaining && !closeEnough) break;
+        remaining -= Math.min(adjustedCost, remaining);
         ids.push(current.tile.id);
         this.neighbors(current.tile).forEach((neighbor) => {
           if (seen.has(neighbor.id) || neighbor.owner !== defender.id || this.isBlocked(neighbor)) return;
@@ -1937,21 +2104,78 @@
       return { ids, nextCost };
     }
 
+    combatFormula() {
+      return this.state?.config?.combat?.formula || root.PondCombat?.formula || {};
+    }
+
+    attackPressureConfig() {
+      return this.state?.config?.combat?.pressure || root.PondCombat?.pressure || {};
+    }
+
+    attackPressure(tile, attackerId = this.state?.humanId) {
+      if (!tile?.owner || !attackerId || tile.owner === attackerId) return 0;
+      return Math.max(0, Number(tile.captureProgress?.[attackerId] || 0));
+    }
+
+    effectiveDefenseEnergy(defender, tile) {
+      const balance = this.state?.config?.balance || root.PondBalance || {};
+      const cap = defender?.animal === "turtle" ? balance.turtleDefendMaxEnergy || 72 : balance.defendMaxEnergy || 56;
+      return Math.max(0, Math.min(cap, Number(tile?.defenseEnergy || 0)));
+    }
+
+    estimateAdjustedTileCost(tile, distance, defender, attackerId = this.state?.humanId) {
+      const rawCost = this.estimateTileCost(tile, distance, defender);
+      const pressure = this.attackPressure(tile, attackerId);
+      return {
+        rawCost,
+        adjustedCost: Math.max(0, rawCost - pressure),
+        pressure,
+      };
+    }
+
+    attackDefenseReasons(tile, defender, rawCost, adjustedCost) {
+      const reasons = [];
+      const type = this.state.config.tileTypes[tile.type];
+      if ((tile.defenseEnergy || 0) >= 18) reasons.push("reinforced border");
+      if ((type?.defenseBonus || 0) >= 2 || tile.type === "reeds" || tile.type === "mud") reasons.push("strong terrain");
+      if (tile.building) reasons.push("building defense");
+      if (defender?.animal === "turtle") reasons.push("turtle border bonus");
+      if (defender?.energy > defender?.maxEnergy * 0.7) reasons.push("stored enemy energy");
+      if (adjustedCost < rawCost) reasons.unshift("existing attack pressure");
+      return reasons.slice(0, 3);
+    }
+
     estimateTileCost(tile, distance, defender) {
       const type = this.state.config.tileTypes[tile.type];
-      const formula = this.state.config.combat?.formula || root.PondCombat?.formula || {};
+      const formula = this.combatFormula();
       const baseByTile = formula.baseCostByTile || {};
       const base = tile.building ? formula.buildingBaseCost || 18 : baseByTile[tile.type] || (tile.type === "water" ? 6 : tile.type === "lily" ? 8 : tile.type === "reeds" ? 12 : tile.type === "mud" ? 14 : 16);
+      const balance = this.state.config.balance || root.PondBalance || {};
+      const attacker = this.human();
       const energyRatio = defender.energy / Math.max(1, defender.maxEnergy);
       let cost =
         base * (this.state.config.balance.attackCostMultiplier || 1) +
-        type.defenseBonus * (formula.terrainDefenseMultiplier || 1.25) +
-        tile.defenseEnergy * (formula.defenseEnergyMultiplier || 0.82) +
+        Math.min(5, type.defenseBonus || 0) * (formula.terrainDefenseMultiplier || 1.05) +
+        this.effectiveDefenseEnergy(defender, tile) * (formula.defenseEnergyMultiplier || 0.58) +
         distance * (formula.distanceCost || 1.1) +
-        Math.min(formula.defenderEnergyFlatCap || 18, defender.energy * (formula.defenderEnergyFlatMultiplier || 0.035));
+        Math.min(formula.defenderEnergyFlatCap || 12, defender.energy * (formula.defenderEnergyFlatMultiplier || 0.024));
+      if (defender.animal === "snake" && (tile.type === "reeds" || tile.type === "mud")) cost *= 1.2;
+      if (tile.type === "water" && defender.animal === "frog") cost *= 0.95;
+      if (defender.animal === "turtle") cost *= balance.turtleBorderDefenseMultiplier || 1.14;
+      if (defender.animal === "turtle" && this.state.serverTime < (defender.abilityActiveUntil || 0)) {
+        cost *= balance.shellGuardCaptureCostMultiplier || 1.22;
+        if ((tile.defenseEnergy || 0) > 4) cost *= balance.shellGuardDefendedExtraMultiplier || 1.08;
+      }
+      if (defender.animal === "carp") cost *= balance.carpDefenseMultiplier || 0.92;
+      if (attacker?.animal === "duck" && tile.type === "water") cost *= 0.86;
+      if (attacker?.animal === "duck" && tile.type === "water" && this.state.serverTime < (attacker.abilityActiveUntil || 0)) cost *= balance.flockRushOpenWaterCostMultiplier || 0.65;
+      if (attacker?.animal === "snake" && (tile.type === "reeds" || tile.type === "mud")) cost *= 0.86;
+      if (attacker?.animal === "frog" && tile.type === "lily") cost *= 0.92;
+      if (attacker?.animal === "carp" && this.state.serverTime < (attacker.abilityActiveUntil || 0) && tile.type === "water") cost *= balance.goldenCurrentWaterCostMultiplier || 0.8;
+      if (attacker?.animal === "carp" && this.state.serverTime < (attacker.abilityActiveUntil || 0) && tile.type === "lily") cost *= balance.goldenCurrentLilyCostMultiplier || 0.7;
       if (this.state.lakeEvent?.active?.type === "mudslide" && tile.type === "mud") cost *= this.state.config.balance.mudslideDefenseMultiplier || 1.22;
       cost += this.specialCostBonus(tile);
-      return Math.max(4, cost * ((formula.defenderEnergyRatioBase || 0.86) + energyRatio * (formula.defenderEnergyRatioMultiplier || 0.45)));
+      return Math.max(4, cost * ((formula.defenderEnergyRatioBase || 0.82) + energyRatio * (formula.defenderEnergyRatioMultiplier || 0.32)));
     }
 
     distance(a, b) {

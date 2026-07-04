@@ -31,6 +31,7 @@ class CoreManager {
       player.flags = player.flags || {};
       delete player.flags.coreLostAt;
       delete player.flags.coreLost;
+      delete player.flags.coreLostNotified;
     });
   }
 
@@ -52,10 +53,16 @@ class CoreManager {
         player.flags = player.flags || {};
         player.flags.coreLostAt = player.flags.coreLostAt || now;
         player.flags.coreLost = true;
-        const lastStandSeconds = balance.coreLastStandSeconds || 28;
-        if (now - player.flags.coreLostAt > lastStandSeconds) {
-          const attacker = player.flags.lastAttackerId ? game.getPlayer(player.flags.lastAttackerId) : null;
-          game.surrenderPlayer(player, attacker?.id || null, "core nest lost");
+        if (!player.flags.coreLostNotified) {
+          player.flags.coreLostNotified = true;
+          this.pushEvent({
+            kind: "coreLost",
+            playerId: player.id,
+            targetOwner: player.id,
+            to: core.id,
+            at: now,
+            message: `${player.name}'s Core Nest is gone, but they stay alive while they hold territory.`,
+          });
         }
       }
       if (now > (player.flags?.coreUnderAttackUntil || 0) && player.flags) player.flags.coreUnderAttack = false;
@@ -132,18 +139,6 @@ class CoreManager {
       at: now,
       message: `${attacker.name} captured ${defender.name}'s Core Nest.`,
     });
-    const territoryPct = game.territoryPercent(defender);
-    if (!game.teamManager?.active() && territoryPct < 0.08 && !defender.defeated) {
-      defender.defeated = true;
-      attacker.stats.playersDefeated = (attacker.stats.playersDefeated || 0) + 1;
-      this.pushEvent({
-        kind: "surrender",
-        playerId: defender.id,
-        targetId: attacker.id,
-        at: now,
-        message: `${defender.name} was eliminated after losing their Core Nest.`,
-      });
-    }
   }
 }
 

@@ -4,17 +4,21 @@
       "Animal Energy is used to expand, attack, defend, build, and use abilities. Bigger territory gives more max energy and income.",
     territory: "Your controlled lake area. More territory increases income and max Animal Energy.",
     income: "How much Animal Energy you gain per second.",
-    attack: "Border Attack is best for normal fighting. It attacks from your connected border and pushes into enemy land.",
-    currentPush: "Current Push is a long-range water route attack. It travels over time, warns the defender, and can be reinforced against.",
+    attack:
+      "Border Attack has no cooldown. It spends Animal Energy immediately, then the wave pushes until the sent energy is spent.",
+    currentPush: "Current Push is a special long-range water route attack with cooldown. It travels over time, warns the defender, and can be reinforced against.",
     expand: "Capture neutral pond tiles from your connected border. Ducks are especially efficient on open water.",
     defend: "Reinforces your border and makes enemy attacks cost more energy.",
-    build: "Build compact economy or defense upgrades on your territory. Building starts a short cooldown and repeated building types cost more.",
+    build: "Build compact economy or defense upgrades on your territory. Construction takes time on the tile, and repeated building types cost more.",
     ability: "Use your animal ability when it is ready. Each animal has a different timing window and role.",
+    special:
+      "Open pond specials. Lily Barrage weakens enemy clusters after a warning, Dragonfly Guard protects an area, and Reed Shield strengthens your border.",
     diplomacy: "Alliances prevent friendly attacks. Truces block combat temporarily, and breaking alliances creates betrayal cooldown.",
-    wave: "Attacks move as a wave from connected borders. Defense, terrain, and enemy energy can stop the wave.",
+    wave:
+      "Attacks are committed waves from connected borders. They capture connected tiles over time, weaken what they cannot capture, then stop automatically when spent.",
     alliances: "Allied players cannot attack each other and can share useful map signals.",
     bots: "Bot animals expand, build, ally, and attack based on their difficulty and nearby threats.",
-    win: "The match ends by elimination. Keep your Core Nest and territory alive until only one animal or team remains.",
+    win: "The timer shows elapsed time. Normal matches end by elimination: keep your Core Nest and territory alive until only one animal or team remains.",
     water: "Open Water is normal terrain. Ducks expand through it faster.",
     lily: "Lily Pad gives bonus income, especially useful for Frogs.",
     reeds: "Reeds are defensive terrain. Snakes get stronger here.",
@@ -27,9 +31,9 @@
     mudTunnel: "Mud Tunnel is Snake-only and improves reed/mud mobility.",
     jumpPad: "Jump Pad is Frog-only and improves jump expansion range.",
     duckAbility: "Flock Rush: For 10s, open-water expansion costs 35% less.",
-    snakeAbility: "Ambush: Your next attack from reeds or mud has +40% attack power and cuts enemy border cost by 20%.",
+    snakeAbility: "Ambush: Your next attack from reeds or mud hits much harder and cuts enemy border cost, great against reinforced fronts.",
     frogAbility: "Big Leap: Capture up to 5 nearby neutral tiles by jumping over small obstacles.",
-    turtleAbility: "Shell Guard: Turtle borders become much harder for enemy waves to capture for 12s.",
+    turtleAbility: "Shell Guard: Turtle borders become harder for enemy waves to capture for 12s, but repeated attacks still build pressure.",
     carpAbility: "Golden Current: Carp gains bonus income and cheaper water/lily expansion for 10s.",
     turtleAnimal:
       "Turtle is a defensive animal. It expands slower, but its borders are harder to capture. Shell Guard temporarily makes enemy attacks much weaker.",
@@ -145,6 +149,9 @@
       if (context.recommendedReason) facts.push({ label: "Reason", value: context.recommendedReason });
       facts.push({ label: "Send", value: String(context.sendEnergy || context.strength || 0) });
       facts.push({ label: "First Cost", value: context.nextCost == null ? "?" : `~${context.nextCost}` });
+      if (context.attackProgress > 0) facts.push({ label: "Pressure", value: `${Math.round(context.attackProgress)}/${context.rawNextCost || context.nextCost}` });
+      if (context.attackRemaining != null) facts.push({ label: "Left", value: String(context.attackRemaining) });
+      if (context.defenseReasons?.length) facts.push({ label: "Why Hard", value: context.defenseReasons.join(", ") });
       facts.push({ label: "Risk", value: context.risk || "Unknown" });
       facts.push({ label: "Reinforced", value: `+${context.reinforcedBonus || 0}` });
       if (context.currentPushPreview?.valid) {
@@ -165,7 +172,7 @@
       } else {
         detail =
           status?.detail ||
-          `${context.recommendedAction || "Border Attack"}: send ${context.percent}% energy. Estimated capture: ${context.tiles} tiles. First border costs about ${context.nextCost}.`;
+          `${context.recommendedAction || "Border Attack"}: commit ${context.percent}% energy. Estimated capture: ${context.tiles} tiles over time. First border costs about ${context.nextCost}. Failed hits weaken the border for your next wave.`;
       }
     } else if (context.kind === "blockedAttack") {
       title = owner ? "Enemy Territory" : type.label;

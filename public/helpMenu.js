@@ -63,10 +63,10 @@
     content(tab) {
       if (tab === "animals") {
         return cards([
-          ["Duck", "Fast open-water expansion, slightly higher max energy, and Flock Rush for quick growth."],
-          ["Snake", "Strong around reeds and mud. Ambush makes a prepared reed or mud attack hit harder."],
+          ["Duck", "Fast open-water expansion, slightly higher max energy, and efficient open-water bite attacks."],
+          ["Snake", "Strong around reeds and mud. Ambush makes prepared attacks crack fortified borders harder."],
           ["Frog", "Gains extra lily income and can jump short gaps. Big Leap captures nearby neutral clusters."],
-          ["Turtle", "Defensive tank. Slower expansion, stronger borders, better Reed Guards, and Shell Guard under pressure."],
+          ["Turtle", "Defensive tank. Slower expansion, stronger borders, better Reed Guards, and Shell Guard that slows attacks without making borders untouchable."],
           ["Carp", "Economy scaler. Better water and lily income, cheaper Lily Farms, and Golden Current for growth pushes."],
         ]);
       }
@@ -91,18 +91,22 @@
       if (tab === "combat") {
         return list([
           "You can only attack connected enemy borders.",
-          "Sending more Animal Energy makes the attack wave stronger.",
-          "Enemy defense, terrain, and stored energy can block attacks.",
+          "Attacks commit Animal Energy once, then the wave pushes automatically until spent.",
+          "Sending more Animal Energy makes the committed wave stronger but leaves you more vulnerable.",
+          "Enemy defense, terrain, and stored energy can slow attacks, but blocked hits now leave pressure for your next push.",
+          "Use Bite 25% to weaken, Push 50% to break normal fronts, and Wave 75%+ to roll through a soft border.",
+          "Specials are expensive pond tactics: Lily Barrage weakens a small enemy area, Dragonfly Guard reduces Lily Barrage and Current Push, and Reed Shield slows normal attack waves.",
+          "Every special has counterplay. Reinforce, spread out, shield the border, or attack somewhere else while the defender spends energy.",
           "Defended borders cost more to capture.",
-          "Right-click an enemy border for quick 10%, 25%, 50%, 75%, and 100% attacks.",
+          "Right-click or tap an enemy border for Bite, Push, Wave, and Max attacks.",
         ]);
       }
       if (tab === "abilities") {
         return cards([
-          ["Duck Flock Rush", "One tap. Open-water expansion gets cheaper for a short burst, so use it before claiming big neutral fronts."],
-          ["Snake Ambush", "One tap prepares the next reed or mud attack. Strike from the right border to spend the bonus."],
+          ["Duck Flock Rush", "One tap. Open-water expansion gets cheaper for a short burst, and water attacks stay efficient for opening fights."],
+          ["Snake Ambush", "One tap prepares the next reed or mud attack. Use it to break reinforced enemy fronts with a Push or Wave."],
           ["Frog Big Leap", "Tap Ability, then tap a glowing neutral leap target. Big Leap never captures enemy tiles."],
-          ["Turtle Shell Guard", "One tap. Turtle borders become much harder to capture for a short defensive window."],
+          ["Turtle Shell Guard", "One tap. Turtle borders become harder to capture for a short defensive window, but repeated attacks still build pressure."],
           ["Carp Golden Current", "One tap. Income rises and water or lily expansion becomes cheaper for a short economy surge."],
         ]);
       }
@@ -134,8 +138,9 @@
       }
       if (tab === "winning") {
         return list([
-          "Control 70% of the playable lake to win instantly.",
-          "If the timer ends first, the player with the highest territory wins.",
+          "Normal matches use elimination: win when only one animal or team remains.",
+          "The timer shows elapsed time and does not force a timeout ending.",
+          "Territory control is an optional server mode, not the default win condition.",
           "A bigger lake empire gives more income and max energy, but also creates longer borders to defend.",
         ]);
       }
@@ -144,7 +149,7 @@
         "Territory gives income and max Animal Energy.",
         "Use Animal Energy to attack, build, defend, and activate abilities.",
         "Right-click tiles for the fastest actions and clear info.",
-        "Control 70% of the lake to win.",
+        "Eliminate rivals until one animal or team remains.",
       ]);
     }
   }

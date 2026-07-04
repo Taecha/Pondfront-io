@@ -71,6 +71,7 @@
             "attackWave",
             "waveCapture",
             "waveResist",
+            "waveContested",
             "expand",
             "expandProgress",
             "defend",
@@ -86,6 +87,9 @@
             "buildComplete",
             "buildUpgrade",
             "buildRemove",
+            "specialLaunch",
+            "specialDefense",
+            "specialImpact",
           ].includes(event.kind)
         ) {
           this.eventAnims.push({ ...event, atMs: now });
@@ -191,7 +195,12 @@
 
     draw(options) {
       const drawOptions = this.effectiveOptions(options);
-      this.vfx?.configure(drawOptions.effects || {});
+      this.vfx?.configure({
+        ...(drawOptions.effects || {}),
+        visualQuality: drawOptions.visualQuality,
+        mapDecorations: drawOptions.mapDecorations,
+        isMobile: Boolean(drawOptions.isMobile),
+      });
       const rect = this.canvas.getBoundingClientRect();
       const ctx = this.ctx;
       ctx.clearRect(0, 0, rect.width, rect.height);
@@ -213,18 +222,28 @@
       const mobile = Boolean(options.isMobile);
       const autoStrategic = Boolean(options.autoStrategicView) && this.camera.zoom < (mobile ? 0.78 : 0.48);
       const lowPower = Boolean(effects.autoLowPerformance) && (mobile || this.camera.zoom < 0.5);
+      let visualQuality = options.visualQuality || "high";
       const next = {
         ...options,
         strategicView: Boolean(options.strategicView || autoStrategic),
         showIcons: autoStrategic ? false : options.showIcons,
+        visualQuality,
+        mapDecorations: options.mapDecorations !== false,
         effects,
       };
       if (lowPower) {
-        if (effects.level === "high") effects.level = mobile || this.camera.zoom < 0.5 ? "low" : "medium";
+        if (effects.level === "ultra") effects.level = mobile || this.camera.zoom < 0.5 ? "medium" : "high";
+        else if (effects.level === "high") effects.level = mobile || this.camera.zoom < 0.5 ? "low" : "medium";
+        if (effects.particles === "ultra") effects.particles = mobile || this.camera.zoom < 0.5 ? "medium" : "high";
+        else if (effects.particles === "high") effects.particles = mobile || this.camera.zoom < 0.5 ? "low" : "medium";
         if (mobile && this.camera.zoom < 0.72) effects.floatingText = false;
+        if (visualQuality === "ultra") visualQuality = mobile || this.camera.zoom < 0.5 ? "medium" : "high";
+        else if (visualQuality === "high") visualQuality = mobile || this.camera.zoom < 0.5 ? "low" : "medium";
+        next.visualQuality = visualQuality;
       }
       if (effects.reducedMotion) {
         effects.floatingText = false;
+        next.mapDecorations = false;
       }
       return next;
     }
@@ -310,9 +329,11 @@
       ctx.save();
       this.roundRect(ctx, topLeft.x, topLeft.y, mapW, mapH, radius);
       ctx.clip();
+      this.drawMapWaterTexture(ctx, topLeft, mapW, mapH, options);
       this.drawRegionUnderlays(ctx);
       const visibleTiles = this.visibleTiles(1);
       visibleTiles.forEach((tile) => this.drawTile(ctx, tile, options));
+      this.drawMapDecorations(ctx, visibleTiles, options);
       visibleTiles.forEach((tile) => this.drawBorders(ctx, tile));
       this.drawLocalGlow(ctx);
       this.drawRegionNames(ctx);
@@ -323,6 +344,7 @@
       this.drawPreview(ctx, options);
       this.drawSelection(ctx, options);
       this.drawActiveAttacks(ctx);
+      this.drawSpecialOverlays(ctx);
       this.vfx?.draw(ctx);
       this.drawNames(ctx);
       ctx.restore();
@@ -368,6 +390,154 @@
         ctx.ellipse(center.x, center.y, radius * 1.35, radius * 0.92, 0.08, 0, Math.PI * 2);
         ctx.fill();
       });
+      ctx.restore();
+    }
+
+    drawMapWaterTexture(ctx, topLeft, mapW, mapH, options) {
+      if (!options.mapDecorations || options.visualQuality === "low") return;
+      const now = performance.now();
+      const ultra = options.visualQuality === "ultra";
+      const quality = ultra ? 1.25 : options.visualQuality === "high" ? 1 : 0.62;
+      ctx.save();
+      ctx.globalAlpha = 0.13 * quality;
+      ctx.strokeStyle = "rgba(199, 241, 247, 0.58)";
+      ctx.lineWidth = Math.max(0.7, this.camera.zoom * 0.8);
+      const spacing = Math.max(48, this.baseTile * this.camera.zoom * 5.2);
+      for (let y = topLeft.y + 18; y < topLeft.y + mapH; y += spacing) {
+        ctx.beginPath();
+        for (let x = topLeft.x - 20; x <= topLeft.x + mapW + 20; x += 22) {
+          const wave = Math.sin((x + now * 0.015 + y * 0.7) * 0.024) * 2.5 * quality;
+          ctx.lineTo(x, y + wave);
+        }
+        ctx.stroke();
+      }
+      if (this.state.regions?.length) {
+        this.state.regions.slice(0, ultra ? 12 : options.visualQuality === "high" ? 8 : 5).forEach((region, index) => {
+          const p = this.worldToScreen((region.x + 0.5) * this.baseTile, (region.y + 0.5) * this.baseTile);
+          const r = Math.max(18, region.radius * this.baseTile * this.camera.zoom * (0.42 + index * 0.012));
+          ctx.globalAlpha = 0.06 * quality;
+          ctx.fillStyle = region.tone || "#9ee7f4";
+          ctx.beginPath();
+          ctx.ellipse(p.x, p.y, r * 1.8, r * 0.78, index * 0.18, 0, Math.PI * 2);
+          ctx.fill();
+        });
+      }
+      ctx.restore();
+    }
+
+    drawMapDecorations(ctx, visibleTiles, options) {
+      if (!options.mapDecorations || options.visualQuality === "low" || this.camera.zoom < 0.42) return;
+      const ultra = options.visualQuality === "ultra";
+      const high = options.visualQuality === "high" || ultra;
+      const limit = ultra ? 260 : high ? 180 : 90;
+      const size = this.baseTile * this.camera.zoom;
+      let drawn = 0;
+      ctx.save();
+      for (const tile of visibleTiles) {
+        if (drawn >= limit) break;
+        const seed = this.tileNoise(tile.id + 17, 0, 1);
+        if (tile.owner && seed < 0.965) continue;
+        if (!tile.owner && tile.type === "water" && seed < (ultra ? 0.88 : high ? 0.925 : 0.965)) continue;
+        if (tile.type !== "water" && !this.state.config.tileTypes[tile.type]?.strategic && seed < 0.9) continue;
+        const p = this.worldToScreen(tile.x * this.baseTile, tile.y * this.baseTile);
+        const x = p.x + size * this.tileNoise(tile.id + 3, 0.25, 0.78);
+        const y = p.y + size * this.tileNoise(tile.id + 9, 0.25, 0.78);
+        if (tile.type === "water") {
+          this.drawTinyRipple(ctx, x, y, size, tile.id, tile.owner ? 0.18 : 0.34);
+          drawn += 1;
+        } else if (tile.type === "lily" || tile.type === "reeds" || tile.type === "mud" || tile.type === "nest" || tile.type === "rock") {
+          this.drawTerrainAccent(ctx, tile, p.x, p.y, size);
+          drawn += 1;
+        } else if (tile.owner && this.camera.zoom > 0.9) {
+          const player = this.playerMap.get(tile.owner);
+          this.drawAnimalTrace(ctx, x, y, size, player?.animal, player?.color);
+          drawn += 1;
+        }
+      }
+      ctx.restore();
+    }
+
+    drawTinyRipple(ctx, x, y, size, seed, alpha) {
+      const now = performance.now();
+      const wobble = Math.sin(now * 0.003 + seed) * size * 0.025;
+      ctx.save();
+      ctx.globalAlpha = alpha;
+      ctx.strokeStyle = "rgba(217, 247, 250, 0.72)";
+      ctx.lineWidth = Math.max(0.7, size * 0.026);
+      ctx.beginPath();
+      ctx.ellipse(x, y + wobble, size * 0.18, size * 0.055, -0.12, 0, Math.PI * 2);
+      ctx.stroke();
+      if (size > 18) {
+        ctx.globalAlpha = alpha * 0.55;
+        ctx.beginPath();
+        ctx.ellipse(x + size * 0.12, y - size * 0.08, size * 0.1, size * 0.032, 0.08, 0, Math.PI * 2);
+        ctx.stroke();
+      }
+      ctx.restore();
+    }
+
+    drawTerrainAccent(ctx, tile, x, y, size) {
+      if (size < 10) return;
+      const cx = x + size * this.tileNoise(tile.id + 25, 0.35, 0.68);
+      const cy = y + size * this.tileNoise(tile.id + 31, 0.35, 0.68);
+      ctx.save();
+      if (tile.type === "lily") {
+        ctx.globalAlpha = 0.52;
+        ctx.fillStyle = "#baf2ac";
+        ctx.beginPath();
+        ctx.ellipse(cx, cy, size * 0.12, size * 0.065, -0.35, 0, Math.PI * 2);
+        ctx.fill();
+      } else if (tile.type === "reeds") {
+        ctx.globalAlpha = 0.42;
+        ctx.strokeStyle = "#dce88a";
+        ctx.lineWidth = Math.max(1, size * 0.028);
+        for (let i = -1; i <= 1; i += 1) {
+          ctx.beginPath();
+          ctx.moveTo(cx + i * size * 0.05, cy + size * 0.16);
+          ctx.quadraticCurveTo(cx + i * size * 0.03, cy, cx + i * size * 0.07, cy - size * 0.18);
+          ctx.stroke();
+        }
+      } else if (tile.type === "mud" || tile.type === "nest") {
+        ctx.globalAlpha = 0.3;
+        ctx.fillStyle = tile.type === "nest" ? "#f4c16e" : "#c18b5f";
+        ctx.beginPath();
+        ctx.ellipse(cx, cy, size * 0.15, size * 0.065, 0.1, 0, Math.PI * 2);
+        ctx.fill();
+      } else if (tile.type === "rock") {
+        ctx.globalAlpha = 0.34;
+        ctx.fillStyle = "#e7eff2";
+        ctx.beginPath();
+        ctx.moveTo(cx - size * 0.08, cy + size * 0.05);
+        ctx.lineTo(cx, cy - size * 0.1);
+        ctx.lineTo(cx + size * 0.11, cy + size * 0.04);
+        ctx.closePath();
+        ctx.fill();
+      }
+      ctx.restore();
+    }
+
+    drawAnimalTrace(ctx, x, y, size, animal, color = "#edf8fb") {
+      const alpha = animal === "snake" ? 0.18 : animal === "frog" ? 0.16 : 0.14;
+      ctx.save();
+      ctx.globalAlpha = alpha;
+      ctx.strokeStyle = this.withAlpha(color, 0.82);
+      ctx.fillStyle = this.withAlpha(color, 0.72);
+      ctx.lineWidth = Math.max(0.8, size * 0.025);
+      if (animal === "snake") {
+        ctx.beginPath();
+        ctx.moveTo(x - size * 0.14, y);
+        ctx.quadraticCurveTo(x, y - size * 0.12, x + size * 0.15, y);
+        ctx.stroke();
+      } else if (animal === "frog") {
+        ctx.beginPath();
+        ctx.arc(x - size * 0.05, y, size * 0.028, 0, Math.PI * 2);
+        ctx.arc(x + size * 0.08, y - size * 0.035, size * 0.028, 0, Math.PI * 2);
+        ctx.fill();
+      } else {
+        ctx.beginPath();
+        ctx.ellipse(x, y, size * 0.08, size * 0.035, 0.28, 0, Math.PI * 2);
+        ctx.stroke();
+      }
       ctx.restore();
     }
 
@@ -657,7 +827,7 @@
       const size = this.baseTile * this.camera.zoom;
       const p = this.worldToScreen(tile.x * this.baseTile, tile.y * this.baseTile);
       const color = tile.owner === this.state.humanId ? "#edf8fb" : this.withAlpha(player.color, 0.98);
-      const width = Math.max(1.05, size * (tile.owner === this.state.humanId ? 0.052 : 0.044));
+      const width = Math.max(1, size * (tile.owner === this.state.humanId ? 0.044 : 0.036));
       this.neighbors(tile).forEach((neighbor, index) => {
         if (neighbor && neighbor.owner === tile.owner) return;
         const neighborPlayer = neighbor?.owner ? this.playerMap.get(neighbor.owner) : null;
@@ -740,8 +910,15 @@
       const ids = options.legalTileIds || [];
       const size = this.baseTile * this.camera.zoom;
       ctx.save();
-      ctx.strokeStyle = options.mode === "attack" ? "#e9857c" : options.mode === "build" ? "#77d99e" : "#d8c66f";
-      ctx.fillStyle = options.mode === "attack" ? "rgba(233, 133, 124, 0.08)" : options.mode === "build" ? "rgba(119, 217, 158, 0.08)" : "rgba(216, 198, 111, 0.08)";
+      ctx.strokeStyle = options.mode === "special" ? "#f2d87a" : options.mode === "attack" ? "#e9857c" : options.mode === "build" ? "#77d99e" : "#d8c66f";
+      ctx.fillStyle =
+        options.mode === "special"
+          ? "rgba(242, 216, 122, 0.1)"
+          : options.mode === "attack"
+            ? "rgba(233, 133, 124, 0.08)"
+            : options.mode === "build"
+              ? "rgba(119, 217, 158, 0.08)"
+              : "rgba(216, 198, 111, 0.08)";
       ctx.lineWidth = Math.max(1, size * 0.035);
       ctx.globalAlpha = 0.72;
       ids.slice(0, 180).forEach((id) => {
@@ -930,6 +1107,7 @@
         defend: "#87d7ea",
         build: "#f2d87a",
         signal: "#d8ad48",
+        special: "#f2d87a",
       };
       const color = colors[preview.mode] || "#edf8fb";
       const pulse = 0.55 + Math.sin(performance.now() * 0.01) * 0.25;
@@ -1027,11 +1205,13 @@
         if (source && target) {
           const from = this.tileCenter(source);
           const to = this.tileCenter(target);
-          const label = wave.continuous
-            ? `${Math.max(1, Math.round(wave.drainPerSecond || wave.remainingPower || 0))}/s`
-            : wave.routeAttack
-              ? "Current"
-              : "";
+          const label = wave.routeAttack
+            ? "Current"
+            : wave.status === "contested"
+              ? "Contested"
+              : wave.status === "stalled"
+                ? "Stalled"
+                : `${Math.max(0, Math.round(wave.remainingBudget ?? wave.remainingPower ?? 0))}`;
           this.drawStrategicFlow(ctx, from, to, color, now, 0.75 + pulse * 0.35, label);
         }
 
@@ -1053,7 +1233,7 @@
           const p = this.worldToScreen(tile.x * this.baseTile, tile.y * this.baseTile);
           ctx.save();
           ctx.globalAlpha = 0.45 + pulse * 0.35;
-          ctx.strokeStyle = color;
+          ctx.strokeStyle = wave.status === "contested" ? "#f2d87a" : wave.status === "stalled" ? "#edf8fb" : color;
           ctx.lineWidth = Math.max(2, size * 0.07);
           ctx.beginPath();
           ctx.arc(p.x + size / 2, p.y + size / 2, size * (0.24 + pulse * 0.1), 0, Math.PI * 2);
@@ -1061,6 +1241,71 @@
           ctx.restore();
         });
       });
+    }
+
+    drawSpecialOverlays(ctx) {
+      const specials = this.state.specials || {};
+      const pending = specials.pending || [];
+      const zones = specials.zones || [];
+      if (!pending.length && !zones.length) return;
+      const size = this.baseTile * this.camera.zoom;
+      const nowMs = performance.now();
+      const pulse = 0.5 + Math.sin(nowMs * 0.01) * 0.5;
+      const colors = {
+        lilyBarrage: "#f2d87a",
+        dragonflyGuard: "#87d7ea",
+        reedShield: "#8ddf96",
+      };
+
+      ctx.save();
+      zones.forEach((zone) => {
+        const tile = this.tileMap.get(zone.tileId);
+        if (!tile) return;
+        const center = this.tileCenter(tile);
+        const color = colors[zone.type] || "#edf8fb";
+        const radius = Math.max(size * 0.8, (zone.radius || 3) * size);
+        const left = Math.ceil(zone.remaining || 0);
+        ctx.globalAlpha = 0.17;
+        ctx.fillStyle = color;
+        ctx.beginPath();
+        ctx.arc(center.x, center.y, radius, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.globalAlpha = 0.62 + pulse * 0.18;
+        ctx.strokeStyle = color;
+        ctx.lineWidth = Math.max(2, size * 0.055);
+        ctx.setLineDash(zone.type === "dragonflyGuard" ? [Math.max(5, size * 0.18), Math.max(4, size * 0.14)] : []);
+        ctx.lineDashOffset = -nowMs * 0.025;
+        ctx.beginPath();
+        ctx.arc(center.x, center.y, radius, 0, Math.PI * 2);
+        ctx.stroke();
+        ctx.setLineDash([]);
+        if (size > 9 && left > 0) this.drawPillText(ctx, zone.type === "reedShield" ? `Shield ${left}s` : `Guard ${left}s`, center.x, center.y - radius - 10, color);
+      });
+
+      pending.forEach((strike) => {
+        const tile = this.tileMap.get(strike.tileId);
+        if (!tile) return;
+        const center = this.tileCenter(tile);
+        const color = colors[strike.type] || colors.lilyBarrage;
+        const radius = Math.max(size * 0.9, (strike.radius || 2) * size);
+        const left = Math.ceil(strike.remaining || 0);
+        ctx.globalAlpha = 0.16 + pulse * 0.08;
+        ctx.fillStyle = "#f2d87a";
+        ctx.beginPath();
+        ctx.arc(center.x, center.y, radius, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.globalAlpha = 0.92;
+        ctx.strokeStyle = color;
+        ctx.lineWidth = Math.max(2.2, size * 0.07);
+        ctx.setLineDash([Math.max(5, size * 0.18), Math.max(4, size * 0.13)]);
+        ctx.lineDashOffset = -nowMs * 0.04;
+        ctx.beginPath();
+        ctx.arc(center.x, center.y, radius, 0, Math.PI * 2);
+        ctx.stroke();
+        ctx.setLineDash([]);
+        if (size > 8) this.drawPillText(ctx, `Lily ${left}s`, center.x, center.y - radius - 12, color);
+      });
+      ctx.restore();
     }
 
     drawCurrentPush(ctx, wave, attacker, now, pulse) {

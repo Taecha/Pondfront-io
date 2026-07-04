@@ -3,12 +3,17 @@ const animals = require("../shared/animals");
 const combatConfig = require("../shared/combatConfig");
 const balance = config.BALANCE;
 
-const ATTACK_COOLDOWN_SECONDS = combatConfig.attackCooldownSeconds;
 const MAX_ACTIVE_ATTACKS_PER_PLAYER = combatConfig.maxActiveAttacksPerPlayer;
+const MIN_ATTACK_ENERGY = combatConfig.minimumAttackEnergy || 5;
 const WAVE_TICK_SECONDS = combatConfig.waveTickSeconds;
 const WAVE_CAPTURE_LIMIT = combatConfig.waveCaptureLimit;
 const COMBAT_FORMULA = combatConfig.formula;
 const CURRENT_PUSH = combatConfig.currentPush || {};
+const PRESSURE = combatConfig.pressure || {};
+const ATTACK_EFFICIENCY = combatConfig.attackEfficiency || 0.86;
+const WAVE_MAX_DURATION_SECONDS = combatConfig.waveMaxDurationSeconds || 12;
+const CONTEST_POWER_LOSS_RATIO = combatConfig.contestPowerLossRatio || 0.18;
+const CONTEST_WINNER_LOSS_RATIO = combatConfig.contestWinnerLossRatio || 0.45;
 
 class CombatManager {
   constructor(tileManager, pushEvent) {
@@ -20,12 +25,13 @@ class CombatManager {
     this.nextAttackId = 1;
     this.nextContinuousId = 1;
     this.nextCurrentPushId = 1;
+    this.lastCombatDecayAt = 0;
   }
 
   update(game) {
     const now = game.now();
     game.players.forEach((player) => this.expireAbilityFlags(game, player, now));
-    this.processContinuousAttacks(game, now);
+    this.decayCombatState(game, now);
     this.processCurrentPushes(game, now);
     if (this.activeAttacks.length) this.activeAttacks = this.activeAttacks.filter((wave) => this.processWave(game, wave, now));
   }
@@ -37,9 +43,16 @@ class CombatManager {
       routeAttack: Boolean(wave.routeAttack),
       attackerId: wave.attackerId,
       defenderId: wave.defenderId,
+      startTileId: wave.startTileId || wave.sourceTile,
+      targetTileId: wave.targetTileId || wave.targetStartTile,
+      sentEnergy: Math.round(wave.sentEnergy || wave.spentEnergy || 0),
+      attackBudget: Math.round(wave.attackBudget || wave.remainingPower || 0),
+      remainingBudget: Math.round(wave.remainingBudget ?? wave.remainingPower ?? 0),
       remainingPower: Math.round(wave.remainingPower),
       frontierTiles: wave.frontierTiles.slice(0, 26),
       capturedTiles: wave.capturedTiles.slice(-34),
+      weakenedTiles: (wave.weakenedTiles || []).slice(-24),
+      status: wave.status || "pushing",
       sourceTile: wave.sourceTile,
       targetStartTile: wave.targetStartTile,
       ambushApplied: Boolean(wave.ambushApplied),
@@ -184,34 +197,52 @@ class CombatManager {
     const now = game.now();
     const diplomacyCheck = game.diplomacy.canAttack(player.id, defender.id, now);
     if (!diplomacyCheck.ok) return { ok: false, resultType: "diplomacyBlocked", message: diplomacyCheck.reason };
-    if (!options.ignoreCooldown && now < (player.attackCooldownUntil || 0)) return { ok: false, resultType: "cooldown", message: "Border Attack cooldown is active." };
-    if (this.activeAttacks.filter((wave) => wave.attackerId === player.id).length >= MAX_ACTIVE_ATTACKS_PER_PLAYER) {
-      return { ok: false, resultType: "tooManyWaves", message: "Frontline already moving." };
-    }
 
     const reach = options.routeReach || this.tileManager.borderReachInfo(player, target, sourceIds);
     if (!reach.reachable) return { ok: false, resultType: "tooFar", message: "Too far for Border Attack. Try Current Push if there is an open water route." };
 
     const spend = this.spendEnergy(player, percent);
-    if (spend < 5) return { ok: false, resultType: "notEnoughEnergy", message: "Not enough Animal Energy. Attacks need at least 5 energy." };
+    if (spend < MIN_ATTACK_ENERGY) {
+      return {
+        ok: false,
+        resultType: "notEnoughEnergy",
+        message: `Not enough Animal Energy. Attacks need at least ${MIN_ATTACK_ENERGY} energy.`,
+      };
+    }
 
     const exhaustion = Math.min(balance.maxWarExhaustion, player.flags?.warExhaustion || 0);
     const attackInfo = this.attackModifierInfo(game, player, target, reach.source, false);
     const routeMultiplier = options.routeAttack ? 0.74 * (1 + Math.min(0.45, player.flags?.routePowerBonus || 0)) : 1;
-    const attackPower = spend * balance.attackPowerMultiplier * (1 - exhaustion) * attackInfo.multiplier * routeMultiplier;
+    const attackPower = spend * ATTACK_EFFICIENCY * balance.attackPowerMultiplier * (1 - exhaustion) * attackInfo.multiplier * routeMultiplier;
+    const mergeWave = this.activeWaveForTarget(player.id, defender.id, target.id);
+    if (!mergeWave && this.activeAttacks.filter((wave) => wave.attackerId === player.id).length >= MAX_ACTIVE_ATTACKS_PER_PLAYER) {
+      return { ok: false, resultType: "tooManyWaves", message: "Too many active waves. Wait for one to finish." };
+    }
+
     player.energy -= spend;
     player.stats.energyUsed += spend;
     player.stats.attacksLaunched = (player.stats.attacksLaunched || 0) + 1;
     player.flags.warExhaustion = Math.min(balance.maxWarExhaustion, (player.flags.warExhaustion || 0) + balance.warExhaustionPerAttack);
-    player.attackCooldownUntil = now + (options.continuous ? 0.7 : ATTACK_COOLDOWN_SECONDS);
+    player.attackCooldownUntil = 0;
+
+    if (mergeWave) {
+      return this.mergeWaveAttack(game, mergeWave, player, defender, target, reach, spend, attackPower, attackInfo, options, now);
+    }
 
     const wave = {
       id: `wave-${this.nextAttackId}`,
       attackerId: player.id,
       defenderId: defender.id,
+      startTileId: reach.source.id,
+      targetTileId: target.id,
+      sentEnergy: spend,
+      attackBudget: Math.max(0, attackPower),
+      remainingBudget: Math.max(0, attackPower),
       remainingPower: Math.max(0, attackPower),
       frontierTiles: [target.id],
       capturedTiles: [],
+      weakenedTiles: [],
+      status: "pushing",
       distanceByTile: { [target.id]: 0 },
       fromByTile: { [target.id]: reach.source.id },
       sourceTile: reach.source.id,
@@ -223,6 +254,7 @@ class CombatManager {
       createdAt: now,
       lastTick: now - WAVE_TICK_SECONDS,
       tickRate: WAVE_TICK_SECONDS,
+      maxDuration: options.maxDuration || WAVE_MAX_DURATION_SECONDS,
     };
     this.nextAttackId += 1;
     this.activeAttacks.push(wave);
@@ -236,9 +268,14 @@ class CombatManager {
       from: reach.source.id,
       to: target.id,
       amount: Math.round(spend),
+      sentEnergy: Math.round(spend),
+      attackBudget: Math.round(wave.attackBudget),
+      remainingBudget: Math.round(wave.remainingBudget),
+      status: wave.status,
       playerId: player.id,
       targetOwner: defender.id,
       abilityModifier: attackInfo.ambushApplied ? "Ambush" : null,
+      message: `Committed ${Math.round(spend)} Animal Energy to a frontline wave.`,
       at: now,
     });
 
@@ -262,7 +299,80 @@ class CombatManager {
           ? `Current Push launched with ${Math.round(spend)} energy.`
           : options.continuous
             ? `Continuous attack sent ${Math.round(spend)} energy.`
-            : `Frontline wave launched with ${Math.round(spend)} energy.`,
+            : `Frontline wave committed ${Math.round(spend)} energy.`,
+      spentEnergy: Math.round(spend),
+      attackPower: Math.round(attackPower),
+      gameplayChanges: attackInfo.ambushApplied ? ["Ambush applied: +40% attack power", "Ambush applied: enemy border costs -20%"] : [],
+      activeEffect: attackInfo.ambushApplied ? null : this.abilityStatus(player, now).activeEffect,
+    };
+  }
+
+  activeWaveForTarget(attackerId, defenderId, targetId) {
+    return this.activeAttacks.find(
+      (wave) =>
+        !wave.finished &&
+        wave.attackerId === attackerId &&
+        wave.defenderId === defenderId &&
+        (wave.targetStartTile === targetId || (wave.frontierTiles || []).includes(targetId)),
+    );
+  }
+
+  mergeWaveAttack(game, wave, player, defender, target, reach, spend, attackPower, attackInfo, options, now) {
+    wave.sentEnergy = (wave.sentEnergy || 0) + spend;
+    wave.spentEnergy = (wave.spentEnergy || 0) + spend;
+    wave.attackBudget = (wave.attackBudget || 0) + Math.max(0, attackPower);
+    wave.remainingPower = Math.max(0, (wave.remainingPower || 0) + attackPower);
+    wave.remainingBudget = wave.remainingPower;
+    wave.status = "pushing";
+    wave.sourceTile = reach.source?.id || wave.sourceTile;
+    wave.fromByTile[target.id] = reach.source?.id || wave.fromByTile[target.id] || wave.sourceTile;
+    wave.distanceByTile[target.id] = wave.distanceByTile[target.id] ?? 0;
+    if (target.owner === defender.id && !(wave.frontierTiles || []).includes(target.id)) wave.frontierTiles.push(target.id);
+    wave.ambushApplied = Boolean(wave.ambushApplied || attackInfo.ambushApplied);
+    wave.maxDuration = Math.max(wave.maxDuration || WAVE_MAX_DURATION_SECONDS, now - wave.createdAt + (options.maxDuration || WAVE_MAX_DURATION_SECONDS));
+    this.syncWaveBudget(wave);
+    game.recordWar?.(player.id, defender.id, { attack: true, damage: spend, energySpent: spend });
+
+    this.pushEvent({
+      kind: "attackWave",
+      waveId: wave.id,
+      merged: true,
+      continuous: Boolean(options.continuous),
+      routeAttack: Boolean(options.routeAttack),
+      from: reach.source?.id || wave.sourceTile,
+      to: target.id,
+      amount: Math.round(spend),
+      sentEnergy: Math.round(spend),
+      attackBudget: Math.round(wave.attackBudget),
+      remainingBudget: Math.round(wave.remainingBudget),
+      status: wave.status,
+      playerId: player.id,
+      targetOwner: defender.id,
+      abilityModifier: attackInfo.ambushApplied ? "Ambush" : null,
+      message: `Added ${Math.round(spend)} Animal Energy to active wave.`,
+      at: now,
+    });
+
+    if (attackInfo.ambushApplied) {
+      this.pushEvent({
+        kind: "abilityUsed",
+        playerId: player.id,
+        skillType: player.animal,
+        ability: animals[player.animal].ability,
+        from: reach.source?.id || wave.sourceTile,
+        to: target.id,
+        at: now,
+      });
+    }
+
+    return {
+      ok: true,
+      resultType: "mergedAttack",
+      merged: true,
+      waveId: wave.id,
+      message: attackInfo.ambushApplied
+        ? `Ambush added ${Math.round(spend)} energy to the active wave.`
+        : `Added ${Math.round(spend)} Animal Energy to active wave.`,
       spentEnergy: Math.round(spend),
       attackPower: Math.round(attackPower),
       gameplayChanges: attackInfo.ambushApplied ? ["Ambush applied: +40% attack power", "Ambush applied: enemy border costs -20%"] : [],
@@ -373,7 +483,7 @@ class CombatManager {
       order.lastTick = now;
       order.targetTileId = target.id;
       order.lastSpend = result.spentEnergy || spendTarget;
-      if (!result.ok && !["tooManyWaves", "cooldown"].includes(result.resultType)) {
+      if (!result.ok && !["tooManyWaves"].includes(result.resultType)) {
         this.pushEvent({ kind: "continuousAttackStop", playerId: attacker.id, targetOwner: defender.id, to: target.id, message: result.message, at: now });
         return false;
       }
@@ -606,7 +716,8 @@ class CombatManager {
     const interceptTiles = routeTiles.filter((tile) => tile.owner === defender.id && tile.id !== target.id);
     const interceptLoss = Math.min(CURRENT_PUSH.maxInterceptPowerLoss || 0.45, interceptTiles.length * (CURRENT_PUSH.interceptPowerLossPerTile || 0.055));
     const shellMultiplier = defender.animal === "turtle" && now < (defender.abilityActiveUntil || 0) ? CURRENT_PUSH.turtleShellPowerMultiplier || 0.72 : 1;
-    const finalPower = Math.max(0, push.remainingPower * (1 - interceptLoss) * shellMultiplier);
+    const dragonflyMultiplier = game.specials?.currentPushPowerMultiplier(defender, target, now) || 1;
+    const finalPower = Math.max(0, push.remainingPower * (1 - interceptLoss) * shellMultiplier * dragonflyMultiplier);
 
     const wave = {
       id: push.id,
@@ -638,21 +749,29 @@ class CombatManager {
       const candidate = candidates[0];
       if (!candidate || candidate.tile.owner !== defender.id) break;
       const cost = this.waveCaptureCost(game, wave, attacker, defender, candidate) * (CURRENT_PUSH.impactCostMultiplier || 1.08);
-      if (cost > wave.remainingPower) {
-        candidate.tile.defenseEnergy = Math.min(95, (candidate.tile.defenseEnergy || 0) + Math.max(2, wave.remainingPower * 0.16));
+      const pressure = this.attackPressure(candidate.tile, attacker.id);
+      const adjustedCost = Math.max(3, cost - pressure);
+      const closeEnough = pressure + wave.remainingPower >= cost * (PRESSURE.captureThreshold || 0.82);
+      if (adjustedCost > wave.remainingPower && !closeEnough) {
+        const progress = this.applyAttackPressure(game, wave, candidate, cost, now, { routeAttack: true });
         this.pushEvent({
           kind: "currentPushBlocked",
           currentPushId: push.id,
           playerId: attacker.id,
           targetOwner: defender.id,
           to: candidate.tile.id,
-          amount: Math.round(cost - wave.remainingPower),
-          message: captured > 0 ? "Current Push weakened by defense." : "Current Push blocked by reinforced border.",
+          amount: Math.round(Math.max(0, adjustedCost - wave.remainingPower)),
+          progress: Math.round(progress.progress),
+          cost: Math.round(progress.cost),
+          message:
+            captured > 0
+              ? `Current Push weakened the next border ${Math.round(progress.progress)}/${Math.round(progress.cost)}.`
+              : `Current Push weakened the border ${Math.round(progress.progress)}/${Math.round(progress.cost)}.`,
           at: now,
         });
         break;
       }
-      const capturedTile = this.captureWaveTile(game, wave, attacker, defender, candidate, cost, now);
+      const capturedTile = this.captureWaveTile(game, wave, attacker, defender, candidate, Math.min(wave.remainingPower, adjustedCost), now, cost);
       if (!capturedTile) break;
       nextFrontier.add(candidate.tile.id);
       wave.frontierTiles = this.trimWaveFrontier(wave, nextFrontier, defender.id);
@@ -662,7 +781,7 @@ class CombatManager {
     const message =
       captured > 0
         ? `Current Push impacted: captured ${captured} tile${captured === 1 ? "" : "s"}.`
-        : interceptLoss > 0 || shellMultiplier < 1
+        : interceptLoss > 0 || shellMultiplier < 1 || dragonflyMultiplier < 1
           ? "Current Push weakened by defense and captured nothing."
           : "Current Push blocked by reinforced border.";
     this.pushEvent({
@@ -677,6 +796,7 @@ class CombatManager {
       remaining: Math.round(wave.remainingPower),
       interceptTiles: interceptTiles.length,
       shellGuarded: shellMultiplier < 1,
+      dragonflyGuarded: dragonflyMultiplier < 1,
       message,
       at: now,
     });
@@ -684,36 +804,49 @@ class CombatManager {
   }
 
   processWave(game, wave, now) {
+    if (wave.finished) return false;
     if (now - wave.lastTick < wave.tickRate) return true;
 
     const attacker = game.getPlayer(wave.attackerId);
     const defender = game.getPlayer(wave.defenderId);
     if (!attacker || !defender || attacker.defeated || defender.defeated) return false;
+    if (now - wave.createdAt >= (wave.maxDuration || WAVE_MAX_DURATION_SECONDS)) {
+      this.finishWave(game, wave, wave.capturedTiles.length ? "Wave spent after reaching its limit." : "Wave stalled and faded out.");
+      return false;
+    }
     const diplomacyCheck = game.diplomacy.canAttack(wave.attackerId, wave.defenderId, now);
     if (!diplomacyCheck.ok) {
       this.finishWave(game, wave, diplomacyCheck.reason);
       return false;
     }
+    if (!this.resolveWaveContest(game, wave, attacker, defender, now)) return false;
 
     const candidates = this.waveCandidates(game, wave, attacker, defender);
     if (!candidates.length) {
-      this.finishWave(game, wave, "No connected enemy tiles.");
+      this.finishWave(game, wave, "Wave spent: no connected enemy border remains.");
       return false;
     }
 
     let captured = 0;
     const nextFrontier = new Set(wave.frontierTiles);
+    wave.status = "pushing";
     for (const candidate of candidates) {
       if (captured >= WAVE_CAPTURE_LIMIT) break;
       if (candidate.tile.owner !== defender.id) continue;
 
       const cost = this.waveCaptureCost(game, wave, attacker, defender, candidate);
-      if (cost > wave.remainingPower) {
-        if (captured === 0) this.resistWave(game, wave, candidate, cost);
+      const pressure = this.attackPressure(candidate.tile, attacker.id);
+      const adjustedCost = Math.max(3, cost - pressure);
+      const closeEnough = pressure + wave.remainingPower >= cost * (PRESSURE.captureThreshold || 0.82);
+      if (adjustedCost > wave.remainingPower && !closeEnough) {
+        if (captured === 0) {
+          wave.status = "stalled";
+          this.resistWave(game, wave, candidate, cost, adjustedCost);
+        }
         break;
       }
 
-      const capturedTile = this.captureWaveTile(game, wave, attacker, defender, candidate, cost, now);
+      const capturedTile = this.captureWaveTile(game, wave, attacker, defender, candidate, Math.min(wave.remainingPower, adjustedCost), now, cost);
       if (!capturedTile) break;
       nextFrontier.add(candidate.tile.id);
       captured += 1;
@@ -721,13 +854,80 @@ class CombatManager {
 
     wave.lastTick = now;
     wave.frontierTiles = this.trimWaveFrontier(wave, nextFrontier, defender.id);
+    this.syncWaveBudget(wave);
 
     if (captured === 0) return false;
     if (wave.remainingPower < this.cheapestFrontierCost(game, wave, attacker, defender)) {
-      this.finishWave(game, wave, "Attack energy ran out.");
+      this.finishWave(game, wave, "Wave spent.");
       return false;
     }
     return true;
+  }
+
+  resolveWaveContest(game, wave, attacker, defender, now) {
+    const opposing = this.activeAttacks.find(
+      (other) =>
+        other !== wave &&
+        !other.finished &&
+        other.attackerId === defender.id &&
+        other.defenderId === attacker.id &&
+        this.wavesTouch(wave, other),
+    );
+    if (!opposing) return true;
+
+    const combined = Math.max(1, (wave.remainingPower || 0) + (opposing.remainingPower || 0));
+    const clash = Math.max(4, combined * CONTEST_POWER_LOSS_RATIO);
+    let winnerId = null;
+    if ((wave.remainingPower || 0) > (opposing.remainingPower || 0) * 1.12) {
+      winnerId = wave.attackerId;
+      opposing.remainingPower = Math.max(0, opposing.remainingPower - clash);
+      wave.remainingPower = Math.max(0, wave.remainingPower - clash * CONTEST_WINNER_LOSS_RATIO);
+    } else if ((opposing.remainingPower || 0) > (wave.remainingPower || 0) * 1.12) {
+      winnerId = opposing.attackerId;
+      wave.remainingPower = Math.max(0, wave.remainingPower - clash);
+      opposing.remainingPower = Math.max(0, opposing.remainingPower - clash * CONTEST_WINNER_LOSS_RATIO);
+    } else {
+      wave.remainingPower = Math.max(0, wave.remainingPower - clash * 0.75);
+      opposing.remainingPower = Math.max(0, opposing.remainingPower - clash * 0.75);
+    }
+    wave.status = "contested";
+    opposing.status = "contested";
+    this.syncWaveBudget(wave);
+    this.syncWaveBudget(opposing);
+    this.pushEvent({
+      kind: "waveContested",
+      waveId: wave.id,
+      opposingWaveId: opposing.id,
+      playerId: wave.attackerId,
+      targetOwner: wave.defenderId,
+      winnerId,
+      amount: Math.round(clash),
+      remaining: Math.round(wave.remainingPower),
+      opposingRemaining: Math.round(opposing.remainingPower),
+      to: wave.targetStartTile,
+      at: now,
+      message: winnerId ? "Contested border: stronger wave kept pushing." : "Contested border: both waves lost power.",
+    });
+    if (opposing.remainingPower <= 1) {
+      this.finishWave(game, opposing, "Wave spent in contested pressure.");
+      opposing.finished = true;
+    }
+    if (wave.remainingPower <= 1) {
+      this.finishWave(game, wave, "Wave spent in contested pressure.");
+      return false;
+    }
+    return true;
+  }
+
+  wavesTouch(a, b) {
+    const aIds = new Set([a.targetStartTile, ...(a.frontierTiles || [])].filter((id) => id != null));
+    const bIds = new Set([b.targetStartTile, ...(b.frontierTiles || [])].filter((id) => id != null));
+    for (const id of aIds) {
+      if (bIds.has(id)) return true;
+      const tile = this.tileManager.getById(id);
+      if (tile?.neighbors.some((neighbor) => bIds.has(neighbor.id))) return true;
+    }
+    return false;
   }
 
   waveCandidates(game, wave, attacker, defender) {
@@ -753,8 +953,11 @@ class CombatManager {
 
     return candidates.sort((a, b) => {
       if (b.attackerEdges !== a.attackerEdges) return b.attackerEdges - a.attackerEdges;
-      if (a.distance !== b.distance) return a.distance - b.distance;
-      return a.roughCost - b.roughCost;
+      const aStart = a.tile.id === wave.targetStartTile ? -2.5 : 0;
+      const bStart = b.tile.id === wave.targetStartTile ? -2.5 : 0;
+      const aScore = a.roughCost + a.distance * 0.65 - a.attackerEdges * 1.7 + aStart;
+      const bScore = b.roughCost + b.distance * 0.65 - b.attackerEdges * 1.7 + bStart;
+      return aScore - bScore;
     });
   }
 
@@ -771,15 +974,17 @@ class CombatManager {
     });
   }
 
-  captureWaveTile(game, wave, attacker, defender, candidate, cost, now) {
+  captureWaveTile(game, wave, attacker, defender, candidate, spendCost, now, rawCost = spendCost) {
     const tile = candidate.tile;
-    const coreHit = game.core?.handleCoreHit(game, wave, attacker, defender, candidate, cost);
+    const pressureSpent = Math.round(this.attackPressure(tile, attacker.id));
+    const coreHit = game.core?.handleCoreHit(game, wave, attacker, defender, candidate, rawCost);
     if (coreHit?.blocked) {
       this.finishWave(game, wave, coreHit.reason || "Core Nest resisted the attack.");
       return false;
     }
-    wave.remainingPower = Math.max(0, wave.remainingPower - cost);
-    defender.energy = Math.max(0, defender.energy - Math.min(defender.energy, cost * 0.14 + 1.5));
+    wave.remainingPower = Math.max(0, wave.remainingPower - spendCost);
+    this.syncWaveBudget(wave);
+    defender.energy = Math.max(0, defender.energy - Math.min(defender.energy, rawCost * 0.11 + 1.25));
 
     tile.owner = attacker.id;
     tile.building = null;
@@ -790,23 +995,13 @@ class CombatManager {
     tile.lastChanged = now;
 
     attacker.stats.tilesCaptured += 1;
-    attacker.stats.damageDealt = (attacker.stats.damageDealt || 0) + cost;
+    attacker.stats.damageDealt = (attacker.stats.damageDealt || 0) + rawCost;
     attacker.stats.bestAttackWave = Math.max(attacker.stats.bestAttackWave || 0, wave.capturedTiles.length + 1);
     wave.capturedTiles.push(tile.id);
     wave.distanceByTile[tile.id] = candidate.distance;
     wave.fromByTile[tile.id] = candidate.from;
 
-    if (!this.tileManager.owned(defender.id).length && !defender.defeated) {
-      defender.defeated = true;
-      attacker.stats.playersDefeated += 1;
-      this.pushEvent({
-        kind: "eliminated",
-        playerId: defender.id,
-        targetId: attacker.id,
-        at: now,
-        message: `${defender.name} was eliminated by ${attacker.name}.`,
-      });
-    }
+    if (!this.tileManager.owned(defender.id).length && !defender.defeated) game.eliminatePlayer?.(defender, attacker, "no territory");
     if (coreHit?.coreBroken) game.core?.handleCoreCaptured(game, attacker, defender, tile);
 
     this.pushEvent({
@@ -814,44 +1009,67 @@ class CombatManager {
       waveId: wave.id,
       from: candidate.from,
       to: tile.id,
-      amount: Math.round(cost),
+      amount: Math.round(rawCost),
       remaining: Math.round(wave.remainingPower),
+      remainingBudget: Math.round(wave.remainingBudget),
       playerId: attacker.id,
       targetOwner: defender.id,
+      pressureSpent,
       at: now,
     });
-    game.recordWar?.(attacker.id, defender.id, { tilesCaptured: 1, damage: cost, biggestWave: wave.capturedTiles.length });
+    game.recordWar?.(attacker.id, defender.id, { tilesCaptured: 1, damage: rawCost, biggestWave: wave.capturedTiles.length });
     return true;
   }
 
-  resistWave(game, wave, candidate, cost) {
+  resistWave(game, wave, candidate, cost, adjustedCost = cost) {
     const tile = candidate.tile;
     const now = game.now();
-    tile.defenseEnergy = Math.min(90, tile.defenseEnergy + Math.max(1, wave.remainingPower * 0.15));
+    const progress = this.applyAttackPressure(game, wave, candidate, cost, now);
+    const needed = Math.max(0, adjustedCost - progress.spent);
+    const reason = this.defenseReason(game, wave, candidate, cost);
     this.pushEvent({
       kind: "waveResist",
       waveId: wave.id,
       from: candidate.from,
       to: tile.id,
-      amount: Math.round(cost - wave.remainingPower),
+      amount: Math.round(needed),
+      progress: Math.round(progress.progress),
+      cost: Math.round(progress.cost),
+      remainingBudget: Math.round(wave.remainingBudget),
+      reason,
       playerId: wave.attackerId,
       targetOwner: wave.defenderId,
       at: now,
     });
-    this.finishWave(game, wave, "Attack blocked: reinforced border too strong. Send more energy or choose a weaker border.");
+    this.finishWave(
+      game,
+      wave,
+      `Border weakened ${Math.round(progress.progress)}/${Math.round(progress.cost)}. ${needed > 0 ? `Need about ${Math.round(needed)} more energy. ` : ""}${reason}`,
+    );
   }
 
   finishWave(game, wave, reason) {
+    wave.status = "finished";
+    wave.finished = true;
+    this.syncWaveBudget(wave);
     this.pushEvent({
       kind: "waveEnd",
       waveId: wave.id,
       playerId: wave.attackerId,
       targetOwner: wave.defenderId,
       captured: wave.capturedTiles.length,
+      weakened: (wave.weakenedTiles || []).length,
       remaining: Math.round(wave.remainingPower),
+      remainingBudget: Math.round(wave.remainingBudget),
+      status: wave.status,
       message: reason,
       at: game.now(),
     });
+  }
+
+  syncWaveBudget(wave) {
+    wave.remainingPower = Math.max(0, Number(wave.remainingPower || 0));
+    wave.remainingBudget = wave.remainingPower;
   }
 
   trimWaveFrontier(wave, ids, defenderId) {
@@ -877,8 +1095,8 @@ class CombatManager {
 
     let cost = tile.building ? COMBAT_FORMULA.buildingBaseCost : COMBAT_FORMULA.baseCostByTile[tile.type] || 10;
     cost *= balance.attackCostMultiplier;
-    cost += type.defenseBonus * COMBAT_FORMULA.terrainDefenseMultiplier;
-    cost += tile.defenseEnergy * COMBAT_FORMULA.defenseEnergyMultiplier;
+    cost += Math.min(5, type.defenseBonus) * COMBAT_FORMULA.terrainDefenseMultiplier;
+    cost += this.effectiveDefenseEnergy(defender, tile) * COMBAT_FORMULA.defenseEnergyMultiplier;
     cost += Math.max(0, candidate.distance || 0) * COMBAT_FORMULA.distanceCost;
     cost += Math.max(0, 2 - (candidate.attackerEdges || 0)) * COMBAT_FORMULA.weakBorderPenalty;
 
@@ -916,14 +1134,110 @@ class CombatManager {
     if (attacker.animal === "carp" && game.now() < (attacker.abilityActiveUntil || 0) && tile.type === "lily") cost *= balance.goldenCurrentLilyCostMultiplier || 0.7;
     if (game.eventsManager?.isActive("mudslide") && tile.type === "mud") cost *= balance.mudslideDefenseMultiplier || 1.22;
     cost += game.objectives?.tileCostBonus(tile) || 0;
+    cost *= game.specials?.waveCostMultiplier(defender, tile, game.now()) || 1;
     if (!rough && wave.remainingPower / Math.max(1, wave.spentEnergy) < 0.18) cost *= COMBAT_FORMULA.lowPowerFatigueMultiplier;
 
-    return Math.max(4, cost);
+    const pressure = this.attackPressure(tile, attacker.id);
+    return Math.max(4, cost - (rough ? pressure * 0.65 : 0));
+  }
+
+  attackPressure(tile, attackerId) {
+    if (!tile?.owner || !attackerId || tile.owner === attackerId) return 0;
+    return Math.max(0, Number(tile.captureProgress?.[attackerId] || 0));
+  }
+
+  applyAttackPressure(game, wave, candidate, cost, now = game.now()) {
+    const tile = candidate.tile;
+    const attackerId = wave.attackerId;
+    const current = this.attackPressure(tile, attackerId);
+    const maxProgress = cost * (PRESSURE.maxProgressRatio || 0.95);
+    const spend = Math.min(wave.remainingPower, Math.max(0, cost - current));
+    const progress = Math.min(maxProgress, current + spend);
+    tile.captureProgress = tile.captureProgress || {};
+    tile.captureProgress[attackerId] = progress;
+    tile.defenseEnergy = Math.max(0, (tile.defenseEnergy || 0) - spend * (PRESSURE.defenseDamageMultiplier || 0.22));
+    tile.lastChanged = now;
+    wave.remainingPower = Math.max(0, wave.remainingPower - spend);
+    wave.weakenedTiles = wave.weakenedTiles || [];
+    if (!wave.weakenedTiles.includes(tile.id)) wave.weakenedTiles.push(tile.id);
+    wave.status = "stalled";
+    this.syncWaveBudget(wave);
+    this.pushEvent({
+      kind: "borderWeakened",
+      waveId: wave.id,
+      from: candidate.from,
+      to: tile.id,
+      playerId: attackerId,
+      targetOwner: wave.defenderId,
+      progress: Math.round(progress),
+      cost: Math.round(cost),
+      amount: Math.round(spend),
+      remainingBudget: Math.round(wave.remainingBudget),
+      at: now,
+    });
+    return { progress, cost, spent: spend };
+  }
+
+  clearAttackPressure(tile, amount = Infinity, defenderId = null) {
+    if (!tile?.captureProgress || !tile.owner) return;
+    Object.keys(tile.captureProgress).forEach((key) => {
+      if (key === defenderId || key === tile.owner) return;
+      tile.captureProgress[key] = Math.max(0, Number(tile.captureProgress[key] || 0) - amount);
+      if (tile.captureProgress[key] <= 0.5) delete tile.captureProgress[key];
+    });
+  }
+
+  defenseReason(game, wave, candidate, cost) {
+    const tile = candidate.tile;
+    const defender = game.getPlayer(wave.defenderId);
+    const type = config.TILE_TYPES[tile.type];
+    const reasons = [];
+    if ((tile.defenseEnergy || 0) >= 24) reasons.push("Reinforced border absorbed part of the wave.");
+    if ((type?.defenseBonus || 0) >= 2 || tile.type === "reeds" || tile.type === "mud") reasons.push("High terrain defense.");
+    if (tile.building) reasons.push("Building defense is increasing the break cost.");
+    if (defender?.animal === "turtle" && game.now() < (defender.abilityActiveUntil || 0)) reasons.push("Turtle Shell Guard reduced the attack.");
+    if (defender?.energy > defender?.maxEnergy * 0.7) reasons.push("Enemy has high stored Animal Energy.");
+    if (!reasons.length) reasons.push(`Try Strong Push or send about ${Math.ceil(cost)} total pressure.`);
+    return reasons[0];
+  }
+
+  effectiveDefenseEnergy(defender, tile) {
+    const cap = defender?.animal === "turtle" ? balance.turtleDefendMaxEnergy || 72 : balance.defendMaxEnergy || 56;
+    return Math.max(0, Math.min(cap, Number(tile?.defenseEnergy || 0)));
+  }
+
+  decayCombatState(game, now) {
+    const interval = PRESSURE.decayIntervalSeconds || 2;
+    if (!this.lastCombatDecayAt) {
+      this.lastCombatDecayAt = now;
+      return;
+    }
+    const dt = now - this.lastCombatDecayAt;
+    if (dt < interval) return;
+    this.lastCombatDecayAt = now;
+    const pressureDecay = Math.max(0, PRESSURE.decayPerSecond || 0.5) * dt;
+    const defenseDecay = Math.max(0, balance.defenseDecayPerSecond || 0.45) * dt;
+    const defenseDelay = balance.defenseDecayDelaySeconds || 8;
+    this.tileManager.playable().forEach((tile) => {
+      if (tile.owner && tile.captureProgress) {
+        Object.keys(tile.captureProgress).forEach((attackerId) => {
+          if (attackerId === tile.owner) return;
+          tile.captureProgress[attackerId] = Math.max(0, Number(tile.captureProgress[attackerId] || 0) - pressureDecay);
+          if (tile.captureProgress[attackerId] <= 0.5) delete tile.captureProgress[attackerId];
+        });
+      }
+      if ((tile.defenseEnergy || 0) > 0 && now - (tile.lastDefendedAt || tile.lastChanged || 0) >= defenseDelay) {
+        tile.defenseEnergy = Math.max(0, tile.defenseEnergy - defenseDecay);
+      }
+    });
   }
 
   defend(player, tileId, percent, now = Date.now() / 1000) {
     const tile = this.tileManager.getById(tileId);
     if (!tile || tile.owner !== player.id) return { ok: false, message: "Choose your territory to defend." };
+    if (now < (player.defendCooldownUntil || 0)) {
+      return { ok: false, resultType: "defendCooldown", message: `Reinforce cooldown ${Math.ceil(player.defendCooldownUntil - now)}s.` };
+    }
     const spend = this.spendEnergy(player, percent) * balance.defendSpendMultiplier;
     if (spend < 3) return { ok: false, message: "Not enough Animal Energy. Defending needs at least 3 energy." };
     player.energy -= spend;
@@ -931,14 +1245,19 @@ class CombatManager {
     player.stats.defenses = (player.stats.defenses || 0) + 1;
     const animalBoost = player.animal === "turtle" ? balance.turtleDefendMultiplier || 1.16 : 1;
     const shellBoost = player.animal === "turtle" && now < (player.abilityActiveUntil || 0) ? 1.18 : 1;
-    tile.defenseEnergy = Math.min(90, tile.defenseEnergy + spend * balance.defendEnergyMultiplier * animalBoost * shellBoost);
+    const maxDefense = player.animal === "turtle" ? balance.turtleDefendMaxEnergy || 72 : balance.defendMaxEnergy || 56;
+    tile.defenseEnergy = Math.min(maxDefense, tile.defenseEnergy + spend * balance.defendEnergyMultiplier * animalBoost * shellBoost);
+    this.clearAttackPressure(tile, spend * 0.9, player.id);
+    player.defendCooldownUntil = now + (balance.defendCooldownSeconds || 10);
+    tile.lastDefendedAt = now;
     tile.lastChanged = now;
-    this.pushEvent({ kind: "defend", to: tile.id, amount: Math.round(spend), playerId: player.id, defense: Math.round(tile.defenseEnergy), at: now });
+    this.pushEvent({ kind: "defend", to: tile.id, amount: Math.round(spend), playerId: player.id, defense: Math.round(tile.defenseEnergy), cooldown: balance.defendCooldownSeconds || 10, at: now });
     return {
       ok: true,
       resultType: "reinforced",
       defenseEnergy: Math.round(tile.defenseEnergy),
-      message: `Border reinforced: ${Math.round(tile.defenseEnergy)} stored defense energy. Enemy attacks now cost more.`,
+      cooldown: balance.defendCooldownSeconds || 10,
+      message: `Border reinforced: ${Math.round(tile.defenseEnergy)} stored defense. Attack pressure was reduced.`,
     };
   }
 
@@ -1173,8 +1492,8 @@ class CombatManager {
   captureCost(game, attacker, defender, target, reach) {
     const type = config.TILE_TYPES[target.type];
     let cost = (target.building ? COMBAT_FORMULA.buildingBaseCost : COMBAT_FORMULA.baseCostByTile[target.type] || type.captureCost) * balance.attackCostMultiplier;
-    cost += type.defenseBonus * COMBAT_FORMULA.terrainDefenseMultiplier;
-    cost += target.defenseEnergy * COMBAT_FORMULA.defenseEnergyMultiplier;
+    cost += Math.min(5, type.defenseBonus) * COMBAT_FORMULA.terrainDefenseMultiplier;
+    cost += this.effectiveDefenseEnergy(defender, target) * COMBAT_FORMULA.defenseEnergyMultiplier;
     if (defender) {
       const energyRatio = defender.energy / Math.max(1, defender.maxEnergy);
       cost += Math.min(COMBAT_FORMULA.defenderEnergyFlatCap, defender.energy * COMBAT_FORMULA.defenderEnergyFlatMultiplier);
@@ -1390,11 +1709,12 @@ class CombatManager {
   }
 
   reedGuardBonus(ownerId, target, owner = null) {
-    const animalBoost = owner?.animal === "turtle" ? balance.turtleReedGuardMultiplier || 1.28 : 1;
-    return [target, ...target.neighbors].reduce((sum, tile) => {
-      if (tile.owner === ownerId && tile.building === "reedGuard") return sum + 7 * Math.max(1, Number(tile.buildingLevel) || 1) * animalBoost;
+    const animalBoost = owner?.animal === "turtle" ? balance.turtleReedGuardMultiplier || 1.16 : 1;
+    const total = [target, ...target.neighbors].reduce((sum, tile) => {
+      if (tile.owner === ownerId && tile.building === "reedGuard") return sum + 4.5 * Math.max(1, Number(tile.buildingLevel) || 1) * animalBoost;
       return sum;
     }, 0);
+    return Math.min(owner?.animal === "turtle" ? 18 : 14, total);
   }
 }
 

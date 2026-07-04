@@ -17,7 +17,8 @@ class BotManager {
       const mode = this.sandboxMode(bot);
       if (mode === "passive") return;
       const elapsed = (this.timers.get(bot.id) || 0) + dt;
-      const animalPace = bot.animal === "duck" ? 0.9 : bot.animal === "snake" ? 1.08 : bot.animal === "turtle" ? 1.18 : bot.animal === "carp" ? 1.02 : 0.98;
+      const paceByAnimal = balance.botAnimalTurnPace || {};
+      const animalPace = paceByAnimal[bot.animal] || 1;
       const pace = (this.difficultyProfile(bot).turnPaceMultiplier || 1) * animalPace;
       if (elapsed < pace) {
         this.timers.set(bot.id, elapsed);
@@ -32,9 +33,18 @@ class BotManager {
     return botDifficultyConfig[bot?.difficulty] || botDifficultyConfig.normal;
   }
 
+  randomRange(range, fallback = [4, 8]) {
+    const source = Array.isArray(range) ? range : fallback;
+    const min = Number(source[0] ?? fallback[0] ?? 0);
+    const max = Number(source[1] ?? source[0] ?? fallback[1] ?? min);
+    return min + Math.random() * Math.max(0, max - min);
+  }
+
   takeTurn(bot) {
     const phase = this.phase();
     const now = this.game.now();
+    const profile = this.difficultyProfile(bot);
+    if (bot.difficulty === "passive" || profile.label === "Passive") return;
     if (this.trySandboxLimitedTurn(bot, phase)) return;
     if (this.trySurrender(bot, phase)) return;
     if (bot.energy < 8) return;
@@ -64,6 +74,8 @@ class BotManager {
     if (this.shouldDefend(bot, enemy, phase)) {
       if (this.tryDefend(bot)) return;
     }
+
+    if (this.trySpecial(bot, phase, enemy)) return;
 
     const retaliationTarget = this.pickRetaliation(bot, enemy, phase);
     if (retaliationTarget && this.shouldAttack(bot, this.game.getPlayer(retaliationTarget.owner), phase, true, retaliationTarget)) {
@@ -184,9 +196,84 @@ class BotManager {
     const owner = target.owner ? this.game.getPlayer(target.owner) : null;
     const valuable = target.objectiveId || target.campId || owner?.id === this.leader()?.id || owner?.energy < bot.energy * 0.72;
     if (!valuable && bot.difficulty !== "chaos") return false;
-    if (bot.energy < bot.maxEnergy * 0.58 || Math.random() > (profile.currentPushChance || 0.03)) return false;
+    if (bot.energy < bot.maxEnergy * 0.52 || Math.random() > (profile.currentPushChance || 0.03)) return false;
     const result = this.game.combat.startWaterRouteAttack(this.game, bot, target.id, Math.min(0.42, this.attackPlanPercent(bot, target, phase) + 0.08));
     bot.aiCurrentPushCooldownUntil = this.game.now() + (result.ok ? profile.currentPushCooldown || 70 : 8);
+    return result.ok;
+  }
+
+  trySpecial(bot, phase, enemyTiles = []) {
+    if (!this.game.specials || this.game.sandbox?.rules?.specials === false) return false;
+    const profile = this.difficultyProfile(bot);
+    const now = this.game.now();
+    if ((profile.specialChance || 0) <= 0) return false;
+    if (this.game.elapsed() < (profile.specialEarliestTime || 180)) return false;
+    if (now < (bot.aiSpecialCooldownUntil || 0)) return false;
+    if (bot.energy < 72 || bot.energy < bot.maxEnergy * 0.42) return false;
+    if (Math.random() > (profile.specialChance || 0)) return false;
+
+    const underAttack = now < (bot.flags?.underAttackUntil || 0);
+    const choices = [];
+    const borders = this.game.tileManager
+      .borders(bot.id)
+      .filter((tile) => tile.neighbors.some((neighbor) => neighbor.owner && neighbor.owner !== bot.id));
+
+    if (underAttack || (borders.length >= 3 && phase !== "early")) {
+      const weakBorder = borders
+        .slice()
+        .sort((a, b) => (a.defenseEnergy || 0) - (b.defenseEnergy || 0))[0];
+      if (weakBorder && bot.energy >= 70) choices.push({ type: "reedShield", tile: weakBorder, score: underAttack ? 42 : 20, reason: "border pressure" });
+    }
+
+    if ((underAttack || phase === "late" || phase === "surge") && bot.energy >= 90) {
+      const protectTile = this.game.tileManager.getById(bot.coreTileId) || this.game.tileManager.owned(bot.id)[0];
+      if (protectTile) choices.push({ type: "dragonflyGuard", tile: protectTile, score: underAttack ? 34 : 12, reason: "guard valuable area" });
+    }
+
+    if (phase !== "early" && bot.energy >= 125 && enemyTiles.length) {
+      const leader = this.leader();
+      const target = enemyTiles
+        .filter((tile) => {
+          const owner = tile.owner ? this.game.getPlayer(tile.owner) : null;
+          if (!owner || owner.defeated) return false;
+          if (owner.id === config.HUMAN_ID && leader?.id !== owner.id && bot.flags?.lastAttackerId !== owner.id) return Math.random() < 0.35;
+          return true;
+        })
+        .map((tile) => {
+          const owner = this.game.getPlayer(tile.owner);
+          const exposed = tile.neighbors.filter((neighbor) => neighbor.owner === bot.id).length;
+          const cluster = tile.neighbors?.filter((neighbor) => neighbor.owner === tile.owner).length || 0;
+          return {
+            tile,
+            score:
+              this.tileScore(bot, tile) +
+              cluster * 3 +
+              exposed * 2 +
+              (owner?.id === leader?.id ? 18 : 0) +
+              (tile.objectiveId || tile.campId ? 18 : 0) -
+              (tile.defenseEnergy || 0) * 0.35,
+          };
+        })
+        .sort((a, b) => b.score - a.score)[0]?.tile;
+      if (target) choices.push({ type: "lilyBarrage", tile: target, score: 30 + (target.owner === leader?.id ? 16 : 0), reason: "valuable enemy cluster" });
+    }
+
+    const pick = choices
+      .map((choice) => ({ ...choice, score: choice.score + Math.random() * 12 - (Math.random() < (profile.mistakeChance || 0) ? 18 : 0) }))
+      .sort((a, b) => b.score - a.score)[0];
+    if (!pick) return false;
+
+    const result = this.game.specials.activate(this.game, bot, pick.type, pick.tile.id, { source: "bot" });
+    bot.aiSpecialCooldownUntil = now + (result.ok ? this.randomRange(profile.specialCooldown, [85, 120]) : 8);
+    this.debugBotAction(bot, "special", {
+      difficulty: bot.difficulty,
+      energy: Math.round(bot.energy),
+      target: pick.tile.id,
+      special: pick.type,
+      reason: pick.reason,
+      cooldown: Math.round(Math.max(0, bot.aiSpecialCooldownUntil - now)),
+      result: result.resultType || result.message,
+    });
     return result.ok;
   }
 
@@ -353,6 +440,9 @@ class BotManager {
   }
 
   tryDefendNear(bot, targetTile = null) {
+    const now = this.game.now();
+    if (now < (bot.aiDefendCooldownUntil || 0)) return false;
+    if (this.botDefenseMistake(bot)) return false;
     const borders = this.game.tileManager
       .borders(bot.id)
       .filter((tile) => tile.neighbors.some((neighbor) => neighbor.owner && neighbor.owner !== bot.id && this.game.diplomacy.canAttack(neighbor.owner, bot.id, this.game.now()).ok));
@@ -365,11 +455,16 @@ class BotManager {
         const bd = targetTile ? Math.abs(b.x - targetTile.x) + Math.abs(b.y - targetTile.y) : 0;
         return ad - bd || a.defenseEnergy - b.defenseEnergy;
       })[0];
-    const result = this.game.combat.defend(bot, target.id, bot.role === "guardian" ? 0.36 : 0.24, this.game.now());
+    const percent = bot.role === "guardian" ? 0.28 : bot.difficulty === "easy" ? 0.16 : 0.2;
+    const result = this.game.combat.defend(bot, target.id, percent, now);
+    bot.aiDefendCooldownUntil = now + (result.ok ? this.randomRange(this.difficultyProfile(bot).defenseCooldown, [12, 20]) : 4);
     return result.ok;
   }
 
   shouldExpand(bot, phase) {
+    const profile = this.difficultyProfile(bot);
+    if ((profile.expansionAggression || 0) <= 0 || this.game.now() < (bot.aiExpandCooldownUntil || 0)) return false;
+    const expansionAggression = profile.expansionAggression ?? profile.expansionMultiplier ?? 1;
     const animalPush = bot.animal === "duck" ? 0.12 : bot.animal === "frog" ? 0.06 : bot.animal === "carp" ? 0.04 : bot.animal === "turtle" ? -0.08 : -0.03;
     const eventPush =
       this.game.eventsManager?.isActive("rainstorm")
@@ -377,19 +472,24 @@ class BotManager {
         : this.game.eventsManager?.isActive("lilyBloom") && (bot.animal === "frog" || bot.animal === "carp")
           ? 0.16
           : 0;
-    if (phase === "early") return bot.territory < 68 || bot.energy < bot.maxEnergy * 0.72 || Math.random() < 0.42 + animalPush + eventPush;
-    if (bot.personality === "expander" && bot.territory < 110 && Math.random() < 0.55) return true;
-    if (bot.personality === "objectiveHunter" && phase !== "early" && Math.random() < 0.38) return true;
-    if (bot.personality === "defensive" && bot.energy < bot.maxEnergy * 0.5) return true;
-    return Math.random() < (phase === "mid" ? 0.28 : 0.14) + animalPush * 0.5 + eventPush;
+    if (phase === "early") {
+      const targetTerritory = 22 + 46 * expansionAggression;
+      const energyReady = bot.energy > bot.maxEnergy * (0.24 + Math.max(0, 1 - expansionAggression) * 0.18);
+      return (bot.territory < targetTerritory && energyReady) || Math.random() < Math.max(0.04, (0.22 + animalPush + eventPush) * expansionAggression);
+    }
+    if (bot.personality === "expander" && bot.territory < 95 * expansionAggression && Math.random() < 0.42 * expansionAggression) return true;
+    if (bot.personality === "objectiveHunter" && phase !== "early" && Math.random() < 0.28 * expansionAggression) return true;
+    if (bot.personality === "defensive" && bot.energy < bot.maxEnergy * 0.5) return Math.random() < 0.35 * expansionAggression;
+    return Math.random() < Math.max(0.03, ((phase === "mid" ? 0.2 : 0.1) + animalPush * 0.5 + eventPush) * expansionAggression);
   }
 
   buildChance(bot, phase) {
     const base = phase === "early" ? 0.34 : phase === "mid" ? 0.16 : 0.08;
     const animal = bot.animal === "snake" ? 0.05 : bot.animal === "frog" ? 0.03 : bot.animal === "turtle" ? 0.12 : bot.animal === "carp" ? 0.14 : 0;
-    if (bot.personality === "defensive") return base + 0.12;
-    if (bot.personality === "aggressive") return base - 0.1;
-    return Math.max(0.04, base + animal - (this.aggressionScale(bot) - 1) * 0.08);
+    const multiplier = this.difficultyProfile(bot).buildMultiplier ?? 1;
+    if (bot.personality === "defensive") return (base + 0.12) * multiplier;
+    if (bot.personality === "aggressive") return Math.max(0.02, (base - 0.1) * multiplier);
+    return Math.max(0.02, (base + animal - (this.aggressionScale(bot) - 1) * 0.08) * multiplier);
   }
 
   bestTile(bot, tiles) {
@@ -435,6 +535,19 @@ class BotManager {
   }
 
   tryExpandNeutral(bot, target) {
+    const now = this.game.now();
+    const profile = this.difficultyProfile(bot);
+    if ((profile.expansionMultiplier || 0) <= 0) return false;
+    if (now < (bot.aiExpandCooldownUntil || 0)) {
+      this.debugBotAction(bot, "expand-wait", {
+        difficulty: bot.difficulty,
+        energy: Math.round(bot.energy),
+        target: target?.id,
+        reason: "expand cooldown",
+        cooldown: Math.round((bot.aiExpandCooldownUntil || 0) - now),
+      });
+      return true;
+    }
     const cost = this.game.combat.neutralCaptureCost(this.game, bot, target, {});
     const progress = target.captureProgress?.[bot.id] || 0;
     const remaining = Math.max(0, cost - progress);
@@ -444,7 +557,8 @@ class BotManager {
     }
 
     const hasProgress = progress > 0;
-    if (!hasProgress && bot.energy < remaining) {
+    const energyReserveMultiplier = 1 + Math.max(0, 1 - (profile.expansionMultiplier || 1)) * 0.55;
+    if (!hasProgress && bot.energy < remaining * energyReserveMultiplier) {
       this.expansionTargets.set(bot.id, target.id);
       this.debugExpansion(bot, target, cost, 0, { ok: false, resultType: "waiting" });
       return true;
@@ -455,11 +569,29 @@ class BotManager {
       return true;
     }
 
-    const desiredSpend = hasProgress ? Math.min(bot.energy, remaining) : remaining;
+    if (!hasProgress && Math.random() < (profile.mistakeChance || 0)) {
+      bot.aiExpandCooldownUntil = now + this.randomRange(profile.expandCooldown, profile.expansionDelay || [3, 6]) * 0.7;
+      this.debugExpansion(bot, target, cost, 0, { ok: false, resultType: "mistake" });
+      this.debugBotAction(bot, "expand-mistake", {
+        difficulty: bot.difficulty,
+        energy: Math.round(bot.energy),
+        target: target.id,
+        reason: "picked a bad moment",
+        cooldown: Math.round(bot.aiExpandCooldownUntil - now),
+      });
+      return true;
+    }
+
+    const phase = this.phase();
+    const maxSend = phase === "early" ? profile.maxEarlyExpansionSend || 0.5 : 0.72;
+    const expansionMultiplier = profile.expansionMultiplier ?? 1;
+    const partialSpend = Math.max(3, Math.min(remaining, remaining * expansionMultiplier));
+    const desiredSpend = hasProgress ? Math.min(bot.energy, remaining, Math.max(4, bot.energy * maxSend)) : Math.min(bot.energy * maxSend, partialSpend);
     const percent = Math.max(0.04, Math.min(1, desiredSpend / Math.max(1, bot.energy)));
     const plannedSpend = Math.min(bot.energy, desiredSpend);
     const result = this.game.combat.expandOrAttack(this.game, bot, target.id, percent);
     this.debugExpansion(bot, target, cost, plannedSpend, result);
+    bot.aiExpandCooldownUntil = now + this.randomRange(profile.expandCooldown, profile.expansionDelay || [3, 6]);
 
     if (result.resultType === "partial") this.expansionTargets.set(bot.id, target.id);
     else this.expansionTargets.delete(bot.id);
@@ -594,8 +726,8 @@ class BotManager {
     if (!owner) return { ok: false, reason: "no target" };
     const diplomacy = this.game.diplomacy.canAttack(bot.id, owner.id, now);
     if (!diplomacy.ok) return { ok: false, reason: diplomacy.reason || "diplomacy blocked" };
-    const cooldownLeft = Math.max(0, (bot.aiAttackCooldownUntil || 0) - now);
-    if (cooldownLeft > 0) return { ok: false, reason: "cooldown", cooldownLeft };
+    const thinkLeft = Math.max(0, (bot.aiAttackCooldownUntil || 0) - now);
+    if (thinkLeft > 0) return { ok: false, reason: "ai pacing", thinkLeft };
 
     const recentlyHit = bot.flags?.lastAttackerId === owner.id && now < (bot.flags?.underAttackUntil || 0);
     const leaderTarget = this.leader()?.id === owner.id;
@@ -791,7 +923,7 @@ class BotManager {
       const best = neutral
         .slice()
         .sort((a, b) => this.tileScore(bot, b) - this.tileScore(bot, a))[0];
-      const use = (valuableLeapTargets >= 2 || neutral.length >= 8 || blockedAngles >= 2) && Math.random() < (phase === "early" ? 0.36 : 0.46);
+      const use = (valuableLeapTargets >= 2 || neutral.length >= 8 || blockedAngles >= 2) && Math.random() < (phase === "early" ? 0.28 : 0.38);
       return {
         use,
         targetId: best?.id,
@@ -833,7 +965,7 @@ class BotManager {
     let score = 6 + type.incomeBonus * 25 + type.defenseBonus;
     if (bot.animal === "duck" && tile.type === "water") score += 4;
     if (bot.animal === "snake" && (tile.type === "reeds" || tile.type === "mud")) score += 5;
-    if (bot.animal === "frog" && tile.type === "lily") score += 6;
+    if (bot.animal === "frog" && tile.type === "lily") score += 5;
     if (bot.animal === "turtle" && (tile.type === "mud" || tile.type === "reeds" || tile.type === "nest")) score += 5;
     if (bot.animal === "carp" && tile.type === "water") score += 3;
     if (bot.animal === "carp" && tile.type === "lily") score += 8;
@@ -855,7 +987,7 @@ class BotManager {
       if (!target) return;
       const d = Math.abs(tile.x - target.x) + Math.abs(tile.y - target.y);
       if (d > 10) return;
-      const personality = bot.personality === "objectiveHunter" ? 1.9 : bot.animal === "frog" ? 1.45 : bot.animal === "turtle" ? 1.25 : bot.animal === "carp" ? 1.16 : 1;
+      const personality = bot.personality === "objectiveHunter" ? 1.9 : bot.animal === "frog" ? 1.28 : bot.animal === "turtle" ? 1.25 : bot.animal === "carp" ? 1.16 : 1;
       const ownerPressure = objective.owner ? 1.25 : 1;
       score += Math.max(0, 10 - d) * 1.15 * personality * ownerPressure;
     });
@@ -865,27 +997,37 @@ class BotManager {
   roughAttackCost(tile, owner) {
     const type = config.TILE_TYPES[tile.type];
     let cost = tile.building ? 18 : tile.type === "water" ? 6 : tile.type === "lily" ? 8 : tile.type === "reeds" ? 12 : tile.type === "mud" ? 14 : 16;
-    cost += type.defenseBonus * 1.25 + tile.defenseEnergy * 0.8;
-    cost += Math.min(18, owner.energy * 0.035);
+    cost += Math.min(5, type.defenseBonus) * 1.05 + Math.min(tile.defenseEnergy || 0, owner?.animal === "turtle" ? balance.turtleDefendMaxEnergy || 72 : balance.defendMaxEnergy || 56) * 0.58;
+    cost += Math.min(12, owner.energy * 0.024);
     return cost;
   }
 
   shouldDefend(bot, enemyTiles, phase) {
+    if (this.game.now() < (bot.aiDefendCooldownUntil || 0)) return false;
     if (!enemyTiles.length || bot.energy < 18) return false;
-    if (this.game.now() < (bot.flags?.underAttackUntil || 0)) return Math.random() < (bot.animal === "turtle" ? 0.72 : 0.42);
-    const base = bot.animal === "turtle" ? 0.26 : bot.personality === "defensive" ? 0.28 : 0.1;
+    if (this.botDefenseMistake(bot)) return false;
+    if (this.game.now() < (bot.flags?.underAttackUntil || 0)) return Math.random() < (bot.animal === "turtle" ? 0.58 : 0.28);
+    const base = bot.animal === "turtle" ? 0.18 : bot.personality === "defensive" ? 0.2 : 0.06;
     const phaseBoost = phase === "early" ? 0 : phase === "mid" ? 0.05 : 0.1;
     return Math.random() < base + phaseBoost;
   }
 
   tryDefend(bot) {
+    const now = this.game.now();
+    if (now < (bot.aiDefendCooldownUntil || 0)) return false;
     const border = this.game.tileManager
       .borders(bot.id)
       .filter((tile) => tile.neighbors.some((neighbor) => neighbor.owner && neighbor.owner !== bot.id))
       .sort((a, b) => a.defenseEnergy - b.defenseEnergy)[0];
     if (!border) return false;
-    const result = this.game.combat.defend(bot, border.id, bot.personality === "defensive" ? 0.34 : 0.24, this.game.now());
+    const result = this.game.combat.defend(bot, border.id, bot.personality === "defensive" ? 0.26 : bot.difficulty === "easy" ? 0.16 : 0.2, now);
+    bot.aiDefendCooldownUntil = now + (result.ok ? this.randomRange(this.difficultyProfile(bot).defenseCooldown, [12, 20]) : 4);
     return result.ok;
+  }
+
+  botDefenseMistake(bot) {
+    const chance = this.difficultyProfile(bot).defenseMistakeChance ?? this.difficultyProfile(bot).mistakeChance ?? 0;
+    return Math.random() < chance;
   }
 
   pickRetaliation(bot, enemyTiles, phase) {
@@ -928,9 +1070,19 @@ class BotManager {
 
   debugExpansion(bot, target, cost, sent, result) {
     if (process.env.NODE_ENV !== "development") return;
+    const profile = this.difficultyProfile(bot);
+    const cooldown = Math.max(0, (bot.aiExpandCooldownUntil || 0) - this.game.now());
     console.log(
-      `[bot-expand] ${bot.name} tile=${target.id} cost=${cost} sent=${Math.round(sent)} result=${result.resultType || result.message || "unknown"}`,
+      `[bot-expand] ${bot.name} difficulty=${bot.difficulty} energy=${Math.round(bot.energy)} tile=${target.id} cost=${Math.round(cost)} sent=${Math.round(sent)} result=${result.resultType || result.message || "unknown"} mistake=${profile.mistakeChance ?? 0} cooldown=${cooldown.toFixed(1)}`,
     );
+  }
+
+  debugBotAction(bot, action, data = {}) {
+    if (process.env.NODE_ENV !== "development") return;
+    const details = Object.entries(data)
+      .map(([key, value]) => `${key}=${typeof value === "number" ? Number(value.toFixed?.(2) ?? value) : JSON.stringify(value)}`)
+      .join(" ");
+    console.log(`[bot-ai] ${bot.name} action=${action} ${details}`);
   }
 
   debugAbilityDecision(bot, decision, result) {

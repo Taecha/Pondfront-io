@@ -1559,6 +1559,31 @@ h1 {
   padding-inline: 13px;
 }
 
+.mobile-attack-actions {
+  display: grid;
+  grid-column: 1 / -1;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 6px;
+}
+
+.mobile-attack-actions button {
+  min-height: 40px;
+  padding-inline: 8px;
+  border-color: rgba(242, 216, 122, 0.22);
+  background:
+    linear-gradient(180deg, rgba(43, 83, 102, 0.95), rgba(12, 33, 49, 0.98)),
+    #0d2d3e;
+  color: #dceff4;
+  font-size: 0.74rem;
+  font-weight: 900;
+}
+
+.mobile-attack-actions button.active {
+  color: #061019;
+  border-color: rgba(242, 216, 122, 0.75);
+  background: linear-gradient(180deg, #f2d87a, #d8ad48);
+}
+
 #mobileMainAction {
   color: #061019;
   background: linear-gradient(180deg, #f2d87a, #d8ad48);
@@ -1959,7 +1984,7 @@ h1 {
 
 .bottombar {
   display: grid;
-  grid-template-columns: minmax(300px, 460px) minmax(460px, 1fr) 170px;
+  grid-template-columns: minmax(260px, 0.85fr) minmax(320px, 0.95fr) minmax(430px, 1.2fr) 150px;
   gap: 10px;
   align-items: center;
   padding: 10px 14px;
@@ -1967,6 +1992,7 @@ h1 {
 }
 
 .percent-row,
+.attack-style-row,
 .action-row {
   display: grid;
   gap: 8px;
@@ -1976,8 +2002,12 @@ h1 {
   grid-template-columns: repeat(5, 1fr);
 }
 
+.attack-style-row {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
 .action-row {
-  grid-template-columns: repeat(5, 1fr);
+  grid-template-columns: repeat(6, 1fr);
 }
 
 .percent-row button.active {
@@ -1986,6 +2016,23 @@ h1 {
   box-shadow:
     inset 0 1px 0 rgba(255, 255, 255, 0.22),
     0 0 0 2px rgba(216, 173, 72, 0.18);
+}
+
+.attack-style-row button {
+  border-color: rgba(242, 216, 122, 0.22);
+  background:
+    linear-gradient(180deg, rgba(43, 83, 102, 0.94), rgba(13, 36, 52, 0.97)),
+    #0d2d3e;
+  color: #dceff4;
+}
+
+.attack-style-row button.active {
+  color: #061019;
+  border-color: rgba(242, 216, 122, 0.74);
+  background: linear-gradient(180deg, #f2d87a, #d8ad48);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.3),
+    0 0 0 2px rgba(242, 216, 122, 0.15);
 }
 
 .action-row #attackButton {
@@ -2004,6 +2051,11 @@ h1 {
 
 .action-row #buildButton {
   background: linear-gradient(180deg, rgba(108, 86, 48, 0.96), rgba(56, 43, 26, 0.96));
+}
+
+.action-row #specialButton {
+  border-color: rgba(242, 216, 122, 0.46);
+  background: linear-gradient(180deg, rgba(84, 86, 118, 0.96), rgba(35, 47, 70, 0.96));
 }
 
 .toast {
@@ -2150,6 +2202,41 @@ h1 {
 .build-sheet-list button small {
   color: var(--muted);
   font-size: 0.74rem;
+}
+
+.special-sheet-list button {
+  border-color: rgba(242, 216, 122, 0.24);
+  background:
+    linear-gradient(180deg, rgba(26, 58, 76, 0.95), rgba(9, 28, 42, 0.98)),
+    #0c2638;
+}
+
+.special-sheet-list button strong {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.special-sheet-list button em {
+  color: #f2d87a;
+  font-size: 0.72rem;
+  font-style: normal;
+}
+
+.special-sheet-list button i {
+  color: #dceff4;
+  font-size: 0.72rem;
+  font-style: normal;
+}
+
+#specialButton.ready {
+  color: #061019;
+  border-color: rgba(242, 216, 122, 0.74);
+  background: linear-gradient(180deg, #f2d87a, #caa24d);
+}
+
+#specialButton.cooldown {
+  opacity: 0.86;
 }
 
 @keyframes toastIn {
@@ -2689,7 +2776,12 @@ h1 {
     max-width: 100vw;
   }
 
+  .attack-style-row {
+    display: none;
+  }
+
   .percent-row,
+  .attack-style-row,
   .action-row {
     gap: 6px;
   }
@@ -2897,6 +2989,10 @@ h1 {
 
   .percent-row {
     grid-template-columns: repeat(5, minmax(0, 1fr));
+  }
+
+  .attack-style-row {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
   }
 
   .action-row {
@@ -3379,13 +3475,15 @@ h1 {
   color: #aeeaf4;
 }
 
-.percent-row button {
+.percent-row button,
+.attack-style-row button {
   background:
     linear-gradient(180deg, rgba(32, 72, 90, 0.92), rgba(10, 31, 45, 0.96)),
     #0b2839;
 }
 
-.percent-row button.active {
+.percent-row button.active,
+.attack-style-row button.active {
   border-color: rgba(240, 214, 118, 0.76);
   background: linear-gradient(180deg, #f1d676, #c99138);
   box-shadow:
@@ -3674,6 +3772,7 @@ body.ui-compact .bottombar {
 }
 
 body.ui-compact .percent-row button,
+body.ui-compact .attack-style-row button,
 body.ui-compact .action-row button,
 body.ui-compact .bottombar select {
   min-height: 36px;
@@ -3736,6 +3835,7 @@ body.ui-large .panel {
   }
 
   body.ui-compact .percent-row button,
+  body.ui-compact .attack-style-row button,
   body.ui-compact .action-row button,
   body.ui-compact .bottombar select {
     min-height: 44px;
@@ -4515,11 +4615,13 @@ body.ui-tiny .bottombar {
 }
 
 body.ui-tiny .percent-row,
+body.ui-tiny .attack-style-row,
 body.ui-tiny .action-row {
   gap: 5px;
 }
 
 body.ui-tiny .percent-row button,
+body.ui-tiny .attack-style-row button,
 body.ui-tiny .action-row button,
 body.ui-tiny .bottombar select {
   min-height: 32px;
@@ -4592,16 +4694,20 @@ body.ui-tiny .bottombar select {
   }
 
   body.ui-compact .percent-row,
+  body.ui-compact .attack-style-row,
   body.ui-compact .action-row,
   body.ui-tiny .percent-row,
+  body.ui-tiny .attack-style-row,
   body.ui-tiny .action-row {
     gap: 4px;
   }
 
   body.ui-compact .percent-row button,
+  body.ui-compact .attack-style-row button,
   body.ui-compact .action-row button,
   body.ui-compact .bottombar select,
   body.ui-tiny .percent-row button,
+  body.ui-tiny .attack-style-row button,
   body.ui-tiny .action-row button,
   body.ui-tiny .bottombar select {
     min-height: 40px;
@@ -4772,6 +4878,7 @@ button.cooldown#buildButton {
   }
 
   .percent-row button,
+  .attack-style-row button,
   .action-row button,
   .bottombar select {
     min-height: 40px;
@@ -4829,5 +4936,284 @@ button.cooldown#buildButton {
 
   .sandbox-command-form {
     grid-template-columns: 1fr;
+  }
+}
+
+/* Final visual polish: calmer strategy-map chrome and clearer combat controls. */
+body {
+  background:
+    radial-gradient(circle at 18% 8%, rgba(111, 197, 216, 0.12), transparent 24%),
+    radial-gradient(circle at 80% 18%, rgba(216, 173, 72, 0.1), transparent 22%),
+    linear-gradient(145deg, #04101a 0%, #082033 48%, #05131e 100%);
+}
+
+.start-screen {
+  background:
+    linear-gradient(rgba(5, 17, 28, 0.78), rgba(5, 17, 28, 0.92)),
+    radial-gradient(circle at 22% 22%, rgba(116, 212, 232, 0.18), transparent 26%),
+    radial-gradient(circle at 76% 18%, rgba(242, 216, 122, 0.12), transparent 24%),
+    linear-gradient(135deg, #081827 0%, #0c3244 52%, #061522 100%);
+}
+
+.lobby-hero,
+.lobby-side > *,
+.lobby-guide > div,
+.topbar,
+.left-panel,
+.right-panel,
+.bottombar,
+.view-toggle,
+.mobile-action-card,
+.leaderboard-panel li,
+#miniMap {
+  border-color: rgba(184, 237, 245, 0.22);
+  box-shadow:
+    0 18px 48px rgba(0, 0, 0, 0.28),
+    inset 0 1px 0 rgba(255, 255, 255, 0.055);
+  backdrop-filter: blur(14px) saturate(1.08);
+}
+
+.topbar,
+.bottombar {
+  background: linear-gradient(180deg, rgba(8, 28, 43, 0.9), rgba(6, 18, 29, 0.9));
+}
+
+.left-panel,
+.right-panel,
+.view-toggle {
+  background: rgba(5, 18, 29, 0.76);
+}
+
+.bottombar button,
+.view-toggle select,
+.view-toggle label,
+.bottombar select {
+  border-color: rgba(184, 237, 245, 0.18);
+}
+
+.attack-style-row button {
+  min-width: 112px;
+}
+
+.attack-style-row button:disabled,
+.mobile-attack-actions button:disabled,
+#attackButton:disabled {
+  cursor: not-allowed;
+  opacity: 0.42;
+  filter: grayscale(0.35);
+}
+
+#attackButton.active,
+.attack-style-row button.active {
+  box-shadow:
+    0 0 0 1px rgba(242, 216, 122, 0.42),
+    0 8px 24px rgba(216, 173, 72, 0.18);
+}
+
+.view-toggle {
+  gap: 8px;
+}
+
+.view-toggle label {
+  background: rgba(11, 36, 53, 0.72);
+}
+
+.toast,
+.stack-toast {
+  box-shadow: 0 12px 34px rgba(0, 0, 0, 0.32);
+}
+
+.win-debug-panel {
+  position: fixed;
+  top: 76px;
+  left: 50%;
+  z-index: 12;
+  transform: translateX(-50%);
+  max-width: min(760px, calc(100vw - 24px));
+  padding: 7px 11px;
+  border: 1px solid rgba(242, 216, 122, 0.36);
+  border-radius: 8px;
+  background: rgba(4, 13, 20, 0.78);
+  color: #fff1a8;
+  font-size: 0.72rem;
+  font-weight: 800;
+  pointer-events: none;
+}
+
+button,
+select,
+input[type="range"],
+.animal-choice,
+.start-card,
+.side-panel,
+.topbar,
+.bottombar,
+.view-toggle,
+.mobile-action-card {
+  transition:
+    transform 140ms ease,
+    border-color 160ms ease,
+    box-shadow 160ms ease,
+    background-color 160ms ease,
+    opacity 160ms ease;
+}
+
+button:not(:disabled):hover {
+  transform: translateY(-1px);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.22),
+    0 10px 22px rgba(0, 0, 0, 0.24),
+    0 0 0 1px rgba(154, 230, 242, 0.14);
+}
+
+button:not(:disabled):active {
+  transform: translateY(1px) scale(0.985);
+  transition-duration: 60ms;
+}
+
+button:disabled {
+  opacity: 0.48;
+  filter: saturate(0.65);
+}
+
+.percent-row button.active,
+.attack-style-row button.active {
+  animation: selectedSendPulse 1.8s ease-in-out infinite;
+}
+
+#attackButton.active {
+  animation: attackReadyPulse 1.25s ease-in-out infinite;
+}
+
+#abilityButton.ready {
+  animation: abilityReadyGlow 1.7s ease-in-out infinite;
+}
+
+#buildButton.ready {
+  box-shadow:
+    0 0 0 1px rgba(242, 216, 122, 0.28),
+    0 0 18px rgba(242, 216, 122, 0.12);
+}
+
+.toast:not(.hidden),
+.stack-toast {
+  animation: toastSlideIn 220ms ease both;
+}
+
+.stack-toast.leaving {
+  animation: toastSlideOut 420ms ease both;
+}
+
+.mobile-sheet:not(.hidden),
+.build-sheet:not(.hidden),
+.team-sheet:not(.hidden),
+.result-screen:not(.hidden),
+.tutorial:not(.hidden) {
+  animation: panelFloatIn 220ms ease both;
+}
+
+.lake-event-banner:not(.hidden) {
+  animation: lakeBannerPulse 2.2s ease-in-out infinite;
+}
+
+@keyframes selectedSendPulse {
+  0%,
+  100% {
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 0.35),
+      0 0 0 1px rgba(240, 214, 118, 0.22),
+      0 9px 20px rgba(0, 0, 0, 0.22);
+  }
+  50% {
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 0.38),
+      0 0 0 3px rgba(240, 214, 118, 0.16),
+      0 13px 28px rgba(216, 173, 72, 0.22);
+  }
+}
+
+@keyframes attackReadyPulse {
+  0%,
+  100% {
+    filter: saturate(1);
+  }
+  50% {
+    filter: saturate(1.18) brightness(1.08);
+  }
+}
+
+@keyframes abilityReadyGlow {
+  0%,
+  100% {
+    box-shadow:
+      0 0 0 1px rgba(240, 214, 118, 0.28),
+      0 0 14px rgba(240, 214, 118, 0.16);
+  }
+  50% {
+    box-shadow:
+      0 0 0 3px rgba(240, 214, 118, 0.14),
+      0 0 28px rgba(240, 214, 118, 0.34);
+  }
+}
+
+@keyframes toastSlideIn {
+  from {
+    opacity: 0;
+    transform: translateY(8px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes toastSlideOut {
+  to {
+    opacity: 0;
+    transform: translateY(-8px) scale(0.98);
+  }
+}
+
+@keyframes panelFloatIn {
+  from {
+    opacity: 0;
+    transform: translateY(10px) scale(0.99);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes lakeBannerPulse {
+  0%,
+  100% {
+    box-shadow: 0 12px 28px rgba(0, 0, 0, 0.28);
+  }
+  50% {
+    box-shadow:
+      0 12px 28px rgba(0, 0, 0, 0.28),
+      0 0 0 3px rgba(255, 241, 168, 0.08);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 1ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 1ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+@media (max-width: 720px) {
+  .attack-style-row button {
+    min-width: 0;
+  }
+
+  .view-toggle {
+    background: rgba(5, 18, 29, 0.88);
   }
 }
