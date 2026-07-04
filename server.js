@@ -468,11 +468,16 @@ class PondFrontServerGame {
       return result;
     }
     if (body.type === "startContinuousAttack") {
-      const result = this.combat.startContinuousAttack(this, player, Number(body.tileId), percent, body.sourceIds || []);
+      const target = this.tileManager.getById(Number(body.tileId));
+      const defender = target?.owner ? this.getPlayer(target.owner) : null;
+      const result =
+        target && defender && defender.id !== player.id
+          ? this.combat.startWaveAttack(this, player, defender, target, percent, body.sourceIds || [])
+          : { ok: false, message: "Choose an enemy border for a committed attack." };
       this.sandbox?.afterAction(this, player, body, result);
       return result;
     }
-    if (body.type === "stopContinuousAttack") return this.combat.stopContinuousAttack(this, player.id, "Attack cancelled.");
+    if (body.type === "stopContinuousAttack") return { ok: true, resultType: "legacyNoop", message: "Committed waves stop automatically when spent." };
     if (body.type === "support") return this.support.send(this, player, body.targetId, percent);
     if (body.type === "waterRoute") {
       const result = this.combat.startWaterRouteAttack(this, player, Number(body.tileId), percent, body.sourceIds || []);
