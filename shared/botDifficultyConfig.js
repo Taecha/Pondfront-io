@@ -1,0 +1,68 @@
+(function initPondBotDifficulty(root, factory) {
+  const config = factory();
+  if (typeof module !== "undefined" && module.exports) module.exports = config;
+  else root.PondBotDifficulty = config;
+})(typeof globalThis !== "undefined" ? globalThis : window, function makeBotDifficultyConfig() {
+  return {
+    easy: {
+      label: "Easy",
+      description: "Beginner friendly. Slower expansion, slower reaction, small attacks, almost no Current Push.",
+      reactionDelay: [6, 10],
+      turnPaceMultiplier: 1.55,
+      expansionMultiplier: 0.82,
+      attackCooldown: [18, 28],
+      currentPushCooldown: 90,
+      currentPushChance: 0.008,
+      mistakeChance: 0.35,
+      aggression: 0.45,
+      attackPercentMultiplier: 0.78,
+      minimumAttackSpend: 16,
+      beginnerCombat: true,
+    },
+    normal: {
+      label: "Normal",
+      description: "Fair pressure. Balanced expansion, delayed attacks, rare Current Push.",
+      reactionDelay: [4, 7],
+      turnPaceMultiplier: 1.12,
+      expansionMultiplier: 0.94,
+      attackCooldown: [12, 20],
+      currentPushCooldown: 70,
+      currentPushChance: 0.035,
+      mistakeChance: 0.2,
+      aggression: 0.7,
+      attackPercentMultiplier: 0.92,
+      minimumAttackSpend: 14,
+      beginnerCombat: false,
+    },
+    smart: {
+      label: "Hard",
+      description: "Smarter combat. Faster reactions, stronger attacks, occasional Current Push.",
+      reactionDelay: [2, 5],
+      turnPaceMultiplier: 0.9,
+      expansionMultiplier: 1,
+      attackCooldown: [8, 14],
+      currentPushCooldown: 55,
+      currentPushChance: 0.08,
+      mistakeChance: 0.08,
+      aggression: 1,
+      attackPercentMultiplier: 1,
+      minimumAttackSpend: 11,
+      beginnerCombat: false,
+    },
+    chaos: {
+      label: "Chaos",
+      description: "Advanced only. Frequent wars, fast reactions, more Current Push pressure.",
+      reactionDelay: [1, 3],
+      turnPaceMultiplier: 0.76,
+      expansionMultiplier: 1.08,
+      attackCooldown: [5, 10],
+      currentPushCooldown: 40,
+      currentPushChance: 0.14,
+      mistakeChance: 0.05,
+      aggression: 1.35,
+      attackPercentMultiplier: 1.08,
+      minimumAttackSpend: 9,
+      beginnerCombat: false,
+    },
+  };
+});

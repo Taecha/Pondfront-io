@@ -67,7 +67,17 @@
         this.spawnPulse(event.to, color, 0.86);
       } else if (event.kind === "waterRouteAttack") {
         (event.routeTiles || []).slice(0, 18).forEach((tileId) => this.spawnRipple(tileId, "#87d7ea", 0.62));
-        this.spawnAttackArrow(event.from, event.to, color, "Current");
+        this.spawnAttackArrow(event.from, event.to, color, `${event.travelTime || ""}s`.trim() || "Current");
+        this.spawnScreenNotice("Current Push Launched", "#87d7ea");
+      } else if (event.kind === "currentPushWarning") {
+        (event.routeTiles || []).slice(-18).forEach((tileId) => this.spawnRipple(tileId, "#fff1a8", 0.5));
+        this.spawnPulse(event.to, "#fff1a8", 1.45);
+        this.spawnFloatingText(event.to, `${Math.ceil(event.impactIn || 0)}s`, "#fff1a8");
+      } else if (event.kind === "currentPushImpact") {
+        this.spawnRipple(event.to, event.captured > 0 ? color : "#edf8fb", event.captured > 0 ? 1.35 : 0.9);
+        this.spawnScreenNotice(event.captured > 0 ? `Current Push: ${event.captured} tiles` : "Current Push Blocked", event.captured > 0 ? color : "#edf8fb");
+      } else if (event.kind === "currentPushBlocked") {
+        this.spawnBlockedEffect(event.to, "Current Blocked");
       } else if (event.kind === "coreUnderAttack") {
         this.spawnBlockedEffect(event.to, "Core Hit");
         this.spawnScreenNotice("Core Nest Under Attack", "#e9857c");

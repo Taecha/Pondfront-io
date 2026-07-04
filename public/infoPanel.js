@@ -4,7 +4,8 @@
       "Animal Energy is used to expand, attack, defend, build, and use abilities. Bigger territory gives more max energy and income.",
     territory: "Your controlled lake area. More territory increases income and max Animal Energy.",
     income: "How much Animal Energy you gain per second.",
-    attack: "Send energy from your border into enemy land. Stronger attacks can push deeper through the front line.",
+    attack: "Border Attack is best for normal fighting. It attacks from your connected border and pushes into enemy land.",
+    currentPush: "Current Push is a long-range water route attack. It travels over time, warns the defender, and can be reinforced against.",
     expand: "Capture neutral pond tiles from your connected border. Ducks are especially efficient on open water.",
     defend: "Reinforces your border and makes enemy attacks cost more energy.",
     build: "Build compact economy or defense upgrades on your territory. Building starts a short cooldown and repeated building types cost more.",
@@ -140,10 +141,17 @@
     if (context.canUpgradeBuilding) facts.push({ label: "Upgrade", value: "Available" });
     if (context.estimateText) facts.push({ label: "Estimate", value: context.estimateText });
     if (context.kind === "attackBorder") {
+      if (context.recommendedAction) facts.push({ label: "Recommended", value: context.recommendedAction });
+      if (context.recommendedReason) facts.push({ label: "Reason", value: context.recommendedReason });
       facts.push({ label: "Send", value: String(context.sendEnergy || context.strength || 0) });
       facts.push({ label: "First Cost", value: context.nextCost == null ? "?" : `~${context.nextCost}` });
       facts.push({ label: "Risk", value: context.risk || "Unknown" });
       facts.push({ label: "Reinforced", value: `+${context.reinforcedBonus || 0}` });
+      if (context.currentPushPreview?.valid) {
+        facts.push({ label: "Current Route", value: `${context.currentPushPreview.distance} tiles` });
+        facts.push({ label: "Impact", value: `${context.currentPushPreview.travelTime}s` });
+        facts.push({ label: "Push Power", value: String(context.currentPushPreview.impactPower) });
+      }
     }
 
     let title = type.label;
@@ -152,9 +160,13 @@
 
     if (context.kind === "attackBorder") {
       title = "Attackable Border";
-      detail =
-        status?.detail ||
-        `Send ${context.percent}% energy. Estimated capture: ${context.tiles} tiles. First border costs about ${context.nextCost}.`;
+      if (!context.canAttack && context.currentPushPreview?.valid) {
+        detail = `Current Push Preview: route ${context.currentPushPreview.distance} tiles, impact in ${context.currentPushPreview.travelTime}s, estimated capture ${context.currentPushPreview.estimatedCapture} tiles.`;
+      } else {
+        detail =
+          status?.detail ||
+          `${context.recommendedAction || "Border Attack"}: send ${context.percent}% energy. Estimated capture: ${context.tiles} tiles. First border costs about ${context.nextCost}.`;
+      }
     } else if (context.kind === "blockedAttack") {
       title = owner ? "Enemy Territory" : type.label;
       detail = context.reason || detail;

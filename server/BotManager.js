@@ -1,5 +1,6 @@
 const config = require("../shared/gameConfig");
 const balance = config.BALANCE;
+const botDifficultyConfig = require("../shared/botDifficultyConfig");
 
 class BotManager {
   constructor(game) {
@@ -10,11 +11,14 @@ class BotManager {
   }
 
   update(dt) {
+    if (this.game.sandbox?.enabled && this.game.sandbox.botsPaused) return;
     this.game.players.forEach((bot) => {
       if (!bot.isBot || bot.defeated) return;
+      const mode = this.sandboxMode(bot);
+      if (mode === "passive") return;
       const elapsed = (this.timers.get(bot.id) || 0) + dt;
       const animalPace = bot.animal === "duck" ? 0.9 : bot.animal === "snake" ? 1.08 : bot.animal === "turtle" ? 1.18 : bot.animal === "carp" ? 1.02 : 0.98;
-      const pace = (bot.difficulty === "smart" ? 0.72 : bot.difficulty === "easy" ? 1.45 : 1) * animalPace;
+      const pace = (this.difficultyProfile(bot).turnPaceMultiplier || 1) * animalPace;
       if (elapsed < pace) {
         this.timers.set(bot.id, elapsed);
         return;
@@ -24,9 +28,14 @@ class BotManager {
     });
   }
 
+  difficultyProfile(bot) {
+    return botDifficultyConfig[bot?.difficulty] || botDifficultyConfig.normal;
+  }
+
   takeTurn(bot) {
     const phase = this.phase();
     const now = this.game.now();
+    if (this.trySandboxLimitedTurn(bot, phase)) return;
     if (this.trySurrender(bot, phase)) return;
     if (bot.energy < 8) return;
     const enemy = this.game.tileManager
@@ -165,10 +174,19 @@ class BotManager {
   }
 
   tryWaterRoute(bot, target, phase) {
+    if (this.game.sandbox?.enabled && this.game.sandbox.rules?.currentPush === false) return false;
     if (!target || phase === "early" || !this.game.combat?.startWaterRouteAttack) return false;
+    const profile = this.difficultyProfile(bot);
+    if (bot.difficulty === "easy" && this.game.elapsed() < 480) return false;
+    if (phase === "early" && bot.difficulty !== "chaos") return false;
+    if (this.game.now() < (bot.aiCurrentPushCooldownUntil || 0)) return false;
     if (bot.animal !== "duck" && bot.animal !== "carp" && bot.personality !== "leaderHunter") return false;
-    if (bot.energy < bot.maxEnergy * 0.48 || Math.random() > (bot.difficulty === "smart" ? 0.12 : 0.05)) return false;
+    const owner = target.owner ? this.game.getPlayer(target.owner) : null;
+    const valuable = target.objectiveId || target.campId || owner?.id === this.leader()?.id || owner?.energy < bot.energy * 0.72;
+    if (!valuable && bot.difficulty !== "chaos") return false;
+    if (bot.energy < bot.maxEnergy * 0.58 || Math.random() > (profile.currentPushChance || 0.03)) return false;
     const result = this.game.combat.startWaterRouteAttack(this.game, bot, target.id, Math.min(0.42, this.attackPlanPercent(bot, target, phase) + 0.08));
+    bot.aiCurrentPushCooldownUntil = this.game.now() + (result.ok ? profile.currentPushCooldown || 70 : 8);
     return result.ok;
   }
 
@@ -180,14 +198,35 @@ class BotManager {
     return "early";
   }
 
-  aggressionScale() {
+  sandboxMode(bot) {
+    if (!this.game.sandbox?.enabled) return "";
+    return bot.flags?.sandboxPersonality || this.game.sandbox.defaultBotPersonality || "";
+  }
+
+  trySandboxLimitedTurn(bot, phase) {
+    if (!this.game.sandbox?.enabled) return false;
+    const mode = this.sandboxMode(bot);
+    if (mode === "passive") return true;
+    const noCombat = this.game.sandbox.rules?.botsFight === false;
+    if (!noCombat && !["expander", "defender"].includes(mode)) return false;
+    if ((mode === "defender" || noCombat) && this.tryDefend(bot)) return true;
+    if (bot.energy > bot.maxEnergy * 0.6 && this.tryBuild(bot)) return true;
+    const neutral = this.game.tileManager.capturable(bot.id).filter((tile) => !tile.owner);
+    if (neutral.length) {
+      const target = this.pickNeutralExpansion(bot, neutral);
+      if (target) this.tryExpandNeutral(bot, target);
+    }
+    return true;
+  }
+
+  aggressionScale(bot = null) {
     const elapsed = this.game.elapsed();
     const active = this.game.players.filter((player) => !player.defeated && player.territory > 0).length;
     let scale = 1;
     if (elapsed >= 120) scale += 0.25;
     if (elapsed >= 300) scale += 0.25;
     if (active <= Math.max(3, Math.ceil(this.game.players.length * 0.35))) scale += 0.25;
-    return scale * (balance.botAggressionMultiplier || 1);
+    return scale * (balance.botAggressionMultiplier || 1) * (bot ? this.difficultyProfile(bot).aggression || 1 : 1);
   }
 
   shouldFavorCombat(phase) {
@@ -350,7 +389,7 @@ class BotManager {
     const animal = bot.animal === "snake" ? 0.05 : bot.animal === "frog" ? 0.03 : bot.animal === "turtle" ? 0.12 : bot.animal === "carp" ? 0.14 : 0;
     if (bot.personality === "defensive") return base + 0.12;
     if (bot.personality === "aggressive") return base - 0.1;
-    return Math.max(0.04, base + animal - (this.aggressionScale() - 1) * 0.08);
+    return Math.max(0.04, base + animal - (this.aggressionScale(bot) - 1) * 0.08);
   }
 
   bestTile(bot, tiles) {
@@ -377,7 +416,7 @@ class BotManager {
       .filter((tile) => tile.objectiveId || tile.campId)
       .filter((tile) => !tile.owner || (tile.owner !== bot.id && this.game.diplomacy.canAttack(bot.id, tile.owner, this.game.now()).ok));
     if (!capturable.length) return null;
-    const aggression = this.aggressionScale();
+    const aggression = this.aggressionScale(bot);
     const chance =
       bot.personality === "objectiveHunter"
         ? 0.88
@@ -429,7 +468,7 @@ class BotManager {
 
   pickAttack(bot, tiles, phase = "early") {
     const leader = this.leader();
-    const aggression = this.aggressionScale();
+    const aggression = this.aggressionScale(bot);
     const candidates = tiles
       .map((tile) => {
         const owner = this.game.getPlayer(tile.owner);
@@ -457,6 +496,12 @@ class BotManager {
       })
       .filter(Boolean)
       .sort((a, b) => b.score - a.score);
+    if (!candidates.length) return null;
+    const mistakeChance = this.difficultyProfile(bot).mistakeChance || 0;
+    if (Math.random() < mistakeChance) {
+      const pool = candidates.slice(0, Math.min(candidates.length, bot.difficulty === "easy" ? 6 : 4));
+      return pool[Math.floor(Math.random() * pool.length)]?.tile || candidates[0].tile;
+    }
     return candidates[0]?.tile || null;
   }
 
@@ -499,7 +544,9 @@ class BotManager {
             : 3;
     const difficulty = bot.difficulty === "easy" ? 1.45 : bot.difficulty === "smart" ? 0.82 : 1;
     const phaseFactor = phase === "early" ? 1.18 : phase === "surge" ? 0.35 : phase === "late" ? 0.62 : 0.82;
-    return (personality * difficulty * phaseFactor) / Math.min(1.7, this.aggressionScale());
+    const profileDelay = this.difficultyProfile(bot).reactionDelay || [3, 6];
+    const profileFloor = profileDelay[0] + Math.random() * Math.max(0, profileDelay[1] - profileDelay[0]);
+    return Math.max(profileFloor, (personality * difficulty * phaseFactor) / Math.min(1.7, this.aggressionScale(bot)));
   }
 
   attackPlanPercent(bot, tile, phase) {
@@ -518,8 +565,9 @@ class BotManager {
     if (bot.animal === "carp" && phase !== "early" && bot.energy > bot.maxEnergy * 0.72) percent = Math.max(percent, 0.35);
     if (leaderTarget && phase !== "early") percent = Math.max(percent, 0.45);
     if (weak && phase === "surge") percent = 0.62;
-    if (phase !== "early") percent += Math.min(0.12, (this.aggressionScale() - 1) * 0.06);
-    return Math.min(0.75, Math.max(0.12, percent));
+    if (phase !== "early") percent += Math.min(0.12, (this.aggressionScale(bot) - 1) * 0.06);
+    percent *= this.difficultyProfile(bot).attackPercentMultiplier || 1;
+    return Math.min(0.75, Math.max(0.1, percent));
   }
 
   attackCooldownSeconds(bot, phase) {
@@ -535,7 +583,9 @@ class BotManager {
               ? 1.6
               : 1.12;
     const difficulty = bot.difficulty === "easy" ? 1.35 : bot.difficulty === "smart" ? 0.9 : 1.08;
-    return (baseCooldown * personality * difficulty) / Math.min(1.65, this.aggressionScale());
+    const range = this.difficultyProfile(bot).attackCooldown || [10, 18];
+    const profiledCooldown = range[0] + Math.random() * Math.max(0, range[1] - range[0]);
+    return Math.max(profiledCooldown, (baseCooldown * personality * difficulty) / Math.min(1.65, this.aggressionScale(bot)));
   }
 
   attackDecision(bot, tile, phase, fallback = false) {
@@ -564,7 +614,7 @@ class BotManager {
         : bot.personality === "farmer" || bot.personality === "peaceful" || bot.personality === "loyalAlly"
             ? 0.46
             : balance.botAttackEnergyThreshold;
-    const aggression = this.aggressionScale();
+    const aggression = this.aggressionScale(bot);
     const animalThreshold = Math.max(
       0.2,
       (bot.animal === "turtle" ? threshold + 0.08 : bot.animal === "carp" && phase === "early" ? threshold + 0.12 : threshold) -
@@ -574,13 +624,14 @@ class BotManager {
     const percent = this.attackPlanPercent(bot, tile, phase);
     const spend = bot.energy * percent;
     const roughCost = this.roughAttackCost(tile, owner);
-    const minimumSpend = bot.difficulty === "easy" ? 14 : bot.difficulty === "smart" ? 10 : 12;
+    const minimumSpend = this.difficultyProfile(bot).minimumAttackSpend || (bot.difficulty === "easy" ? 14 : bot.difficulty === "smart" ? 10 : 12);
     if (spend < minimumSpend && !fallback) return { ok: false, reason: "tiny attack", spend, minimumSpend };
     if (spend < roughCost * (phase === "early" ? 0.48 : 0.38) && owner.energy >= bot.energy * 0.5 && !recentlyHit && !fallback) {
       return { ok: false, reason: "border too strong", spend, roughCost };
     }
     if (phase === "early" && bot.animal === "carp" && !fallback && Math.random() > 0.08) return { ok: false, reason: "carp economy first" };
-    if (phase === "early" && bot.personality !== "aggressive" && !recentlyHit && Math.random() > 0.2) return { ok: false, reason: "early caution" };
+    const earlyCaution = bot.difficulty === "easy" ? 0.08 : bot.difficulty === "normal" ? 0.14 : 0.2;
+    if (phase === "early" && bot.personality !== "aggressive" && !recentlyHit && Math.random() > earlyCaution) return { ok: false, reason: "early caution" };
     if (owner.energy < bot.energy * 0.78) {
       const chance = Math.min(0.95, (phase === "early" ? 0.28 : 0.74) + (aggression - 1) * 0.1);
       return { ok: Math.random() < chance, reason: "weak neighbor", chance, percent, spend, roughCost, contactAge };
@@ -642,7 +693,7 @@ class BotManager {
       if (bot.energy < cost) continue;
       const tile = owned.find((candidate) => this.game.economy.canBuild(bot, candidate, buildingType, this.game.now()));
       if (tile) {
-        const result = this.game.economy.build(bot, tile, buildingType, this.game.now());
+        const result = this.game.economy.build(bot, tile, buildingType, this.game.now(), this.game);
         if (result.ok) {
           this.game.pushEvent({ kind: "buildStarted", playerId: bot.id, to: tile.id, buildingType, finishesAt: result.buildingActiveAt, at: this.game.now() });
         }

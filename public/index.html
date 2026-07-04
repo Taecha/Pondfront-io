@@ -25,6 +25,34 @@
               <span>Smart bots</span>
             </div>
 
+            <div id="accountPanel" class="account-panel guest">
+              <div class="account-status">
+                <span id="accountBadgeMini" class="account-badge-mini">G</span>
+                <div>
+                  <strong id="accountName">Playing as Guest</strong>
+                  <small id="accountHint">Create an account to save XP, badges, stats, and match history.</small>
+                </div>
+              </div>
+              <div class="account-actions">
+                <button id="loginOpenButton" class="secondary-button" type="button">Login</button>
+                <button id="signupOpenButton" class="secondary-button" type="button">Sign Up</button>
+                <button id="continueGuestButton" class="secondary-button" type="button">Guest</button>
+                <button id="profileOpenButton" class="secondary-button hidden" type="button">Profile</button>
+                <button id="logoutButton" class="secondary-button hidden" type="button">Logout</button>
+              </div>
+              <form id="authForm" class="auth-form hidden">
+                <div class="auth-form-head">
+                  <strong id="authFormTitle">Login</strong>
+                  <button id="authCloseButton" class="icon-button" type="button">X</button>
+                </div>
+                <label for="authUsername">Username<input id="authUsername" maxlength="18" autocomplete="username" /></label>
+                <label for="authPassword">Password<input id="authPassword" type="password" autocomplete="current-password" /></label>
+                <label id="authConfirmRow" class="hidden" for="authConfirmPassword">Confirm<input id="authConfirmPassword" type="password" autocomplete="new-password" /></label>
+                <p id="authError" class="lobby-error hidden"></p>
+                <button id="authSubmitButton" class="primary" type="submit">Login</button>
+              </form>
+            </div>
+
             <label class="name-field" for="playerName">
               <span>Commander Name</span>
               <input id="playerName" maxlength="18" value="Player" autocomplete="off" />
@@ -35,6 +63,7 @@
               <button id="createLobbyButton" class="secondary-button" type="button">Create Lobby</button>
               <button id="joinLobbyButton" class="secondary-button" type="button">Join Lobby</button>
               <button id="practiceButton" class="secondary-button" type="button">Practice With Bots</button>
+              <button id="sandboxButton" class="secondary-button sandbox-lobby-button" type="button">Sandbox Mode</button>
               <button id="lobbyHelpButton" class="secondary-button" type="button">How to Play</button>
             </div>
           </section>
@@ -143,9 +172,10 @@
               <select id="difficulty">
                 <option value="easy">Chill</option>
                 <option value="normal" selected>Normal</option>
-                <option value="smart">Aggressive</option>
+                <option value="smart">Hard</option>
                 <option value="chaos">Chaos</option>
               </select>
+              <label class="check-row" for="beginnerCombat"><input id="beginnerCombat" type="checkbox" checked /> Beginner combat</label>
               <label for="mapSize">Map size</label>
               <select id="mapSize">
                 <option value="small">Small 60x36</option>
@@ -208,6 +238,67 @@
           </aside>
         </div>
 
+        <section id="sandboxSetupPanel" class="lobby-flow-panel sandbox-setup-panel hidden" aria-label="Sandbox setup">
+          <header>
+            <div>
+              <span class="label">Sandbox Mode</span>
+              <h2>Test animals, builds, attacks, bots, and map settings freely</h2>
+              <p>Stats, XP, coins, achievements, match history, and ranked progress are disabled.</p>
+            </div>
+            <button id="sandboxSetupBack" class="icon-button" type="button">X</button>
+          </header>
+          <div class="lobby-form-grid sandbox-form-grid">
+            <label for="sandboxPreset">Preset<select id="sandboxPreset">
+              <option value="empty">Empty Map</option>
+              <option value="botWar">Bot War</option>
+              <option value="economy">Economy Test</option>
+              <option value="combat">Combat Test</option>
+              <option value="currentPush">Current Push Test</option>
+              <option value="chaos">Huge Chaos</option>
+            </select></label>
+            <label for="sandboxMapSize">Map<select id="sandboxMapSize">
+              <option value="small">Small</option>
+              <option value="medium" selected>Medium</option>
+              <option value="large">Large</option>
+              <option value="huge">Huge</option>
+            </select></label>
+            <label for="sandboxAnimal">Starting animal<select id="sandboxAnimal">
+              <option value="duck">Duck</option>
+              <option value="snake">Snake</option>
+              <option value="frog">Frog</option>
+              <option value="turtle">Turtle</option>
+              <option value="carp">Carp</option>
+            </select></label>
+            <label for="sandboxBotCount">Bot count<select id="sandboxBotCount">
+              <option value="0">0</option>
+              <option value="2">2</option>
+              <option value="4">4</option>
+              <option value="8">8</option>
+              <option value="12">12</option>
+              <option value="16">16</option>
+            </select></label>
+            <label for="sandboxBotDifficulty">Bot difficulty<select id="sandboxBotDifficulty">
+              <option value="passive">Passive</option>
+              <option value="easy">Easy</option>
+              <option value="normal" selected>Normal</option>
+              <option value="smart">Hard</option>
+              <option value="chaos">Chaos</option>
+            </select></label>
+            <label class="check-row" for="sandboxInfiniteEnergy"><input id="sandboxInfiniteEnergy" data-sandbox-rule="infiniteEnergy" type="checkbox" /> Infinite Energy</label>
+            <label class="check-row" for="sandboxInstantBuild"><input id="sandboxInstantBuild" data-sandbox-rule="instantBuild" type="checkbox" /> Instant Build</label>
+            <label class="check-row" for="sandboxNoCooldowns"><input id="sandboxNoCooldowns" data-sandbox-rule="noCooldowns" type="checkbox" /> No Cooldowns</label>
+            <label class="check-row" for="sandboxRevealMap"><input id="sandboxRevealMap" data-sandbox-rule="revealMap" type="checkbox" checked /> Reveal Map</label>
+            <label class="check-row" for="sandboxBotsFight"><input id="sandboxBotsFight" data-sandbox-rule="botsFight" type="checkbox" checked /> Bots Fight</label>
+            <label class="check-row" for="sandboxObjectives"><input id="sandboxObjectives" data-sandbox-rule="objectives" type="checkbox" checked /> Objectives</label>
+            <label class="check-row" for="sandboxCurrentPush"><input id="sandboxCurrentPush" data-sandbox-rule="currentPush" type="checkbox" checked /> Current Push</label>
+            <label class="check-row" for="sandboxElimination"><input id="sandboxElimination" data-sandbox-rule="elimination" type="checkbox" checked /> Elimination</label>
+          </div>
+          <div class="lobby-flow-actions">
+            <button id="sandboxStartButton" class="primary" type="button">Start Sandbox</button>
+            <button class="secondary-button" type="button" id="sandboxSetupBackSecondary">Back</button>
+          </div>
+        </section>
+
         <section id="createLobbyPanel" class="lobby-flow-panel hidden" aria-label="Create lobby">
           <header>
             <div>
@@ -239,7 +330,7 @@
             <label for="createBotDifficulty">Bots<select id="createBotDifficulty">
               <option value="easy">Chill</option>
               <option value="normal" selected>Normal</option>
-              <option value="smart">Smart</option>
+              <option value="smart">Hard</option>
               <option value="chaos">Chaos</option>
             </select></label>
             <label for="createBotCount">Bot count<select id="createBotCount">
@@ -354,7 +445,7 @@
                 <label for="lobbyBotDifficulty">Bot strategy<select id="lobbyBotDifficulty">
                   <option value="easy">Chill</option>
                   <option value="normal">Normal</option>
-                  <option value="smart">Smart</option>
+                  <option value="smart">Hard</option>
                   <option value="chaos">Chaos</option>
                 </select></label>
                 <label for="lobbyTeamCount">Teams<select id="lobbyTeamCount">
@@ -402,6 +493,8 @@
           <div class="brand">
             <span class="brand-mark">P</span>
             <strong>PondFront.io</strong>
+            <span id="sandboxBadge" class="sandbox-badge hidden">Sandbox Mode - stats disabled</span>
+            <button id="sandboxOpenButton" class="help-button sandbox-open hidden" type="button">Sandbox</button>
             <button id="helpButton" class="help-button" data-tip="Open the in-game guide.">Help</button>
           </div>
           <div class="top-stats">
@@ -433,6 +526,7 @@
             <button id="collapseUiButton" type="button" title="Collapse panels">UI</button>
             <button id="openLeaderboardButton" type="button" title="Toggle leaderboard">#</button>
             <button id="mobileTeamButton" type="button" title="Team commands">Team</button>
+            <button id="mobileSandboxButton" class="hidden" type="button" title="Sandbox tools">Sandbox</button>
             <button id="mobileMuteButton" type="button" title="Mute sound">Sound</button>
           </div>
           <div id="mobileActionCard" class="mobile-action-card hidden">
@@ -516,6 +610,123 @@
 
           <div id="toast" class="toast hidden"></div>
           <div id="toastStack" class="toast-stack" aria-live="polite"></div>
+          <section id="sandboxPanel" class="sandbox-panel hidden" aria-modal="true" role="dialog">
+            <div>
+              <header>
+                <div>
+                  <span class="label">Sandbox</span>
+                  <h2 id="sandboxPanelTitle">Sandbox Controls</h2>
+                </div>
+                <button id="sandboxCloseButton" class="icon-button" type="button">X</button>
+              </header>
+              <div class="sandbox-body">
+                <div id="sandboxStatus" class="sandbox-status"></div>
+                <details open>
+                  <summary>Player Tools</summary>
+                  <div class="sandbox-tool-grid">
+                    <button data-sandbox-tool="addEnergy" type="button">+100 Energy</button>
+                    <button data-sandbox-tool="fillEnergy" type="button">Fill Energy</button>
+                    <label>Max Energy<input id="sandboxMaxEnergy" type="number" min="80" max="10000" value="500" /></label>
+                    <button data-sandbox-tool="setMaxEnergy" type="button">Set Max</button>
+                    <label>Animal<select id="sandboxToolAnimal">
+                      <option value="duck">Duck</option>
+                      <option value="snake">Snake</option>
+                      <option value="frog">Frog</option>
+                      <option value="turtle">Turtle</option>
+                      <option value="carp">Carp</option>
+                    </select></label>
+                    <button data-sandbox-tool="changeAnimal" type="button">Change Animal</button>
+                    <button data-sandbox-tool="useAbility" type="button">Use Ability</button>
+                    <button data-sandbox-tool="resetAbilityCooldown" type="button">Reset Cooldown</button>
+                    <button data-sandbox-tool="toggleInfiniteEnergy" type="button">Infinite Energy</button>
+                    <button data-sandbox-tool="toggleNoCooldowns" type="button">No Cooldowns</button>
+                  </div>
+                </details>
+                <details>
+                  <summary>Building Tools</summary>
+                  <div class="sandbox-tool-grid">
+                    <button data-sandbox-tool="toggleInstantBuild" type="button">Instant Build</button>
+                    <button data-sandbox-tool="placeBuilding" data-building-type="nest" type="button">Place Nest</button>
+                    <button data-sandbox-tool="placeBuilding" data-building-type="lilyFarm" type="button">Place Lily Farm</button>
+                    <button data-sandbox-tool="placeBuilding" data-building-type="reedGuard" type="button">Place Reed Guard</button>
+                    <button data-sandbox-tool="placeBuilding" data-building-type="mudTunnel" type="button">Place Mud Tunnel</button>
+                    <button data-sandbox-tool="placeBuilding" data-building-type="jumpPad" type="button">Place Jump Pad</button>
+                    <button data-sandbox-tool="upgradeSelectedBuilding" type="button">Upgrade Selected</button>
+                    <button data-sandbox-tool="removeSelectedBuilding" type="button">Remove Selected</button>
+                  </div>
+                </details>
+                <details>
+                  <summary>Bot Tools</summary>
+                  <div class="sandbox-tool-grid">
+                    <label>Bot Animal<select id="sandboxBotAnimal">
+                      <option value="duck">Duck</option>
+                      <option value="snake">Snake</option>
+                      <option value="frog">Frog</option>
+                      <option value="turtle">Turtle</option>
+                      <option value="carp">Carp</option>
+                    </select></label>
+                    <label>Difficulty<select id="sandboxToolBotDifficulty">
+                      <option value="passive">Passive</option>
+                      <option value="easy">Easy</option>
+                      <option value="normal" selected>Normal</option>
+                      <option value="smart">Hard</option>
+                      <option value="chaos">Chaos</option>
+                    </select></label>
+                    <label>Personality<select id="sandboxBotPersonality">
+                      <option value="passive">Passive</option>
+                      <option value="expander">Expander</option>
+                      <option value="defender">Defender</option>
+                      <option value="fighter" selected>Fighter</option>
+                      <option value="objectiveHunter">Objective Hunter</option>
+                      <option value="leaderHunter">Leader Hunter</option>
+                      <option value="chaos">Chaos</option>
+                    </select></label>
+                    <label>Name<input id="sandboxBotName" maxlength="18" placeholder="Reed Fang" /></label>
+                    <button data-sandbox-tool="spawnBot" type="button">Spawn Bot</button>
+                    <button data-sandbox-tool="removeSelectedBot" type="button">Remove Bot</button>
+                    <button data-sandbox-tool="setBotDifficulty" type="button">Set Bot Behavior</button>
+                    <button data-sandbox-tool="pauseBots" type="button">Pause Bots</button>
+                    <button data-sandbox-tool="resumeBots" type="button">Resume Bots</button>
+                    <button data-sandbox-tool="makeBotsPassive" type="button">Bots Passive</button>
+                    <button data-sandbox-tool="makeBotsAggressive" type="button">Bots Aggressive</button>
+                    <button data-sandbox-tool="forceBotWar" type="button">Force Bot War</button>
+                  </div>
+                </details>
+                <details>
+                  <summary>Combat and Map Tools</summary>
+                  <div class="sandbox-tool-grid">
+                    <button data-sandbox-tool="testBorderAttack" data-percent="0.25" type="button">Test 25% Attack</button>
+                    <button data-sandbox-tool="testBorderAttack" data-percent="0.5" type="button">Test 50% Attack</button>
+                    <button data-sandbox-tool="testBorderAttack" data-percent="1" type="button">Test 100% Attack</button>
+                    <button data-sandbox-tool="testCurrentPush" data-percent="0.5" type="button">Test Current Push</button>
+                    <button data-sandbox-tool="clearActiveAttacks" type="button">Clear Attacks</button>
+                    <button data-sandbox-tool="reinforceSelectedBorder" type="button">Reinforce Border</button>
+                    <button data-sandbox-tool="removeReinforcement" type="button">Clear Reinforcement</button>
+                    <button data-sandbox-tool="toggleCombatDebug" type="button">Combat Debug</button>
+                    <button data-sandbox-tool="toggleEconomyDebug" type="button">Economy Debug</button>
+                    <button data-sandbox-tool="toggleAbilityDebug" type="button">Ability Debug</button>
+                    <button data-sandbox-tool="spawnObjective" type="button">Spawn Objective</button>
+                    <button data-sandbox-tool="removeObjective" type="button">Remove Objective</button>
+                    <button data-sandbox-tool="clearPings" type="button">Clear Pings</button>
+                    <button data-sandbox-tool="resetMap" type="button">Reset Map</button>
+                    <button data-sandbox-tool="pauseSimulation" type="button">Pause Simulation</button>
+                    <button data-sandbox-tool="resumeSimulation" type="button">Resume Simulation</button>
+                    <label>Game Speed<select id="sandboxGameSpeed">
+                      <option value="0.5">0.5x</option>
+                      <option value="1" selected>1x</option>
+                      <option value="2">2x</option>
+                      <option value="4">4x</option>
+                    </select></label>
+                  </div>
+                </details>
+                <form id="sandboxCommandForm" class="sandbox-command-form">
+                  <input id="sandboxCommandInput" placeholder="/energy 500, /animal frog, /spawnbot snake easy" autocomplete="off" />
+                  <button type="submit">Run</button>
+                </form>
+                <div id="sandboxDebug" class="sandbox-debug"></div>
+              </div>
+            </div>
+          </section>
           <div class="view-toggle">
             <label><input id="strategicView" type="checkbox" checked /> Strategic view</label>
             <label><input id="autoStrategicView" type="checkbox" checked /> Auto strategic</label>
@@ -564,6 +775,7 @@
           <div class="action-row">
             <button id="expandButton" data-tip-key="expand" title="Expand into selected neutral water.">Expand</button>
             <button id="attackButton" data-tip-key="attack" title="Attack selected enemy border with chosen energy percent.">Attack</button>
+            <button id="currentPushButton" data-tip-key="currentPush" title="Send a delayed water-route attack that can be defended against.">Current Push</button>
             <button id="defendButton" data-tip-key="defend" title="Store energy in your selected territory.">Defend</button>
             <button id="buildButton" data-tip-key="build" title="Build economy or defense on selected owned tile.">Build</button>
             <button id="teamButton" title="Open co-op team commands.">Team</button>
@@ -598,7 +810,12 @@
             <h2 id="resultTitle">Match Over</h2>
             <p id="resultSummary"></p>
             <dl id="resultStats"></dl>
-            <button id="playAgain" class="primary">Play Again</button>
+            <div id="resultRewards" class="result-rewards hidden"></div>
+            <div class="result-actions">
+              <button id="playAgain" class="primary">Play Again</button>
+              <button id="viewProfileFromResult" class="secondary-button" type="button">View Profile</button>
+              <button id="backToLobbyFromResult" class="secondary-button" type="button">Back to Lobby</button>
+            </div>
           </div>
         </section>
 
@@ -641,6 +858,42 @@
           </div>
         </section>
       </section>
+
+      <section id="profileModal" class="profile-modal hidden" aria-modal="true" role="dialog">
+        <div class="profile-card">
+          <header class="profile-header">
+            <div class="profile-identity">
+              <span id="profileBadgeIcon" class="profile-badge-icon">R</span>
+              <div>
+                <span class="label">Player Profile</span>
+                <h2 id="profileUsername">Guest</h2>
+                <p id="profileTitle">Pond Rookie</p>
+              </div>
+            </div>
+            <button id="profileCloseButton" class="icon-button" type="button">X</button>
+          </header>
+          <div id="profileGuestState" class="profile-guest-state hidden">
+            <strong>Playing as Guest</strong>
+            <p>Create an account to save levels, wins, badges, cosmetics, and match history.</p>
+          </div>
+          <div id="profileContent">
+            <div class="profile-level-row">
+              <span id="profileLevel">Level 1</span>
+              <i><b id="profileXpBar"></b></i>
+              <span id="profileXpText">0 / 0 XP</span>
+            </div>
+            <nav class="profile-tabs" aria-label="Profile tabs">
+              <button class="active" data-profile-tab="overview" type="button">Overview</button>
+              <button data-profile-tab="stats" type="button">Stats</button>
+              <button data-profile-tab="animals" type="button">Animals</button>
+              <button data-profile-tab="achievements" type="button">Achievements</button>
+              <button data-profile-tab="history" type="button">History</button>
+              <button data-profile-tab="cosmetics" type="button">Cosmetics</button>
+            </nav>
+            <div id="profileTabContent" class="profile-tab-content"></div>
+          </div>
+        </div>
+      </section>
     </main>
 
     <script src="/shared/balanceConfig.js"></script>
@@ -648,19 +901,29 @@
     <script src="/shared/gameConfig.js"></script>
     <script src="/shared/diplomacyConfig.js"></script>
     <script src="/shared/combatConfig.js"></script>
+    <script src="/shared/botDifficultyConfig.js"></script>
+    <script src="/shared/sandboxConfig.js"></script>
     <script src="/shared/teamConfig.js"></script>
     <script src="/shared/borderStatus.js"></script>
     <script src="/shared/animals.js"></script>
     <script src="/shared/objectives.js"></script>
     <script src="/shared/lakeEvents.js"></script>
+    <script src="/shared/progressionConfig.js"></script>
+    <script src="/shared/badgeConfig.js"></script>
+    <script src="/shared/achievementConfig.js"></script>
     <script src="./infoPanel.js"></script>
     <script src="./contextMenu.js"></script>
     <script src="./tooltips.js"></script>
     <script src="./helpMenu.js"></script>
     <script src="./audioManager.js"></script>
+    <script src="./achievements.js"></script>
+    <script src="./leaderboard.js"></script>
+    <script src="./profile.js"></script>
+    <script src="./auth.js"></script>
     <script src="./vfx.js"></script>
     <script src="./render.js"></script>
     <script src="./ui.js"></script>
+    <script src="./sandboxPanel.js"></script>
     <script src="./game.js"></script>
   </body>
 </html>

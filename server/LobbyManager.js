@@ -184,6 +184,12 @@ class LobbyManager {
       connected: entry.connected,
       color: config.PLAYER_COLORS[index % config.PLAYER_COLORS.length],
       spawnIndex: index,
+      accountUserId: entry.accountUserId || null,
+      accountUsername: entry.accountUsername || "",
+      selectedBadge: entry.selectedBadge || "rookie",
+      selectedTitle: entry.selectedTitle || "pond_rookie",
+      selectedCosmetic: entry.selectedCosmetic || "clear_ripple",
+      accountLevel: entry.accountLevel || 0,
     }));
 
     try {
@@ -289,6 +295,12 @@ class LobbyManager {
       connected: true,
       joinedAt: this.now(),
       lastSeenAt: this.now(),
+      accountUserId: payload.accountUser?.id || payload.accountUserId || null,
+      accountUsername: payload.accountUser?.username || payload.accountUsername || "",
+      selectedBadge: payload.accountUser?.selectedBadge || payload.selectedBadge || "rookie",
+      selectedTitle: payload.accountUser?.selectedTitle || payload.selectedTitle || "pond_rookie",
+      selectedCosmetic: payload.accountUser?.selectedCosmetic || payload.selectedCosmetic || "clear_ripple",
+      accountLevel: payload.accountUser?.level || payload.accountLevel || 0,
     };
     return player;
   }
@@ -391,6 +403,12 @@ class LobbyManager {
       connected: player.connected,
       isViewer: player.id === viewerId,
       joinedAt: player.joinedAt,
+      accountUserId: player.accountUserId || null,
+      accountUsername: player.accountUsername || "",
+      selectedBadge: player.selectedBadge || "rookie",
+      selectedTitle: player.selectedTitle || "pond_rookie",
+      selectedCosmetic: player.selectedCosmetic || "clear_ripple",
+      accountLevel: player.accountLevel || 0,
     }));
     return {
       lobbyId: lobby.lobbyId,

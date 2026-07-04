@@ -113,6 +113,7 @@
         leaveLobbyButton: document.querySelector("#leaveLobbyButton"),
         playerName: document.querySelector("#playerName"),
         gameMode: document.querySelector("#gameMode"),
+        beginnerCombat: document.querySelector("#beginnerCombat"),
         mapSize: document.querySelector("#mapSize"),
         botCount: document.querySelector("#botCount"),
         matchLength: document.querySelector("#matchLength"),
@@ -184,6 +185,7 @@
         percentButtons: [...document.querySelectorAll("[data-percent]")],
         expandButton: document.querySelector("#expandButton"),
         attackButton: document.querySelector("#attackButton"),
+        currentPushButton: document.querySelector("#currentPushButton"),
         defendButton: document.querySelector("#defendButton"),
         buildButton: document.querySelector("#buildButton"),
         teamButton: document.querySelector("#teamButton"),
@@ -214,7 +216,10 @@
         resultTitle: document.querySelector("#resultTitle"),
         resultSummary: document.querySelector("#resultSummary"),
         resultStats: document.querySelector("#resultStats"),
+        resultRewards: document.querySelector("#resultRewards"),
         playAgain: document.querySelector("#playAgain"),
+        viewProfileFromResult: document.querySelector("#viewProfileFromResult"),
+        backToLobbyFromResult: document.querySelector("#backToLobbyFromResult"),
         mobileSheet: document.querySelector("#mobileSheet"),
         mobileSheetLabel: document.querySelector("#mobileSheetLabel"),
         mobileSheetTitle: document.querySelector("#mobileSheetTitle"),
@@ -331,6 +336,9 @@
         this.updateLobbyMode();
         this.syncBotOptions();
       });
+      this.nodes.difficulty?.addEventListener("change", () => {
+        if (this.nodes.beginnerCombat && this.nodes.difficulty.value === "easy") this.nodes.beginnerCombat.checked = true;
+      });
       this.nodes.teamCount?.addEventListener("change", () => this.syncBotOptions());
       this.nodes.botsPerTeam?.addEventListener("change", () => this.syncBotOptions());
       this.nodes.mapSize?.addEventListener("change", () => this.syncBotOptions());
@@ -338,6 +346,10 @@
       this.nodes.closeLobbyGuide?.addEventListener("click", () => this.nodes.lobbyGuide?.classList.add("hidden"));
       this.nodes.lobbyGuide?.addEventListener("click", (event) => {
         if (event.target === this.nodes.lobbyGuide) this.nodes.lobbyGuide.classList.add("hidden");
+      });
+      this.nodes.lakeEventBanner?.addEventListener("click", () => {
+        const tileId = Number(this.nodes.lakeEventBanner.dataset.focusTileId);
+        if (Number.isFinite(tileId)) this.emit("camera", { type: "focusTile", tileId });
       });
 
       this.nodes.percentButtons.forEach((button) => {
@@ -348,6 +360,7 @@
 
       this.nodes.expandButton.addEventListener("click", () => this.emit("action", { type: "expand" }));
       this.nodes.attackButton.addEventListener("click", () => this.emit("action", { type: "attack" }));
+      this.nodes.currentPushButton?.addEventListener("click", () => this.emit("action", { type: "waterRoute" }));
       this.nodes.defendButton.addEventListener("click", () => this.emit("action", { type: "defend" }));
       this.nodes.buildButton.addEventListener("click", () => {
         if (this.isMobile()) this.openBuildSheet();
@@ -364,6 +377,8 @@
         localStorage.setItem("pondfront:tutorial", "done");
       });
       this.nodes.playAgain.addEventListener("click", () => this.emit("start", this.startPayload()));
+      this.nodes.viewProfileFromResult?.addEventListener("click", () => this.emit("openProfile"));
+      this.nodes.backToLobbyFromResult?.addEventListener("click", () => this.emit("home"));
       this.nodes.strategicView.addEventListener("change", () => this.emit("viewChanged"));
       this.nodes.autoStrategicView.addEventListener("change", () => this.emit("viewChanged"));
       this.nodes.showIcons.addEventListener("change", () => this.emit("viewChanged"));
@@ -514,6 +529,7 @@
         animal: this.selectedAnimal,
         playerName,
         difficulty: this.nodes.difficulty.value,
+        beginnerCombat: this.nodes.beginnerCombat?.checked || this.nodes.difficulty.value === "easy",
         gameMode: this.nodes.gameMode?.value || "solo",
         mapSize: this.nodes.mapSize?.value || "large",
         botCount: Number(this.nodes.botCount?.value || 12),
@@ -660,9 +676,11 @@
           const animalColor = root.PondAnimals?.[player.animal]?.color || "#83dced";
           const team = teams.get(player.teamId);
           const ready = player.isHost ? "Host" : player.ready ? "Ready" : "Not ready";
+          const badge = (root.PondBadgeConfig || []).find((entry) => entry.id === player.selectedBadge);
+          const accountLine = player.accountUserId ? `L${player.accountLevel || 1} | ${this.escape(badge?.label || "Badge")}` : "Guest";
           return `<div class="lobby-player-row ${player.isViewer ? "viewer" : ""} ${player.connected ? "" : "disconnected"}" style="--team-color:${this.escape(team?.color || animalColor)}">
             <span class="animal-disc ${this.escape(animal.className)}">${this.escape(animal.icon)}</span>
-            <span class="lobby-player-main"><b>${this.escape(player.name)} ${player.isHost ? "<em>HOST</em>" : ""}</b><small>${this.escape(animal.name)}${team ? ` | ${this.escape(team.name)}` : " | Free-for-all"}</small></span>
+            <span class="lobby-player-main"><b>${this.escape(player.name)} ${player.isHost ? "<em>HOST</em>" : ""}</b><small>${this.escape(animal.name)}${team ? ` | ${this.escape(team.name)}` : " | Free-for-all"} | ${accountLine}</small></span>
             <strong>${this.escape(ready)}</strong>
           </div>`;
         })
@@ -875,6 +893,7 @@
       this.updateObjectives(state);
       this.updateMissions(state);
       this.updateLakeEvent(state);
+      this.updateCurrentPushWarning(state, human);
       this.updateLeaderboard(state);
       this.updateActionLabels(human);
       this.updateMobileActionCard(state, selectedTile, context);
@@ -1090,11 +1109,15 @@
           const teamBadge = player.teamId
             ? `<i class="team-mini-badge" style="--team-color:${this.escape(player.teamColor || "#83dced")}" title="${this.escape(player.teamName || "Team")}">${this.escape(player.teamBadge || "T")}</i>`
             : "";
+          const profileBadge = player.accountUserId
+            ? `<i class="team-mini-badge" title="Profile badge">${this.escape((root.PondBadgeConfig || []).find((badge) => badge.id === player.profileBadge)?.icon || "R")}</i>`
+            : "";
+          const profileTitle = (root.PondProgressionConfig?.titles || []).find((title) => title.id === player.profileTitle)?.label;
           const name = player.id === state.humanId ? player.name || "You" : player.name;
           return `<li class="${player.id === state.humanId ? "local" : ""}">
             <span class="leader-rank">#${index + 1}</span>
             <span class="leader-animal animal-${this.escape(player.animal)}" title="${this.escape(animal.label)}">${this.escape(animal.icon)}</span>
-            <span class="leader-name"><b>${teamBadge}${this.escape(name)} ${relationBadge}</b><small>${this.escape(animal.label)} L${player.level || 1}${player.teamName ? ` | ${this.escape(player.teamName)}` : relation ? ` | ${this.escape(relation.label)}` : ""}</small></span>
+            <span class="leader-name"><b>${teamBadge}${profileBadge}${this.escape(name)} ${relationBadge}</b><small>${this.escape(animal.label)} L${player.level || 1}${profileTitle ? ` | ${this.escape(profileTitle)}` : player.teamName ? ` | ${this.escape(player.teamName)}` : relation ? ` | ${this.escape(relation.label)}` : ""}</small></span>
             <span class="leader-territory">${Math.round(player.territoryPct * 100)}%</span>
             <span class="leader-energy">${player.energy}</span>
           </li>`;
@@ -1156,6 +1179,8 @@
     updateLakeEvent(state) {
       const active = state.lakeEvent?.active;
       this.nodes.lakeEventBanner.classList.toggle("hidden", !active);
+      this.nodes.lakeEventBanner.classList.remove("danger");
+      this.nodes.lakeEventBanner.dataset.focusTileId = "";
       if (!active) return;
       this.nodes.lakeEventBanner.style.setProperty("--event-color", active.color || "#83dced");
       this.nodes.lakeEventTitle.textContent = active.label;
@@ -1163,14 +1188,40 @@
       this.nodes.lakeEventTimer.textContent = `${Math.ceil(active.remaining || 0)}s`;
     }
 
+    updateCurrentPushWarning(state, human) {
+      if (!this.nodes.lakeEventBanner || !human) return;
+      const incoming = (state.activeAttacks || [])
+        .filter((wave) => wave.currentPush && wave.defenderId === human.id && wave.impactTime > state.serverTime)
+        .sort((a, b) => a.impactTime - b.impactTime)[0];
+      if (!incoming) return;
+      const attacker = state.players.find((player) => player.id === incoming.attackerId);
+      const left = Math.max(0, Math.ceil(incoming.impactTime - state.serverTime));
+      this.nodes.lakeEventBanner.classList.remove("hidden");
+      this.nodes.lakeEventBanner.classList.add("danger");
+      this.nodes.lakeEventBanner.style.setProperty("--event-color", "#fff1a8");
+      this.nodes.lakeEventTitle.textContent = "Incoming Current Push";
+      this.nodes.lakeEventDetails.textContent = `${attacker?.name || "Enemy"} route attack. Reinforce the target border.`;
+      this.nodes.lakeEventTimer.textContent = `${left}s`;
+      this.nodes.lakeEventBanner.dataset.focusTileId = String(incoming.targetStartTile || "");
+    }
+
     updateActionLabels(human) {
       if (human) this.lastHuman = human;
       const energy = human ? Math.round(human.energy * this.percent) : 0;
       const activeContinuous = this.lastState?.activeAttacks?.some((wave) => wave.continuous && wave.attackerId === human?.id);
       const construction = this.constructionLeft(this.lastTile, this.lastState);
+      const currentPushLeft = Math.max(0, Math.ceil((human?.currentPushCooldownUntil || 0) - (this.lastState?.serverTime || 0)));
       this.nodes.expandButton.textContent = `Expand ${energy}`;
       this.nodes.attackButton.textContent = activeContinuous ? "Stop Attack" : `Start Attack ${energy}`;
       this.nodes.attackButton.classList.toggle("active", Boolean(activeContinuous));
+      if (this.nodes.currentPushButton) {
+        this.nodes.currentPushButton.textContent = currentPushLeft > 0 ? `Current ${currentPushLeft}s` : `Current ${energy}`;
+        this.nodes.currentPushButton.disabled = currentPushLeft > 0 || !human || human.defeated || energy < 10;
+        this.nodes.currentPushButton.dataset.tip =
+          currentPushLeft > 0
+            ? `Current Push cooldown: ${currentPushLeft}s.`
+            : "Current Push: delayed long-range water route attack. Defenders get warning and can reinforce before impact.";
+      }
       this.nodes.defendButton.textContent = `Defend ${Math.round(energy * 0.75)}`;
       this.nodes.buildButton.textContent = construction > 0 ? `Building ${construction}s` : "Build";
       this.nodes.buildButton.classList.toggle("cooldown", construction > 0);
@@ -1413,6 +1464,7 @@
       const winner = state.players.find((player) => player.id === state.winnerId);
       const winningTeam = state.winnerTeamId ? state.teamState?.teams?.find((team) => team.id === state.winnerTeamId) : null;
       const humanTeam = human.teamId ? state.teamState?.teams?.find((team) => team.id === human.teamId) : null;
+      const sandbox = Boolean(state.sandbox?.enabled || state.matchSettings?.sandbox?.enabled);
       const bestTeammate = state.players
         .filter((player) => player.teamId && player.teamId === human.teamId && player.id !== human.id)
         .sort(
@@ -1424,8 +1476,14 @@
         )[0];
       this.nodes.resultScreen.classList.remove("hidden");
       const teamVictory = winningTeam && humanTeam && winningTeam.id === humanTeam.id;
-      this.nodes.resultTitle.textContent = winningTeam ? (teamVictory ? "Team Victory" : "Team Defeat") : winner?.id === state.humanId ? "Victory" : "Defeat";
-      this.nodes.resultSummary.textContent = winningTeam ? `${winningTeam.name} is the last team in the pond.` : winner ? `${winner.name} is the last animal standing.` : "The match ended.";
+      this.nodes.resultTitle.textContent = sandbox ? "Sandbox Ended" : winningTeam ? (teamVictory ? "Team Victory" : "Team Defeat") : winner?.id === state.humanId ? "Victory" : "Defeat";
+      this.nodes.resultSummary.textContent = sandbox
+        ? "Sandbox ended. No stats, XP, coins, achievements, or ranked progress were saved."
+        : winningTeam
+          ? `${winningTeam.name} is the last team in the pond.`
+          : winner
+            ? `${winner.name} is the last animal standing.`
+            : "The match ended.";
       const rank =
         winningTeam && humanTeam
           ? state.teamState.teams.findIndex((team) => team.id === humanTeam.id) + 1
@@ -1453,6 +1511,43 @@
         <dt>Peak Income</dt><dd>+${Number(human.stats.incomePeak || human.income || 0).toFixed(1)}/s</dd>
         <dt>Defeated</dt><dd>${human.stats.playersDefeated}</dd>
         <dt>Animal</dt><dd>${state.config.animals[human.animal].label}</dd>
+      `;
+      if (sandbox) this.renderSandboxRewards();
+      else this.renderRewards(human.matchRewards);
+    }
+
+    renderSandboxRewards() {
+      if (!this.nodes.resultRewards) return;
+      this.nodes.resultRewards.classList.remove("hidden");
+      this.nodes.resultRewards.innerHTML = `
+        <strong>Sandbox Test</strong>
+        <p>No profile stats were saved from this run.</p>
+      `;
+    }
+
+    renderRewards(rewards) {
+      if (!this.nodes.resultRewards) return;
+      if (!rewards) {
+        this.nodes.resultRewards.classList.remove("hidden");
+        this.nodes.resultRewards.innerHTML = `
+          <strong>Guest Match</strong>
+          <p>Create an account or login before playing to save XP, coins, achievements, and history.</p>
+        `;
+        return;
+      }
+      const leveled = Number(rewards.levelAfter || 1) > Number(rewards.levelBefore || 1);
+      const achievements = rewards.achievements || [];
+      this.nodes.resultRewards.classList.remove("hidden");
+      this.nodes.resultRewards.innerHTML = `
+        <strong>${leveled ? `Level Up! ${rewards.levelBefore} -> ${rewards.levelAfter}` : "Rewards Saved"}</strong>
+        <p>+${Math.round(rewards.xpGained || 0)} XP | +${Math.round(rewards.coinsGained || 0)} coins</p>
+        ${
+          achievements.length
+            ? `<div class="reward-achievements">${achievements
+                .map((achievement) => `<span><b>${this.escape(achievement.badgeIcon || "A")}</b>${this.escape(achievement.name)}</span>`)
+                .join("")}</div>`
+            : `<small>No new achievements this match.</small>`
+        }
       `;
     }
 

@@ -4,9 +4,22 @@
       this.canvas = document.querySelector("#mapCanvas");
       this.miniMap = document.querySelector("#miniMap");
       this.ui = new root.PondUI();
+      this.profileView = root.PondProfileView ? new root.PondProfileView() : null;
+      this.auth = root.PondAuthController ? new root.PondAuthController({ profile: this.profileView }) : null;
+      root.PondAuth = this.auth;
+      root.PondProfile = this.profileView;
       this.audio = this.ui.audio || null;
       this.renderer = new root.PondRenderer(this.canvas, this.miniMap);
       this.contextMenu = root.PondContextMenu ? new root.PondContextMenu() : null;
+      this.sandboxPanel = root.PondSandboxPanel
+        ? new root.PondSandboxPanel({
+            onStart: (payload) => this.start(payload),
+            onAction: (payload) => this.postAction(payload),
+            getState: () => this.state,
+            getSelectedTile: () => this.selectedTile() || this.hoverTile(),
+            getSelectedPlayerId: () => this.selectedPlayerId,
+          })
+        : null;
       this.state = null;
       this.tileMap = new Map();
       this.selectedTileId = null;
@@ -46,6 +59,8 @@
       this.ui.on("lobbyReady", (payload) => this.setLobbyReady(payload.ready));
       this.ui.on("lobbyStart", () => this.startLobbyMatch());
       this.ui.on("lobbyLeave", () => this.leaveLobby());
+      this.ui.on("openProfile", () => this.profileView?.open("overview"));
+      this.ui.on("home", () => this.returnHome());
       this.ui.on("action", (payload) => this.handleAction(payload));
       this.ui.on("camera", (payload) => this.handleCamera(payload));
       this.ui.on("diplomacy", (command) => this.handleDiplomacy(command));
@@ -88,10 +103,10 @@
       try {
         this.clearLobbyPolling();
         this.lobbySession = null;
-        await this.audio?.unlock();
+        this.audio?.unlock?.().catch(() => {});
         this.audio?.play("start");
         const animal = root.PondAnimals?.[payload.animal] ? payload.animal : "duck";
-        const difficulty = ["easy", "normal", "smart", "chaos"].includes(payload.difficulty) ? payload.difficulty : "normal";
+        const difficulty = ["passive", "easy", "normal", "smart", "chaos"].includes(payload.difficulty) ? payload.difficulty : "normal";
         const state = await this.request("/api/start", {
           method: "POST",
           body: JSON.stringify({
@@ -102,18 +117,26 @@
             mapSize: payload.mapSize,
             matchLength: payload.matchLength,
             practice: Boolean(payload.practice),
+            beginnerCombat: Boolean(payload.beginnerCombat),
             gameMode: payload.gameMode,
             coopTeammates: payload.coopTeammates,
             teamBotDifficulty: payload.teamBotDifficulty,
             teamCount: payload.teamCount,
             botsPerTeam: payload.botsPerTeam,
+            allowBots: payload.allowBots,
+            sandbox: Boolean(payload.sandbox),
+            sandboxRules: payload.sandboxRules,
+            sandboxBotDifficulty: payload.sandboxBotDifficulty || payload.difficulty,
+            sandboxBotPersonality: payload.sandboxBotPersonality,
+            sandboxSpeed: payload.sandboxSpeed,
           }),
         });
         this.resetSelection();
         this.seenEventIds.clear();
-        this.setState(state, { silent: true });
         this.ui.showGame();
-        this.ui.toast("Match started. Click a glowing border target, then send energy.");
+        this.sandboxPanel?.closeAll();
+        this.setState(state, { silent: true });
+        this.ui.toast(payload.sandbox ? "Sandbox started. Open the Sandbox panel to test tools." : "Match started. Click a glowing border target, then send energy.");
         this.startPolling();
         requestAnimationFrame(() => this.renderer.resize());
       } catch (error) {
@@ -282,8 +305,9 @@
       this.lobbySession = { ...this.lobbySession, ...data.session, inGame: true };
       this.resetSelection();
       this.seenEventIds.clear();
-      this.setState(data.matchState, { silent: true });
       this.ui.showGame();
+      this.sandboxPanel?.closeAll();
+      this.setState(data.matchState, { silent: true });
       this.ui.toast("Lobby match started. Expand from your border.");
       this.startPolling();
       requestAnimationFrame(() => this.renderer.resize());
@@ -323,6 +347,7 @@
 
     async request(path, options = {}) {
       const response = await fetch(path, {
+        credentials: "same-origin",
         headers: { "Content-Type": "application/json" },
         ...options,
       });
@@ -347,6 +372,7 @@
       if (!options.silent) this.showEventToasts(newEvents);
       this.updateBuildOptions();
       this.updateUi();
+      this.sandboxPanel?.setState(state);
     }
 
     showEventToasts(events) {
@@ -356,6 +382,14 @@
         }
         if (event.kind === "ended") {
           this.ui.toast(event.message || "Match over.");
+        }
+        if (event.kind === "profileRewards" && this.involvesHuman(event)) {
+          this.ui.toast(event.message || `Saved rewards: +${event.xpGained || 0} XP.`);
+          this.auth?.refresh();
+        }
+        if (event.kind === "achievementUnlocked" && this.involvesHuman(event)) {
+          this.ui.toast(`Achievement unlocked: ${event.name}.`);
+          this.auth?.refresh();
         }
         if (event.kind === "diplomacy" && this.involvesHuman(event)) {
           const actor = this.player(event.playerId);
@@ -402,7 +436,17 @@
           this.ui.toast(event.message || "Continuous attack stopped.", true);
         }
         if (event.kind === "waterRouteAttack" && this.involvesHuman(event)) {
-          this.ui.toast(event.message || "Current Push launched.");
+          this.ui.toast(event.message || "Current Push launched. Watch the water route.");
+        }
+        if (event.kind === "currentPushWarning" && this.involvesHuman(event)) {
+          const attacker = this.player(event.playerId);
+          this.ui.toast(`Incoming Current Push from ${attacker?.name || "enemy"}. Impact in ${Math.ceil(event.impactIn || 0)}s. Reinforce now.`, true);
+        }
+        if (event.kind === "currentPushBlocked" && this.involvesHuman(event)) {
+          this.ui.toast(event.message || "Current Push blocked by defense.", event.targetOwner === this.state.humanId);
+        }
+        if (event.kind === "currentPushImpact" && this.involvesHuman(event)) {
+          this.ui.toast(event.message || "Current Push impacted.", event.targetOwner === this.state.humanId && (event.captured || 0) > 0);
         }
         if (event.kind === "coreUnderAttack" && this.involvesHuman(event)) {
           this.ui.toast(event.message || "Core Nest under attack.", true);
@@ -437,6 +481,20 @@
       });
     }
 
+    returnHome() {
+      clearInterval(this.pollTimer);
+      this.pollTimer = null;
+      this.clearLobbyPolling();
+      this.lobbySession = null;
+      this.state = null;
+      this.ui.nodes.gameScreen.classList.add("hidden");
+      this.ui.nodes.startScreen.classList.remove("hidden");
+      this.ui.nodes.resultScreen.classList.add("hidden");
+      this.ui.showHome();
+      this.sandboxPanel?.closeAll();
+      requestAnimationFrame(() => this.renderer.resize());
+    }
+
     involvesHuman(event) {
       return Boolean(
         this.state &&
@@ -456,6 +514,7 @@
       if (!this.state) return;
       const tile = this.selectedTile() || this.hoverTile();
       this.ui.update(this.state, tile, this.selectedPlayerId, this.tileContext(tile));
+      this.sandboxPanel?.setState(this.state, { selectedTile: tile, selectedPlayerId: this.selectedPlayerId });
     }
 
     updateBuildOptions() {
@@ -521,10 +580,10 @@
         this.renderer.vfx?.spawnBlockedEffect(tile.id, "Invalid");
         return;
       }
-      if (type === "attack") {
+      if (type === "attack" || type === "waterRoute") {
         const relation = tile?.owner ? this.relationship(tile.owner) : null;
         if (!tile.owner || tile.owner === human.id || (relation && !relation.canAttack)) {
-          this.ui.toast(relation?.blockReason || "Attack needs a connected enemy border.", true);
+          this.ui.toast(relation?.blockReason || (type === "waterRoute" ? "Current Push needs an enemy coastal border." : "Attack needs a connected enemy border."), true);
           this.renderer.vfx?.spawnBlockedEffect(tile.id, relation?.state === "allied" ? "Ally" : relation?.state === "truce" ? "Truce" : "Invalid");
           return;
         }
@@ -546,7 +605,7 @@
       }
 
       const spend = human.energy * this.ui.percent;
-      if ((type === "expand" || type === "attack") && spend < 4) {
+      if ((type === "expand" || type === "attack" || type === "waterRoute") && spend < (type === "waterRoute" ? 10 : 4)) {
         this.ui.toast("Not enough Animal Energy to send.", true);
         this.ui.flashEnergy();
         return;
@@ -564,7 +623,7 @@
         percent: this.ui.percent,
         buildingType: payload.buildingType,
       };
-      if (type === "expand" || type === "attack") action.sourceIds = this.validSourceTiles().map((source) => source.id);
+      if (type === "expand" || type === "attack" || type === "waterRoute") action.sourceIds = this.validSourceTiles().map((source) => source.id);
       await this.postAction(action);
     }
 
@@ -700,6 +759,7 @@
       if (payload.type === "zoomIn") this.renderer.zoomBy(1.18);
       if (payload.type === "zoomOut") this.renderer.zoomBy(0.84);
       if (payload.type === "center") this.renderer.centerOnTile(this.human()?.coreTileId);
+      if (payload.type === "focusTile") this.renderer.centerOnTile(payload.tileId);
       if (payload.type === "reset") this.renderer.fit(true);
       if (payload.type === "cancel") this.cancelSelection();
     }
@@ -1251,6 +1311,17 @@
         return;
       }
 
+      if (payload.action === "waterRoute") {
+        const estimate = this.estimateCurrentPush(tile, human);
+        this.preview = {
+          mode: "attack",
+          tileIds: [tile.id],
+          toId: tile.id,
+          label: estimate.valid ? `Current | ${estimate.travelTime}s | ${estimate.impactPower} power` : "Current route blocked",
+        };
+        return;
+      }
+
       if (payload.action === "attack" && this.isAttackableBorder(tile)) {
         const percent = payload.percent || this.ui.percent;
         const energy = Math.round(human.energy * percent);
@@ -1695,7 +1766,19 @@
       const connected = Boolean(source && this.neighbors(source).some((neighbor) => neighbor.id === tile.id));
       if (!connected) {
         const status = borderTools?.statusFor?.({ tile, tileType, relation, canAttack: false, underAttack }) || null;
-        return { ...context, kind: "blockedAttack", reason: "Too far from border", relationship: relation, status, warning: "Attack from a connected front-line border." };
+        const currentPushPreview = this.estimateCurrentPush(tile, human);
+        return {
+          ...context,
+          kind: currentPushPreview.valid ? "attackBorder" : "blockedAttack",
+          canAttack: false,
+          reason: currentPushPreview.valid ? "Too far for Border Attack. Try Current Push." : "Too far from border",
+          relationship: relation,
+          status,
+          currentPushPreview,
+          recommendedAction: currentPushPreview.valid ? "Current Push" : "Move closer",
+          recommendedReason: currentPushPreview.valid ? "Enemy coastal border is far but reachable by water." : "No valid water route found.",
+          warning: currentPushPreview.valid ? "Too far for Border Attack. Try Current Push." : "Attack from a connected front-line border.",
+        };
       }
 
       const energy = Math.round(human.energy * this.ui.percent);
@@ -1721,6 +1804,12 @@
             : risk === "Bad Attack" || risk === "Very Risky"
               ? "Risky attack. Defend or save energy before pushing."
               : "";
+      const currentPushPreview = this.estimateCurrentPush(tile, human);
+      const recommendedAction = currentPushPreview.valid && estimate.tiles <= 1 && energy > 18 ? "Current Push" : "Border Attack";
+      const recommendedReason =
+        recommendedAction === "Current Push"
+          ? "Border is reachable by water and normal attack looks weak."
+          : "Enemy border is connected to your front line.";
       return {
         ...context,
         kind: "attackBorder",
@@ -1738,8 +1827,56 @@
         reinforcedBonus,
         defenseLevel: borderTools?.defenseLevel?.((tile.defenseEnergy || 0) + terrainDefense) || "Low",
         warning,
+        currentPushPreview,
+        recommendedAction,
+        recommendedReason,
         estimateText: fogged ? "Hidden by Foggy Marsh" : `${estimate.tiles} tiles with ${Math.round(this.ui.percent * 100)}%`,
       };
+    }
+
+    estimateCurrentPush(target, human = this.human()) {
+      const config = this.state?.config?.combat?.currentPush || {};
+      const waterTypes = new Set(["water", "lily"]);
+      const energy = Math.round((human?.energy || 0) * this.ui.percent);
+      if (!target?.owner || target.owner === human?.id || !human || energy < (config.minEnergy || 10)) {
+        return { valid: false, reason: "Not enough energy or invalid target." };
+      }
+      const targetCoast = this.neighbors(target).some((neighbor) => waterTypes.has(neighbor.type) && !this.isBlocked(neighbor));
+      if (!targetCoast) return { valid: false, reason: "Target is not connected to water." };
+      const starts = this.state.tiles.filter((tile) => tile.owner === human.id && waterTypes.has(tile.type)).slice(0, 42);
+      if (!starts.length) return { valid: false, reason: "No owned water source." };
+      const maxRange = config.maxRange || 32;
+      const queue = starts.map((tile) => ({ tile, distance: 1 }));
+      const seen = new Set(starts.map((tile) => tile.id));
+      while (queue.length) {
+        const current = queue.shift();
+        if (Math.abs(current.tile.x - target.x) + Math.abs(current.tile.y - target.y) <= 1) {
+          const distance = current.distance;
+          const tier = Math.max(0, Math.ceil((distance - (config.distanceTier || 8)) / (config.distanceTier || 8)));
+          const efficiency = Math.max(config.minEfficiency || 0.5, (config.baseEfficiency || 0.78) - tier * (config.distancePenaltyPerTier || 0.1));
+          const travelTime = Math.max(config.minTravelSeconds || 3, Math.min(config.maxTravelSeconds || 12, distance * (config.secondsPerTile || 0.28)));
+          const impactPower = Math.round(energy * (this.state.config.balance.attackPowerMultiplier || 1) * efficiency);
+          const low = Math.max(0, Math.floor(impactPower / Math.max(10, this.estimateTileCost(target, 0, this.player(target.owner)))));
+          const high = Math.max(low, Math.min(config.maxImpactCaptures || 7, low + 3));
+          return {
+            valid: true,
+            distance,
+            travelTime: Number(travelTime.toFixed(1)),
+            sendEnergy: energy,
+            impactPower,
+            estimatedCapture: `${low}-${high}`,
+            risk: tier > 1 ? "Long route reduces power" : "Defender can reinforce before impact",
+          };
+        }
+        if (current.distance >= maxRange) continue;
+        this.neighbors(current.tile).forEach((neighbor) => {
+          if (seen.has(neighbor.id) || this.isBlocked(neighbor) || !waterTypes.has(neighbor.type)) return;
+          if (neighbor.owner && neighbor.owner !== human.id && neighbor.owner !== target.owner) return;
+          seen.add(neighbor.id);
+          queue.push({ tile: neighbor, distance: current.distance + 1 });
+        });
+      }
+      return { valid: false, reason: "No open water route." };
     }
 
     estimateWave(startTile, budget) {

@@ -8,6 +8,7 @@ const MAX_ACTIVE_ATTACKS_PER_PLAYER = combatConfig.maxActiveAttacksPerPlayer;
 const WAVE_TICK_SECONDS = combatConfig.waveTickSeconds;
 const WAVE_CAPTURE_LIMIT = combatConfig.waveCaptureLimit;
 const COMBAT_FORMULA = combatConfig.formula;
+const CURRENT_PUSH = combatConfig.currentPush || {};
 
 class CombatManager {
   constructor(tileManager, pushEvent) {
@@ -15,19 +16,21 @@ class CombatManager {
     this.pushEvent = pushEvent;
     this.activeAttacks = [];
     this.continuousAttacks = [];
+    this.currentPushes = [];
     this.nextAttackId = 1;
     this.nextContinuousId = 1;
+    this.nextCurrentPushId = 1;
   }
 
   update(game) {
     const now = game.now();
     game.players.forEach((player) => this.expireAbilityFlags(game, player, now));
     this.processContinuousAttacks(game, now);
-    if (!this.activeAttacks.length) return;
-    this.activeAttacks = this.activeAttacks.filter((wave) => this.processWave(game, wave, now));
+    this.processCurrentPushes(game, now);
+    if (this.activeAttacks.length) this.activeAttacks = this.activeAttacks.filter((wave) => this.processWave(game, wave, now));
   }
 
-  snapshot() {
+  snapshot(now = Date.now() / 1000) {
     const waves = this.activeAttacks.map((wave) => ({
       id: wave.id,
       continuous: false,
@@ -58,7 +61,33 @@ class CombatManager {
       createdAt: order.createdAt,
       lastTick: order.lastTick,
     }));
-    return waves.concat(orders);
+    const currents = this.currentPushes.map((push) => {
+      const progress = Math.max(0, Math.min(1, (now - push.startTime) / Math.max(0.1, push.travelTime || 1)));
+      return {
+        id: push.id,
+        currentPush: true,
+        routeAttack: true,
+        continuous: false,
+        attackerId: push.attackerId,
+        defenderId: push.defenderId,
+        remainingPower: Math.round(push.remainingPower),
+        sentEnergy: Math.round(push.sentEnergy),
+        frontierTiles: [push.targetStartTile].filter((id) => id != null),
+        capturedTiles: [],
+        sourceTile: push.sourceTile,
+        targetStartTile: push.targetStartTile,
+        routeTiles: push.routeTiles.slice(0, 64),
+        currentRouteIndex: push.currentRouteIndex || 0,
+        positionTile: push.routeTiles[Math.min(push.routeTiles.length - 1, push.currentRouteIndex || 0)] || push.sourceTile,
+        startTime: push.startTime,
+        impactTime: push.impactTime,
+        travelTime: push.travelTime,
+        warningAt: push.warningAt,
+        status: push.status,
+        progress,
+      };
+    });
+    return waves.concat(orders, currents);
   }
 
   expandOrAttack(game, player, tileId, percent, sourceIds = []) {
@@ -155,13 +184,13 @@ class CombatManager {
     const now = game.now();
     const diplomacyCheck = game.diplomacy.canAttack(player.id, defender.id, now);
     if (!diplomacyCheck.ok) return { ok: false, resultType: "diplomacyBlocked", message: diplomacyCheck.reason };
-    if (!options.ignoreCooldown && now < (player.attackCooldownUntil || 0)) return { ok: false, resultType: "cooldown", message: "Attack cooldown is active." };
+    if (!options.ignoreCooldown && now < (player.attackCooldownUntil || 0)) return { ok: false, resultType: "cooldown", message: "Border Attack cooldown is active." };
     if (this.activeAttacks.filter((wave) => wave.attackerId === player.id).length >= MAX_ACTIVE_ATTACKS_PER_PLAYER) {
       return { ok: false, resultType: "tooManyWaves", message: "Frontline already moving." };
     }
 
     const reach = options.routeReach || this.tileManager.borderReachInfo(player, target, sourceIds);
-    if (!reach.reachable) return { ok: false, resultType: "tooFar", message: "Too far from border." };
+    if (!reach.reachable) return { ok: false, resultType: "tooFar", message: "Too far for Border Attack. Try Current Push if there is an open water route." };
 
     const spend = this.spendEnergy(player, percent);
     if (spend < 5) return { ok: false, resultType: "notEnoughEnergy", message: "Not enough Animal Energy. Attacks need at least 5 energy." };
@@ -379,32 +408,102 @@ class CombatManager {
   }
 
   startWaterRouteAttack(game, player, tileId, percent, sourceIds = []) {
+    const now = game.now();
     const target = this.tileManager.getById(tileId);
     if (!target || !target.owner || target.owner === player.id) return { ok: false, message: "Choose an enemy coastal tile for Current Push." };
     const defender = game.getPlayer(target.owner);
     if (!defender || defender.defeated) return { ok: false, message: "Target player is no longer active." };
-    const diplomacyCheck = game.diplomacy.canAttack(player.id, defender.id, game.now());
-    if (!diplomacyCheck.ok) return { ok: false, message: diplomacyCheck.reason };
-    const route = this.waterRoute(player, target, sourceIds);
-    if (!route) return { ok: false, message: "No open water route to that border." };
-    const result = this.startWaveAttack(game, player, defender, target, percent, [], {
-      routeAttack: true,
-      routeReach: { reachable: true, source: route.source, jumped: true },
-    });
-    if (result.ok) {
-      this.pushEvent({
-        kind: "waterRouteAttack",
-        playerId: player.id,
-        targetOwner: defender.id,
-        from: route.source.id,
-        to: target.id,
-        routeTiles: route.path.slice(0, 24).map((tile) => tile.id),
-        amount: result.spentEnergy,
-        at: game.now(),
-        message: `${player.name} sent a Current Push across open water.`,
-      });
+    const diplomacyCheck = game.diplomacy.canAttack(player.id, defender.id, now);
+    if (!diplomacyCheck.ok) return { ok: false, message: diplomacyCheck.reason || "Cannot attack ally." };
+    if (now < (player.currentPushCooldownUntil || 0)) {
+      return { ok: false, resultType: "cooldown", message: `Current Push cooling down for ${Math.ceil(player.currentPushCooldownUntil - now)}s.` };
     }
-    return result;
+    const route = this.waterRoute(player, target, sourceIds);
+    if (!route) return { ok: false, resultType: "routeBlocked", message: "Current Push route blocked. Pick an enemy border reachable through open water or lily pads." };
+    const distance = route.path.length;
+    if (distance > (CURRENT_PUSH.maxRange || 32)) return { ok: false, resultType: "tooFar", message: "Current Push route is too far. Pick a closer coastal border." };
+    const spend = this.spendEnergy(player, percent);
+    if (spend < (CURRENT_PUSH.minEnergy || 10)) {
+      return { ok: false, resultType: "notEnoughEnergy", message: `Current Push needs at least ${CURRENT_PUSH.minEnergy || 10} Animal Energy.` };
+    }
+
+    const tiers = Math.max(0, Math.ceil((distance - (CURRENT_PUSH.distanceTier || 8)) / (CURRENT_PUSH.distanceTier || 8)));
+    const efficiency = Math.max(
+      CURRENT_PUSH.minEfficiency || 0.5,
+      (CURRENT_PUSH.baseEfficiency || 0.78) - tiers * (CURRENT_PUSH.distancePenaltyPerTier || 0.1),
+    );
+    const beginnerProtection =
+      defender.id === config.HUMAN_ID &&
+      (game.matchSettings?.difficulty === "easy" || game.matchSettings?.beginnerCombat || game.matchSettings?.practice)
+        ? CURRENT_PUSH.beginnerHumanPowerMultiplier || 0.75
+        : 1;
+    const travelTime = Math.max(
+      CURRENT_PUSH.minTravelSeconds || 3,
+      Math.min(CURRENT_PUSH.maxTravelSeconds || 12, distance * (CURRENT_PUSH.secondsPerTile || 0.28)),
+    );
+    const remainingPower = spend * (balance.attackPowerMultiplier || 1) * efficiency * beginnerProtection * (1 + Math.min(0.25, player.flags?.routePowerBonus || 0));
+
+    player.energy -= spend;
+    player.stats.energyUsed += spend;
+    player.stats.attacksLaunched = (player.stats.attacksLaunched || 0) + 1;
+    player.currentPushCooldownUntil = now + (CURRENT_PUSH.cooldownSeconds || 45);
+    player.flags.warExhaustion = Math.min(balance.maxWarExhaustion, (player.flags.warExhaustion || 0) + (balance.warExhaustionPerAttack || 0.08) * 0.65);
+
+    const push = {
+      id: `current-${this.nextCurrentPushId}`,
+      attackerId: player.id,
+      defenderId: defender.id,
+      routeTiles: route.path.map((tile) => tile.id),
+      currentRouteIndex: 0,
+      sentEnergy: spend,
+      remainingPower,
+      sourceTile: route.source.id,
+      targetStartTile: target.id,
+      targetOwner: defender.id,
+      startTime: now,
+      impactTime: now + travelTime,
+      warningAt: now + Math.max(0, travelTime - (CURRENT_PUSH.warningLeadSeconds || 2)),
+      travelTime,
+      efficiency,
+      distance,
+      distanceTiers: tiers,
+      warningSent: false,
+      status: "traveling",
+      maxCaptures: Math.max(2, (CURRENT_PUSH.maxImpactCaptures || 7) - tiers * (CURRENT_PUSH.longRouteCapturePenalty || 1)),
+    };
+    this.nextCurrentPushId += 1;
+    this.currentPushes.push(push);
+    game.recordWar?.(player.id, defender.id, { attack: true, damage: spend, energySpent: spend });
+
+    this.pushEvent({
+      kind: "waterRouteAttack",
+      currentPushId: push.id,
+      playerId: player.id,
+      targetOwner: defender.id,
+      from: route.source.id,
+      to: target.id,
+      routeTiles: push.routeTiles.slice(0, 64),
+      amount: Math.round(spend),
+      impactPower: Math.round(remainingPower),
+      travelTime: Number(travelTime.toFixed(1)),
+      impactTime: push.impactTime,
+      distance,
+      efficiency: Number(efficiency.toFixed(2)),
+      at: now,
+      message: `Current Push launched. Impact in ${travelTime.toFixed(1)}s.`,
+    });
+
+    return {
+      ok: true,
+      resultType: "currentPush",
+      message: `Current Push launched. Impact in ${travelTime.toFixed(1)}s.`,
+      spentEnergy: Math.round(spend),
+      impactPower: Math.round(remainingPower),
+      travelTime: Number(travelTime.toFixed(1)),
+      routeDistance: distance,
+      efficiency: Number(efficiency.toFixed(2)),
+      cooldown: CURRENT_PUSH.cooldownSeconds || 45,
+    };
   }
 
   waterRoute(player, target, sourceIds = []) {
@@ -417,7 +516,7 @@ class CombatManager {
     }
     const targetCoast = target.neighbors.some((neighbor) => waterTypes.has(neighbor.type) && !config.TILE_TYPES[neighbor.type].blocks);
     if (!starts.length || !targetCoast) return null;
-    const maxDistance = player.animal === "duck" || player.animal === "carp" ? 28 : 20;
+    const maxDistance = CURRENT_PUSH.maxRange || (player.animal === "duck" || player.animal === "carp" ? 28 : 20);
     const queue = starts.slice(0, 24).map((tile) => ({ tile, path: [tile] }));
     const seen = new Set(queue.map((entry) => entry.tile.id));
     while (queue.length) {
@@ -432,6 +531,156 @@ class CombatManager {
       });
     }
     return null;
+  }
+
+  processCurrentPushes(game, now) {
+    if (!this.currentPushes.length) return;
+    this.currentPushes = this.currentPushes.filter((push) => {
+      const attacker = game.getPlayer(push.attackerId);
+      const defender = game.getPlayer(push.defenderId);
+      if (!attacker || !defender || attacker.defeated || defender.defeated) {
+        this.currentPushCancelled(game, push, "Current Push ended: attacker or defender is gone.");
+        return false;
+      }
+      const diplomacyCheck = game.diplomacy.canAttack(push.attackerId, push.defenderId, now);
+      if (!diplomacyCheck.ok) {
+        this.currentPushCancelled(game, push, diplomacyCheck.reason || "Current Push cancelled by diplomacy.");
+        return false;
+      }
+
+      const invalidRouteTile = push.routeTiles
+        .map((id) => this.tileManager.getById(id))
+        .find((tile) => !tile || config.TILE_TYPES[tile.type]?.blocks);
+      if (invalidRouteTile) {
+        this.currentPushCancelled(game, push, "Current Push route blocked.");
+        return false;
+      }
+
+      const progress = Math.max(0, Math.min(1, (now - push.startTime) / Math.max(0.1, push.travelTime)));
+      push.currentRouteIndex = Math.min(push.routeTiles.length - 1, Math.floor(progress * Math.max(1, push.routeTiles.length - 1)));
+
+      if (!push.warningSent && now >= push.warningAt) {
+        push.warningSent = true;
+        this.pushEvent({
+          kind: "currentPushWarning",
+          currentPushId: push.id,
+          playerId: push.attackerId,
+          targetOwner: push.defenderId,
+          to: push.targetStartTile,
+          routeTiles: push.routeTiles.slice(0, 64),
+          impactTime: push.impactTime,
+          impactIn: Math.max(0, Number((push.impactTime - now).toFixed(1))),
+          message: "Enemy Current Push incoming. Reinforce now.",
+          at: now,
+        });
+      }
+
+      if (now < push.impactTime) return true;
+      this.resolveCurrentPush(game, push, attacker, defender, now);
+      return false;
+    });
+  }
+
+  currentPushCancelled(game, push, message) {
+    push.status = "blocked";
+    this.pushEvent({
+      kind: "currentPushBlocked",
+      currentPushId: push.id,
+      playerId: push.attackerId,
+      targetOwner: push.defenderId,
+      to: push.targetStartTile,
+      routeTiles: push.routeTiles?.slice(0, 64) || [],
+      message,
+      at: game.now(),
+    });
+  }
+
+  resolveCurrentPush(game, push, attacker, defender, now) {
+    const target = this.tileManager.getById(push.targetStartTile);
+    if (!target || target.owner !== defender.id) {
+      this.currentPushCancelled(game, push, "Current Push missed: target border changed before impact.");
+      return;
+    }
+
+    const routeTiles = push.routeTiles.map((id) => this.tileManager.getById(id)).filter(Boolean);
+    const interceptTiles = routeTiles.filter((tile) => tile.owner === defender.id && tile.id !== target.id);
+    const interceptLoss = Math.min(CURRENT_PUSH.maxInterceptPowerLoss || 0.45, interceptTiles.length * (CURRENT_PUSH.interceptPowerLossPerTile || 0.055));
+    const shellMultiplier = defender.animal === "turtle" && now < (defender.abilityActiveUntil || 0) ? CURRENT_PUSH.turtleShellPowerMultiplier || 0.72 : 1;
+    const finalPower = Math.max(0, push.remainingPower * (1 - interceptLoss) * shellMultiplier);
+
+    const wave = {
+      id: push.id,
+      attackerId: attacker.id,
+      defenderId: defender.id,
+      remainingPower: finalPower,
+      frontierTiles: [target.id],
+      capturedTiles: [],
+      distanceByTile: { [target.id]: 0 },
+      fromByTile: { [target.id]: routeTiles.at(-1)?.id || push.sourceTile },
+      sourceTile: push.sourceTile,
+      targetStartTile: target.id,
+      spentEnergy: push.sentEnergy,
+      ambushApplied: false,
+      continuous: false,
+      routeAttack: true,
+      currentPush: true,
+      createdAt: push.startTime,
+      lastTick: now,
+      tickRate: WAVE_TICK_SECONDS,
+    };
+
+    let captured = 0;
+    const maxCaptures = Math.max(1, push.maxCaptures || CURRENT_PUSH.maxImpactCaptures || 7);
+    const nextFrontier = new Set(wave.frontierTiles);
+    while (captured < maxCaptures) {
+      const candidates = this.waveCandidates(game, wave, attacker, defender);
+      if (!candidates.length) break;
+      const candidate = candidates[0];
+      if (!candidate || candidate.tile.owner !== defender.id) break;
+      const cost = this.waveCaptureCost(game, wave, attacker, defender, candidate) * (CURRENT_PUSH.impactCostMultiplier || 1.08);
+      if (cost > wave.remainingPower) {
+        candidate.tile.defenseEnergy = Math.min(95, (candidate.tile.defenseEnergy || 0) + Math.max(2, wave.remainingPower * 0.16));
+        this.pushEvent({
+          kind: "currentPushBlocked",
+          currentPushId: push.id,
+          playerId: attacker.id,
+          targetOwner: defender.id,
+          to: candidate.tile.id,
+          amount: Math.round(cost - wave.remainingPower),
+          message: captured > 0 ? "Current Push weakened by defense." : "Current Push blocked by reinforced border.",
+          at: now,
+        });
+        break;
+      }
+      const capturedTile = this.captureWaveTile(game, wave, attacker, defender, candidate, cost, now);
+      if (!capturedTile) break;
+      nextFrontier.add(candidate.tile.id);
+      wave.frontierTiles = this.trimWaveFrontier(wave, nextFrontier, defender.id);
+      captured += 1;
+    }
+
+    const message =
+      captured > 0
+        ? `Current Push impacted: captured ${captured} tile${captured === 1 ? "" : "s"}.`
+        : interceptLoss > 0 || shellMultiplier < 1
+          ? "Current Push weakened by defense and captured nothing."
+          : "Current Push blocked by reinforced border.";
+    this.pushEvent({
+      kind: "currentPushImpact",
+      currentPushId: push.id,
+      playerId: attacker.id,
+      targetOwner: defender.id,
+      from: push.sourceTile,
+      to: target.id,
+      routeTiles: push.routeTiles.slice(0, 64),
+      captured,
+      remaining: Math.round(wave.remainingPower),
+      interceptTiles: interceptTiles.length,
+      shellGuarded: shellMultiplier < 1,
+      message,
+      at: now,
+    });
+    this.finishWave(game, wave, captured > 0 ? `Border Attack captured ${captured} tiles via Current Push.` : message);
   }
 
   processWave(game, wave, now) {

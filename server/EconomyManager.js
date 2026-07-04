@@ -15,6 +15,7 @@ class EconomyManager {
       if (player.defeated) return;
       player.flags.warExhaustion = Math.max(0, (player.flags.warExhaustion || 0) - balance.warExhaustionDecayPerSecond * dt);
       player.energy = Math.min(player.maxEnergy, player.energy + player.income * dt);
+      if (game?.sandbox?.enabled && game.sandbox.rules?.infiniteEnergy && !player.isBot) player.energy = player.maxEnergy;
       player.energy = Math.max(0, player.energy);
     });
   }
@@ -125,8 +126,11 @@ class EconomyManager {
       }
       if (player.animal === "duck") player.maxEnergy *= 1.08;
       if ((player.level || 1) >= 5 && player.animal === "duck") player.maxEnergy *= 1.04;
-      player.energy = Math.min(player.energy, player.maxEnergy);
-      if (player.territory <= 0 && !player.defeated) {
+      if (game?.sandbox?.enabled && player.flags?.sandboxMaxEnergyOverride) {
+        player.maxEnergy = Math.max(player.maxEnergy, Number(player.flags.sandboxMaxEnergyOverride) || 0);
+      }
+      if (!(game?.sandbox?.enabled && game.sandbox.rules?.infiniteEnergy && !player.isBot)) player.energy = Math.min(player.energy, player.maxEnergy);
+      if (player.territory <= 0 && !player.defeated && !(game?.sandbox?.enabled && game.sandbox.rules?.elimination === false)) {
         player.defeated = true;
         game?.pushEvent?.({
           kind: "eliminated",
@@ -213,14 +217,14 @@ class EconomyManager {
     return !this.buildUnavailableReason(player, tile, buildingType, now);
   }
 
-  build(player, tile, buildingType, now) {
+  build(player, tile, buildingType, now, game = null) {
     const reason = this.buildUnavailableReason(player, tile, buildingType, now);
     if (reason) {
       return { ok: false, message: reason };
     }
     const building = config.BUILDINGS[buildingType];
     const cost = this.buildingCost(player, buildingType);
-    const buildTime = balance.buildTimeSeconds || 10;
+    const buildTime = game?.sandbox?.enabled && game.sandbox.rules?.instantBuild ? 0 : balance.buildTimeSeconds || 10;
     player.energy -= cost;
     tile.building = buildingType;
     tile.buildingLevel = 1;
@@ -233,7 +237,7 @@ class EconomyManager {
     player.stats.buildingsBuilt = (player.stats.buildingsBuilt || 0) + 1;
     return {
       ok: true,
-      message: `${building.label} construction started. Finishes in ${buildTime}s.`,
+      message: buildTime > 0 ? `${building.label} construction started. Finishes in ${buildTime}s.` : `${building.label} finished instantly.`,
       spentEnergy: cost,
       buildTime,
       buildingActiveAt: tile.buildingActiveAt,
@@ -241,7 +245,7 @@ class EconomyManager {
     };
   }
 
-  upgradeBuilding(player, tile, now) {
+  upgradeBuilding(player, tile, now, game = null) {
     if (!tile || tile.owner !== player.id || !tile.building) return { ok: false, message: "Choose one of your buildings." };
     if (tile.buildingActiveAt && tile.buildingActiveAt > now) return { ok: false, message: `Building is still under construction. Wait ${Math.ceil(tile.buildingActiveAt - now)}s.` };
     const building = config.BUILDINGS[tile.building];
@@ -250,7 +254,7 @@ class EconomyManager {
     const ownedCount = player.buildings?.[tile.building] || 0;
     const cost = Math.round((building?.cost || 40) * (0.78 + level * (balance.upgradeCostGrowth || 0.82)) * (1 + Math.max(0, ownedCount - 1) * 0.08));
     if (player.energy < cost) return { ok: false, message: "Not enough Animal Energy." };
-    const upgradeTime = balance.upgradeTimeSeconds || balance.buildTimeSeconds || 8;
+    const upgradeTime = game?.sandbox?.enabled && game.sandbox.rules?.instantBuild ? 0 : balance.upgradeTimeSeconds || balance.buildTimeSeconds || 8;
     player.energy -= cost;
     tile.buildingLevel = level + 1;
     tile.buildingActiveAt = now + upgradeTime;
@@ -258,7 +262,16 @@ class EconomyManager {
     tile.buildingPendingEvent = "upgrade";
     tile.defenseEnergy = Math.min(90, tile.defenseEnergy + 8 + level * 4);
     tile.lastChanged = now;
-    return { ok: true, message: `${building?.label || "Building"} upgrading to level ${tile.buildingLevel}. Finishes in ${upgradeTime}s.`, spentEnergy: cost, buildingActiveAt: tile.buildingActiveAt };
+    player.stats.buildingUpgrades = (player.stats.buildingUpgrades || 0) + 1;
+    return {
+      ok: true,
+      message:
+        upgradeTime > 0
+          ? `${building?.label || "Building"} upgrading to level ${tile.buildingLevel}. Finishes in ${upgradeTime}s.`
+          : `${building?.label || "Building"} upgraded instantly to level ${tile.buildingLevel}.`,
+      spentEnergy: cost,
+      buildingActiveAt: tile.buildingActiveAt,
+    };
   }
 
   removeBuilding(player, tile, now) {

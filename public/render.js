@@ -568,6 +568,9 @@
     drawBuilding(ctx, tile, x, y, size) {
       const cx = x + size / 2;
       const cy = y + size / 2;
+      const serverTime = this.state?.serverTime || 0;
+      const constructionLeft = Math.max(0, Math.ceil((tile.buildingActiveAt || 0) - serverTime));
+      const underConstruction = constructionLeft > 0;
       const icon = {
         nest: "N",
         lilyFarm: "L",
@@ -594,6 +597,28 @@
       ctx.strokeStyle = color;
       ctx.lineWidth = Math.max(1, size * 0.035);
       ctx.stroke();
+
+      if (underConstruction) {
+        const totalTime =
+          tile.buildingPendingEvent === "upgrade"
+            ? this.state?.config?.balance?.upgradeTimeSeconds || this.state?.config?.balance?.buildTimeSeconds || 8
+            : this.state?.config?.balance?.buildTimeSeconds || 10;
+        const progress = Math.max(0.02, Math.min(0.98, 1 - constructionLeft / Math.max(1, totalTime)));
+        const ringRadius = Math.max(6, size * 0.25);
+        const ringWidth = Math.max(1.3, size * 0.045);
+        ctx.lineWidth = ringWidth;
+        ctx.strokeStyle = "rgba(237, 248, 251, 0.22)";
+        ctx.beginPath();
+        ctx.arc(cx, cy, ringRadius, 0, Math.PI * 2);
+        ctx.stroke();
+        ctx.strokeStyle = "#fff1a8";
+        ctx.lineCap = "round";
+        ctx.beginPath();
+        ctx.arc(cx, cy, ringRadius, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * progress);
+        ctx.stroke();
+        ctx.lineCap = "butt";
+      }
+
       ctx.fillStyle = color;
       ctx.font = `950 ${Math.max(8, size * 0.22)}px Inter, sans-serif`;
       ctx.textAlign = "center";
@@ -603,6 +628,24 @@
         ctx.fillStyle = "#edf8fb";
         ctx.font = `900 ${Math.max(6, size * 0.13)}px Inter, sans-serif`;
         ctx.fillText(String(tile.buildingLevel), cx + size * 0.18, cy - size * 0.16);
+      }
+      if (underConstruction && size > 14) {
+        const label = `${constructionLeft}s`;
+        const fontSize = Math.max(7, Math.min(12, size * 0.18));
+        const labelY = cy + Math.max(8, size * 0.38);
+        ctx.font = `950 ${fontSize}px Inter, sans-serif`;
+        const width = Math.max(size * 0.42, ctx.measureText(label).width + 8);
+        const height = fontSize + 6;
+        ctx.fillStyle = "rgba(4, 13, 20, 0.9)";
+        ctx.strokeStyle = "rgba(255, 241, 168, 0.62)";
+        ctx.lineWidth = Math.max(1, size * 0.025);
+        this.roundRect(ctx, cx - width / 2, labelY - height / 2, width, height, Math.max(4, height * 0.42));
+        ctx.fill();
+        ctx.stroke();
+        ctx.fillStyle = "#fff1a8";
+        ctx.textAlign = "center";
+        ctx.textBaseline = "middle";
+        ctx.fillText(label, cx, labelY + 0.3);
       }
       ctx.restore();
     }
@@ -973,6 +1016,10 @@
       attacks.forEach((wave) => {
         const attacker = this.playerMap.get(wave.attackerId);
         if (!attacker) return;
+        if (wave.currentPush) {
+          this.drawCurrentPush(ctx, wave, attacker, now, pulse);
+          return;
+        }
         const color = attacker.color;
         const source = this.tileMap.get(wave.sourceTile);
         const target = this.tileMap.get(wave.targetStartTile);
@@ -1014,6 +1061,83 @@
           ctx.restore();
         });
       });
+    }
+
+    drawCurrentPush(ctx, wave, attacker, now, pulse) {
+      const route = (wave.routeTiles || []).map((id) => this.tileMap.get(id)).filter(Boolean);
+      const target = this.tileMap.get(wave.targetStartTile);
+      if (!target || !route.length) return;
+      const color = "#87d7ea";
+      const targetCenter = this.tileCenter(target);
+      const points = route.map((tile) => this.tileCenter(tile)).concat(targetCenter);
+      const size = this.baseTile * this.camera.zoom;
+      const progress = Math.max(0, Math.min(1, Number(wave.progress || 0)));
+      const markerIndex = Math.min(points.length - 1, Math.floor(progress * Math.max(1, points.length - 1)));
+      const marker = points[markerIndex] || points[0];
+      const impactLeft = Math.max(0, Math.ceil((wave.impactTime || 0) - (this.state.serverTime || 0)));
+
+      ctx.save();
+      ctx.lineCap = "round";
+      ctx.lineJoin = "round";
+      ctx.globalAlpha = 0.32;
+      ctx.strokeStyle = this.withAlpha(color, 0.82);
+      ctx.lineWidth = Math.max(3, size * 0.11);
+      ctx.beginPath();
+      points.forEach((point, index) => {
+        if (index === 0) ctx.moveTo(point.x, point.y);
+        else ctx.lineTo(point.x, point.y);
+      });
+      ctx.stroke();
+
+      ctx.globalAlpha = 0.88;
+      ctx.strokeStyle = this.withAlpha(attacker.color, 0.9);
+      ctx.lineWidth = Math.max(1.5, size * 0.035);
+      ctx.setLineDash([Math.max(4, size * 0.22), Math.max(5, size * 0.18)]);
+      ctx.lineDashOffset = -now * 0.025;
+      ctx.beginPath();
+      points.forEach((point, index) => {
+        if (index === 0) ctx.moveTo(point.x, point.y);
+        else ctx.lineTo(point.x, point.y);
+      });
+      ctx.stroke();
+      ctx.setLineDash([]);
+
+      ctx.shadowColor = this.withAlpha(color, 0.55);
+      ctx.shadowBlur = Math.max(8, size * 0.34);
+      ctx.fillStyle = color;
+      ctx.beginPath();
+      ctx.arc(marker.x, marker.y, Math.max(4, size * 0.18), 0, Math.PI * 2);
+      ctx.fill();
+      ctx.shadowBlur = 0;
+      ctx.strokeStyle = "#edf8fb";
+      ctx.lineWidth = Math.max(1, size * 0.025);
+      ctx.stroke();
+
+      ctx.globalAlpha = 0.62 + pulse * 0.28;
+      ctx.strokeStyle = "#fff1a8";
+      ctx.lineWidth = Math.max(2, size * 0.06);
+      ctx.beginPath();
+      ctx.arc(targetCenter.x, targetCenter.y, size * (0.34 + pulse * 0.16), 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.globalAlpha = 1;
+
+      if (impactLeft > 0 && size > 8) {
+        const label = `${impactLeft}s`;
+        ctx.font = `950 ${Math.max(9, Math.min(13, size * 0.24))}px Inter, sans-serif`;
+        ctx.textAlign = "center";
+        ctx.textBaseline = "middle";
+        const width = ctx.measureText(label).width + 14;
+        const height = Math.max(18, size * 0.42);
+        this.roundRect(ctx, targetCenter.x - width / 2, targetCenter.y - size * 0.66 - height / 2, width, height, 999);
+        ctx.fillStyle = "rgba(4, 13, 20, 0.88)";
+        ctx.fill();
+        ctx.strokeStyle = "rgba(255, 241, 168, 0.62)";
+        ctx.lineWidth = 1;
+        ctx.stroke();
+        ctx.fillStyle = "#fff1a8";
+        ctx.fillText(label, targetCenter.x, targetCenter.y - size * 0.66 + 0.4);
+      }
+      ctx.restore();
     }
 
     drawStrategicFlow(ctx, from, to, color, now, strength = 1, label = "") {

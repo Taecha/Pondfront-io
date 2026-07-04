@@ -21,15 +21,18 @@ class MissionManager {
   }
 
   handleEvent(game, event) {
+    if (game.matchSettings?.sandbox?.enabled) return;
     if (!event?.playerId) return;
     this.updatePlayer(game, game.getPlayer(event.playerId));
   }
 
   update(game) {
+    if (game.matchSettings?.sandbox?.enabled) return;
     game.players.forEach((player) => this.updatePlayer(game, player));
   }
 
   updatePlayer(game, player) {
+    if (game.matchSettings?.sandbox?.enabled) return;
     if (!player || player.defeated) return;
     const state = this.state.get(player.id);
     if (!state) return;
