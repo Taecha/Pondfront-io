@@ -12,6 +12,7 @@ class ProfileManager {
   profile(userId) {
     const user = this.db.findUserById(userId);
     if (!user) return null;
+    console.log(`[PROFILE] loaded userId=${userId}`);
     const stats = this.db.statsFor(userId);
     const levelInfo = progression.levelFromXp(user.xp || 0);
     const unlockedAchievements = this.db.achievementsFor(userId);
@@ -83,6 +84,7 @@ class ProfileManager {
     if (!user) return { ok: false, message: "Login required." };
     if (!(user.unlockedBadges || []).includes(badgeId)) return { ok: false, message: "Badge is locked." };
     this.db.updateUser(userId, { selectedBadge: badgeId });
+    console.log(`[PROFILE] selected badge userId=${userId} badge=${badgeId}`);
     return { ok: true, message: "Badge selected.", profile: this.profile(userId) };
   }
 
@@ -91,6 +93,7 @@ class ProfileManager {
     if (!user) return { ok: false, message: "Login required." };
     if (!(user.unlockedTitles || []).includes(titleId)) return { ok: false, message: "Title is locked." };
     this.db.updateUser(userId, { selectedTitle: titleId });
+    console.log(`[PROFILE] selected title userId=${userId} title=${titleId}`);
     return { ok: true, message: "Title selected.", profile: this.profile(userId) };
   }
 
@@ -99,11 +102,12 @@ class ProfileManager {
     if (!user) return { ok: false, message: "Login required." };
     if (!(user.unlockedCosmetics || []).includes(cosmeticId)) return { ok: false, message: "Cosmetic is locked." };
     this.db.updateUser(userId, { selectedCosmetic: cosmeticId });
+    console.log(`[PROFILE] selected cosmetic userId=${userId} cosmetic=${cosmeticId}`);
     return { ok: true, message: "Cosmetic selected.", profile: this.profile(userId) };
   }
 
   leaderboard(category = "highestLevel", limit = 20) {
-    const rows = this.db.data.users
+    const rows = this.db.allUsers()
       .map((user) => {
         const stats = this.db.statsFor(user.id);
         const animalStats = this.db.allAnimalStats(user.id);

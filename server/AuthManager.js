@@ -35,6 +35,7 @@ class AuthManager {
     const user = this.db.createUser({ username, passwordHash: this.hashPassword(password), email: body.email });
     const session = this.db.addSession(user.id, req.headers["user-agent"]);
     this.setSessionCookie(res, session.token);
+    console.log(`[AUTH] user created id=${user.id} username=${user.username}`);
     return { ok: true, status: 200, message: "Account created.", user: this.publicUser(user) };
   }
 
@@ -47,6 +48,7 @@ class AuthManager {
     }
     const session = this.db.addSession(user.id, req.headers["user-agent"]);
     this.setSessionCookie(res, session.token);
+    console.log(`[AUTH] login success id=${user.id} username=${user.username}`);
     return { ok: true, status: 200, message: "Logged in.", user: this.publicUser(user) };
   }
 
@@ -66,7 +68,7 @@ class AuthManager {
   }
 
   validateSignup(username, password, confirm) {
-    if (!/^[a-zA-Z0-9 _-]{3,18}$/.test(username)) return "Username must be 3-18 letters, numbers, spaces, _ or -.";
+    if (!/^[a-zA-Z0-9 _-]{3,20}$/.test(username)) return "Username must be 3-20 letters, numbers, spaces, _ or -.";
     if (password.length < 6) return "Password too short.";
     if (password.length > 96) return "Password is too long.";
     if (password !== confirm) return "Passwords do not match.";
@@ -77,7 +79,7 @@ class AuthManager {
     return String(value || "")
       .trim()
       .replace(/\s+/g, " ")
-      .slice(0, 18);
+      .slice(0, 20);
   }
 
   hashPassword(password) {

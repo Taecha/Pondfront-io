@@ -1487,6 +1487,93 @@ h1 {
   text-align: center;
 }
 
+.coach-hint {
+  position: absolute;
+  z-index: 7;
+  left: 50%;
+  bottom: 96px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: center;
+  width: min(520px, calc(100% - 640px));
+  min-height: 48px;
+  padding: 9px 10px 9px 12px;
+  border: 1px solid rgba(242, 216, 122, 0.24);
+  border-radius: 10px;
+  color: #edf8fb;
+  background:
+    linear-gradient(180deg, rgba(10, 29, 42, 0.92), rgba(5, 16, 25, 0.9)),
+    rgba(7, 19, 29, 0.88);
+  box-shadow: 0 16px 36px rgba(0, 0, 0, 0.34);
+  transform: translateX(-50%);
+  backdrop-filter: blur(12px);
+}
+
+.coach-hint strong,
+.coach-hint span {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.coach-hint strong {
+  color: var(--gold);
+  font-size: 0.78rem;
+  text-transform: uppercase;
+  letter-spacing: 0;
+}
+
+.coach-hint span {
+  color: #cfe5eb;
+  font-size: 0.78rem;
+  font-weight: 760;
+  line-height: 1.25;
+}
+
+.coach-hint button {
+  min-height: 34px;
+  padding-inline: 11px;
+  color: #061019;
+  background: linear-gradient(180deg, #87d7ea, #4bb0ca);
+}
+
+.debug-stats-panel {
+  position: absolute;
+  z-index: 9;
+  left: 50%;
+  top: 64px;
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 6px;
+  width: min(560px, calc(100% - 640px));
+  padding: 7px;
+  border: 1px solid rgba(151, 202, 218, 0.22);
+  border-radius: 9px;
+  color: #dceff4;
+  background: rgba(5, 16, 25, 0.78);
+  box-shadow: 0 12px 28px rgba(0, 0, 0, 0.26);
+  transform: translateX(-50%);
+  backdrop-filter: blur(12px);
+}
+
+.debug-stats-panel strong,
+.debug-stats-panel span {
+  min-height: 24px;
+  padding: 4px 7px;
+  border-radius: 7px;
+  background: rgba(255, 255, 255, 0.055);
+  font-size: 0.68rem;
+  font-weight: 900;
+  white-space: nowrap;
+}
+
+.debug-stats-panel strong {
+  color: #061019;
+  background: linear-gradient(180deg, #f2d87a, #d8ad48);
+}
+
 .mobile-map-controls {
   position: absolute;
   z-index: 7;
@@ -6112,6 +6199,24 @@ body[data-action-context="own"] .bottombar {
     width: min(220px, calc(100vw - 198px));
   }
 
+  .coach-hint {
+    left: 10px;
+    right: 10px;
+    bottom: calc(88px + env(safe-area-inset-bottom, 0px));
+    width: auto;
+    transform: none;
+  }
+
+  .debug-stats-panel {
+    left: 10px;
+    right: 10px;
+    top: auto;
+    bottom: calc(154px + env(safe-area-inset-bottom, 0px));
+    width: auto;
+    justify-content: flex-start;
+    transform: none;
+  }
+
   .bottombar,
   body[data-action-context] .bottombar {
     grid-template-columns: 1fr;
@@ -6162,6 +6267,14 @@ body[data-action-context="own"] .bottombar {
 
   .left-panel {
     width: calc(100vw - 166px);
+  }
+
+  .coach-hint {
+    grid-template-columns: 1fr;
+  }
+
+  .coach-hint button {
+    width: 100%;
   }
 
   .action-row,

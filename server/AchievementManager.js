@@ -13,7 +13,11 @@ class AchievementManager {
       if (this.db.achievementsFor(userId).some((entry) => entry.achievementId === achievement.id)) return;
       if (!this.isComplete(achievement, stats, animalStats, matchRecord)) return;
       const result = this.db.unlockAchievement(userId, achievement);
-      if (result) unlocked.push({ ...achievement, unlockedAt: result.unlock.unlockedAt });
+      if (result) {
+        console.log(`[ACHIEVEMENT] unlocked userId=${userId} achievement=${achievement.id}`);
+        if (achievement.badgeId) console.log(`[BADGE] unlocked userId=${userId} badge=${achievement.badgeId}`);
+        unlocked.push({ ...achievement, unlockedAt: result.unlock.unlockedAt });
+      }
     });
     return unlocked;
   }

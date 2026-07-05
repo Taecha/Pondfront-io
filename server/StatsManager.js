@@ -55,6 +55,7 @@ class StatsManager {
   recordPlayer(game, player, ranked, playable) {
     const user = this.db.findUserById(player.accountUserId);
     if (!user || this.db.hasMatch(user.id, game.matchId)) return null;
+    console.log(`[STATS] saving match for userId=${user.id} matchId=${game.matchId}`);
     const winningTeam = game.winnerTeamId && player.teamId && player.teamId === game.winnerTeamId;
     const won = winningTeam || player.id === game.winnerId;
     const elapsed = Math.round(game.elapsed ? game.elapsed() : 0);
@@ -88,6 +89,7 @@ class StatsManager {
     };
     const saved = this.db.recordMatch(user.id, matchRecord, xpBase, coinsBase);
     if (!saved) return null;
+    console.log(`[STATS] ${matchRecord.result} updated userId=${user.id} games=${saved.stats.gamesPlayed} wins=${saved.stats.wins} losses=${saved.stats.losses}`);
     const achievementUnlocks = this.achievementManager.unlockEligible(user.id, matchRecord);
     const freshUser = this.db.findUserById(user.id);
     const levelAfter = freshUser?.level || saved.user.level || levelBefore;

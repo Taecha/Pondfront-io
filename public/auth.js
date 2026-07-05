@@ -32,6 +32,11 @@
         ],
       };
       this.bind();
+      window.addEventListener("pond:profile-updated", (event) => {
+        const profileUser = event.detail?.user;
+        if (!profileUser || !this.user || profileUser.id !== this.user.id) return;
+        this.setUser({ ...this.user, ...profileUser }, { loadProfile: false });
+      });
       this.refresh();
     }
 
@@ -112,7 +117,7 @@
       }
     }
 
-    setUser(user) {
+    setUser(user, options = {}) {
       this.user = user || null;
       this.profile?.setUser(this.user);
       this.nodes.panel?.classList.toggle("guest", !this.user);
@@ -133,6 +138,7 @@
       }
       this.changeHandlers.forEach((callback) => callback(this.user));
       window.dispatchEvent(new CustomEvent("pond:account-changed", { detail: { user: this.user } }));
+      if (this.user && options.loadProfile !== false) this.profile?.load?.();
     }
 
     badgeIcon(badgeId) {

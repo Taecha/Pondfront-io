@@ -230,6 +230,9 @@
     const war = state.wars?.find((entry) => entry.players.includes(player.id) && entry.players.includes(state.humanId));
     const warText = relationText || (war?.atWar ? "At War" : war?.peacePossible ? "Peace Possible" : relationText);
     const strength = strengthLabel(player.energy, player.maxEnergy);
+    const strengthEstimate = relativeStrengthLabel(player, human);
+    const difficultyLabel = player.isBot ? botDifficultyLabel(state, player) : "Human";
+    const personalityLabel = player.isBot ? botPersonalityLabel(player) : "Player";
     const coreText = player.coreLost
       ? "Lost"
       : player.coreMaxHealth
@@ -248,9 +251,16 @@
 
     return {
       title: `${player.name}`,
-      meta: `${animal.label} L${player.level || 1} | ${visual.role || roleLabel} | ${Math.round(player.territoryPct * 100)}% territory | ${player.energy} energy | ${warText}`,
+      meta: `${animal.label} L${player.level || 1} | ${player.isBot ? `${difficultyLabel} ${personalityLabel}` : visual.role || roleLabel} | ${Math.round(player.territoryPct * 100)}% territory | ${player.energy} energy | ${warText}`,
       facts: [
         { label: "Animal", value: animal.label },
+        ...(player.isBot
+          ? [
+              { label: "Difficulty", value: difficultyLabel },
+              { label: "Personality", value: personalityLabel },
+              { label: "Strength Estimate", value: strengthEstimate },
+            ]
+          : []),
         { label: "Best Terrain", value: visual.terrain || "Mixed pond" },
         { label: "Counterplay", value: visual.counterplay || "Watch its strongest border." },
         { label: "Team", value: player.teamName || "Solo" },
@@ -332,6 +342,46 @@
     if (ratio >= 0.52) return "Strong";
     if (ratio >= 0.28) return "Medium";
     return "Weak";
+  }
+
+  function botDifficultyLabel(state, player) {
+    const profile = state.config?.botDifficulty?.[player.botDifficulty || player.difficulty] || {};
+    return profile.label || titleCase(player.botDifficulty || player.difficulty || "normal");
+  }
+
+  function botPersonalityLabel(player) {
+    if (player.botPersonality) return player.botPersonality;
+    const labels = {
+      aggressive: "Fighter",
+      defensive: "Defender",
+      defender: "Defender",
+      expander: "Expander",
+      objectiveHunter: "Objective Hunter",
+      leaderHunter: "Leader Hunter",
+      supporter: "Supporter",
+      loyalAlly: "Supporter",
+      peaceful: "Supporter",
+      farmer: "Expander",
+      opportunist: "Fighter",
+      betrayer: "Fighter",
+      passive: "Passive",
+    };
+    return labels[player.personality] || titleCase(player.personality || "fighter");
+  }
+
+  function relativeStrengthLabel(player, human) {
+    const playerScore = player.energy + player.territory * 1.5 + (player.defenseEnergy || 0);
+    const humanScore = human.energy + human.territory * 1.5 + (human.defenseEnergy || 0);
+    if (playerScore > humanScore * 1.35) return "Dangerous";
+    if (playerScore > humanScore * 1.05) return "Slightly ahead";
+    if (playerScore < humanScore * 0.7) return "Vulnerable";
+    return "Even fight";
+  }
+
+  function titleCase(value) {
+    return String(value || "")
+      .replace(/([a-z])([A-Z])/g, "$1 $2")
+      .replace(/^\w/, (match) => match.toUpperCase());
   }
 
   root.PondInfo = {

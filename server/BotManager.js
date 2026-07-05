@@ -103,6 +103,8 @@ class BotManager {
       return;
     }
 
+    if (this.trySkirmish(bot, enemy, phase)) return;
+
     if (bot.energy > bot.maxEnergy * 0.55 && Math.random() < this.buildChance(bot, phase)) {
       if (this.tryBuild(bot)) return;
     }
@@ -161,6 +163,9 @@ class BotManager {
     const territoryPct = this.game.territoryPercent(bot);
     const energyRatio = bot.energy / Math.max(1, bot.maxEnergy);
     const coreLost = Boolean(bot.coreLost || bot.flags?.coreLost);
+    const recentWar = [...(this.game.wars?.values?.() || [])].some((war) => war.players?.includes(bot.id) && this.game.now() - war.lastAt < 180);
+    const directPressure = coreLost || Boolean(bot.flags?.lastAttackerId) || recentWar;
+    if (!directPressure && elapsed < 900) return false;
     const active = this.game.players.filter((player) => !player.defeated && player.territory > 0).length;
     const averageTerritory = this.game.players
       .filter((player) => !player.defeated && player.territory > 0)
@@ -795,6 +800,58 @@ class BotManager {
     const decision = this.attackDecision(bot, target, phase, fallback);
     this.debugAttackDecision(bot, target, decision);
     return decision.ok;
+  }
+
+  trySkirmish(bot, enemyTiles, phase) {
+    if (!enemyTiles.length || phase === "early") return false;
+    const now = this.game.now();
+    if (now < (bot.aiAttackCooldownUntil || 0)) return false;
+    const profile = this.difficultyProfile(bot);
+    const minEnergy = Math.max((profile.minimumAttackSpend || 14) * 2.2, bot.maxEnergy * (bot.difficulty === "easy" ? 0.7 : 0.44));
+    if (bot.energy < minEnergy) return false;
+
+    const quietBonus = (this.game.metrics?.attacks || 0) < 4 && this.game.elapsed() > 300 ? 0.16 : 0;
+    const personalityBonus =
+      bot.personality === "aggressive" || bot.personality === "leaderHunter"
+        ? 0.08
+        : bot.personality === "defensive" || bot.personality === "farmer" || bot.personality === "peaceful" || bot.personality === "loyalAlly"
+          ? -0.06
+          : 0;
+    const chanceByDifficulty = {
+      easy: 0.025,
+      normal: 0.13,
+      smart: 0.3,
+      chaos: 0.48,
+    };
+    const chance = Math.max(0.02, Math.min(0.62, (chanceByDifficulty[bot.difficulty] || 0.13) + quietBonus + personalityBonus));
+    if (Math.random() > chance) return false;
+
+    const humanId = config.HUMAN_ID;
+    let candidates = enemyTiles.filter((tile) => {
+      const owner = tile.owner ? this.game.getPlayer(tile.owner) : null;
+      if (!owner || owner.defeated) return false;
+      if (bot.difficulty === "easy" && owner.id === humanId && bot.flags?.lastAttackerId !== owner.id) return false;
+      return this.game.diplomacy.canAttack(bot.id, owner.id, now).ok;
+    });
+    if (!candidates.length) return false;
+    candidates = candidates
+      .map((tile) => {
+        const owner = this.game.getPlayer(tile.owner);
+        const ownerPressure = owner?.id === humanId ? -5 : 4;
+        return { tile, score: this.tileScore(bot, tile) + ownerPressure - this.roughAttackCost(tile, owner) * 0.18 + Math.random() * 5 };
+      })
+      .sort((a, b) => b.score - a.score);
+    const target = candidates[0]?.tile;
+    if (!target) return false;
+    const launched = this.launchAttack(bot, target, phase);
+    this.debugBotAction(bot, launched ? "skirmish" : "skirmish-failed", {
+      difficulty: bot.difficulty,
+      energy: Math.round(bot.energy),
+      target: target.id,
+      reason: "midgame pressure",
+      cooldown: Math.round(Math.max(0, (bot.aiAttackCooldownUntil || 0) - now)),
+    });
+    return launched;
   }
 
   launchAttack(bot, tile, phase) {

@@ -39,6 +39,7 @@
 
     setUser(user) {
       this.user = user || null;
+      if (!this.user) this.profile = null;
     }
 
     async open(tab = this.activeTab || "overview") {

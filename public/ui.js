@@ -196,6 +196,11 @@
         rightTabPanels: [...document.querySelectorAll("[data-right-panel]")],
         toast: document.querySelector("#toast"),
         toastStack: document.querySelector("#toastStack"),
+        coachHint: document.querySelector("#coachHint"),
+        coachHintTitle: document.querySelector("#coachHintTitle"),
+        coachHintText: document.querySelector("#coachHintText"),
+        coachHintClose: document.querySelector("#coachHintClose"),
+        debugStatsPanel: document.querySelector("#debugStatsPanel"),
         percentRow: document.querySelector(".percent-row"),
         attackStyleRow: document.querySelector(".attack-style-row"),
         actionRow: document.querySelector(".action-row"),
@@ -226,6 +231,8 @@
         floatingText: document.querySelector("#floatingText"),
         attackArrows: document.querySelector("#attackArrows"),
         abilityEffects: document.querySelector("#abilityEffects"),
+        showCoachHints: document.querySelector("#showCoachHints"),
+        showDebugStats: document.querySelector("#showDebugStats"),
         screenShake: document.querySelector("#screenShake"),
         reducedMotion: document.querySelector("#reducedMotion"),
         autoLowPerformance: document.querySelector("#autoLowPerformance"),
@@ -266,6 +273,7 @@
       this.leaderboardMode = "players";
       this.leaderboardExpanded = false;
       this.rightPanelTab = "leaderboard";
+      this.lastDebugFrameAt = 0;
       this.debugMode = new URLSearchParams(window.location.search).has("debug") || localStorage.getItem("pondfront:debug") === "1";
       document.body.classList.toggle("debug-open", this.debugMode);
       this.nodes.strategicView.checked = true;
@@ -274,6 +282,8 @@
       if (this.nodes.showAnimalSprites) this.nodes.showAnimalSprites.checked = true;
       if (this.nodes.showAnimalAnimations) this.nodes.showAnimalAnimations.checked = true;
       if (this.nodes.showBorderStatus) this.nodes.showBorderStatus.checked = true;
+      if (this.nodes.showCoachHints) this.nodes.showCoachHints.checked = localStorage.getItem("pondfront:coachHints") !== "off";
+      if (this.nodes.showDebugStats) this.nodes.showDebugStats.checked = this.debugMode;
       if (this.isMobile()) {
         if (this.nodes.effectsLevel) this.nodes.effectsLevel.value = "medium";
         if (this.nodes.visualQuality) this.nodes.visualQuality.value = "medium";
@@ -446,6 +456,11 @@
       this.nodes.mobileTeamButton?.addEventListener("click", () => this.openTeamSheet());
       this.nodes.abilityButton.addEventListener("click", () => this.emit("action", { type: "ability" }));
       this.nodes.specialButton?.addEventListener("click", () => this.openSpecialSheet());
+      this.nodes.coachHintClose?.addEventListener("click", () => {
+        this.nodes.coachHint?.classList.add("hidden");
+        if (this.nodes.showCoachHints) this.nodes.showCoachHints.checked = false;
+        localStorage.setItem("pondfront:coachHints", "off");
+      });
       this.nodes.diplomacyButtons.forEach((button) => {
         button.addEventListener("click", () => this.emit("diplomacy", button.dataset.command || button.dataset.diplomacy));
       });
@@ -471,6 +486,14 @@
       this.nodes.floatingText.addEventListener("change", () => this.emit("viewChanged"));
       this.nodes.attackArrows.addEventListener("change", () => this.emit("viewChanged"));
       this.nodes.abilityEffects?.addEventListener("change", () => this.emit("viewChanged"));
+      this.nodes.showCoachHints?.addEventListener("change", () => {
+        localStorage.setItem("pondfront:coachHints", this.nodes.showCoachHints.checked ? "on" : "off");
+        this.updateCoachHint(this.lastState, this.lastTile, this.lastContext);
+      });
+      this.nodes.showDebugStats?.addEventListener("change", () => {
+        this.updateDebugStats(this.lastState);
+        this.emit("viewChanged");
+      });
       this.nodes.screenShake?.addEventListener("change", () => this.emit("viewChanged"));
       this.nodes.reducedMotion.addEventListener("change", () => this.emit("viewChanged"));
       this.nodes.autoLowPerformance.addEventListener("change", () => this.emit("viewChanged"));
@@ -1145,6 +1168,8 @@
       this.updateActionLabels(human);
       this.updateActionVisibility(state, selectedTile, context);
       this.updateMobileActionCard(state, selectedTile, context);
+      this.updateCoachHint(state, selectedTile, context);
+      this.updateDebugStats(state);
       if (!this.nodes.specialSheet?.classList.contains("hidden")) this.openSpecialSheet();
       if (!this.nodes.teamSheet?.classList.contains("hidden")) this.renderTeamSheet();
       if (state.ended) this.showResult(state, human);
@@ -1161,6 +1186,66 @@
       const teamText = debug.aliveTeams == null ? "N/A" : debug.aliveTeams;
       const blocked = debug.blockedReason ? ` | Blocked: ${debug.blockedReason}` : "";
       this.nodes.winDebugPanel.textContent = `Win Check: ${debug.mode} | Alive animals: ${debug.alivePlayers} | Alive teams: ${teamText} | Bots: ${debug.aliveBots} | Out: ${debug.eliminated} | End: ${debug.canEnd ? "checking" : "disabled"} | ${debug.reason}${blocked}`;
+    }
+
+    updateCoachHint(state, tile, context = {}) {
+      const panel = this.nodes.coachHint;
+      if (!panel) return;
+      const hintsEnabled = this.nodes.showCoachHints?.checked !== false && localStorage.getItem("pondfront:coachHints") !== "off";
+      const human = state?.players?.find((player) => player.id === state.humanId);
+      if (!hintsEnabled || !state || !human || state.ended || this.nodes.tutorial?.classList.contains("hidden") === false) {
+        panel.classList.add("hidden");
+        return;
+      }
+      let title = "Grow First";
+      let text = "Select a glowing neutral border tile and use Expand to grow income.";
+      if (context.canAttack) {
+        const spend = Math.round(human.energy * this.percent);
+        title = "Frontline Attack";
+        text = `${this.attackStyleShort(this.percent)} will send about ${spend} energy. Weak borders fall faster; reinforced borders may stall.`;
+      } else if (context.canDefend) {
+        title = "Hold The Border";
+        text = `Defend stores ${Math.round(human.energy * this.percent)} energy on this front so enemy waves cost more.`;
+      } else if (context.canBuild) {
+        title = "Build Economy";
+        text = "Build Lily Farms for income, Nests for max energy, or Reed Guards on threatened fronts.";
+      } else if (tile?.objectiveId || tile?.campId) {
+        title = "Pond Objective";
+        text = "Objectives are worth fighting over, but do not spend all your energy if a border is exposed.";
+      } else if (human.energy >= 120 && (human.specialStatus?.lilyBarrage?.cooldownLeft || 0) <= 0) {
+        title = "Special Ready";
+        text = "Specials are expensive. Use Lily Barrage on weak clusters or Dragonfly Guard/Reed Shield to protect a push.";
+      }
+      this.nodes.coachHintTitle.textContent = title;
+      this.nodes.coachHintText.textContent = text;
+      panel.classList.remove("hidden");
+    }
+
+    updateDebugStats(state) {
+      const panel = this.nodes.debugStatsPanel;
+      if (!panel) return;
+      const enabled = this.debugMode || this.nodes.showDebugStats?.checked === true;
+      panel.classList.toggle("hidden", !enabled);
+      document.body.classList.toggle("debug-stats-open", enabled);
+      if (!enabled || !state) return;
+      const now = performance.now();
+      const delta = this.lastDebugFrameAt ? now - this.lastDebugFrameAt : 0;
+      this.lastDebugFrameAt = now;
+      const game = root.pondFrontGame;
+      const vfx = game?.renderer?.vfx;
+      const visibleTiles = game?.renderer?.visibleTiles?.(0)?.length || 0;
+      const fps = delta > 0 ? Math.max(1, Math.min(144, Math.round(1000 / delta))) : 0;
+      const activeBots = (state.players || []).filter((player) => player.isBot && !player.defeated).length;
+      const serverTick = state.metrics?.lastTickMs || state.serverTickMs || "live";
+      panel.innerHTML = `
+        <strong>Debug</strong>
+        <span>${fps || "-"} FPS</span>
+        <span>${vfx?.particles?.length || 0}/${vfx?.maxParticles || 0} particles</span>
+        <span>${state.activeAttacks?.length || 0} attacks</span>
+        <span>${activeBots} bots</span>
+        <span>${visibleTiles} visible tiles</span>
+        <span>tick ${this.escape(String(serverTick))}</span>
+      `;
     }
 
     updateMobileActionCard(state, tile, context = {}) {
@@ -1664,6 +1749,7 @@
         showAnimalSprites: this.nodes.showAnimalSprites?.checked !== false,
         showAnimalAnimations: this.nodes.showAnimalAnimations?.checked !== false,
         showBorderStatus: this.nodes.showBorderStatus?.checked !== false,
+        showDebugStats: this.debugMode || this.nodes.showDebugStats?.checked === true,
         visualQuality: this.nodes.visualQuality?.value || "high",
         mapDecorations: this.nodes.mapDecorations?.checked !== false,
         isMobile: this.isMobile(),

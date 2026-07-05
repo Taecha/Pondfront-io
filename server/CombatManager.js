@@ -1257,7 +1257,7 @@ class CombatManager {
       resultType: "reinforced",
       defenseEnergy: Math.round(tile.defenseEnergy),
       cooldown: balance.defendCooldownSeconds || 10,
-      message: `Border reinforced: ${Math.round(tile.defenseEnergy)} stored defense. Attack pressure was reduced.`,
+      message: `Border reinforced: ${Math.round(tile.defenseEnergy)} stored defense energy. Attack pressure was reduced.`,
     };
   }
 

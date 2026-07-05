@@ -639,6 +639,14 @@
 
           <div id="toast" class="toast hidden"></div>
           <div id="toastStack" class="toast-stack" aria-live="polite"></div>
+          <div id="coachHint" class="coach-hint hidden" aria-live="polite">
+            <div>
+              <strong id="coachHintTitle">First Move</strong>
+              <span id="coachHintText">Select a glowing neutral border tile, then Expand.</span>
+            </div>
+            <button id="coachHintClose" type="button" aria-label="Hide hint">OK</button>
+          </div>
+          <div id="debugStatsPanel" class="debug-stats-panel hidden" aria-live="polite"></div>
           <section id="sandboxPanel" class="sandbox-panel hidden" aria-modal="true" role="dialog">
             <div>
               <header>
@@ -800,6 +808,8 @@
                   <label><input id="floatingText" type="checkbox" checked /> Floating text</label>
                   <label><input id="attackArrows" type="checkbox" checked /> Attack arrows</label>
                   <label><input id="abilityEffects" type="checkbox" checked /> Ability markers</label>
+                  <label><input id="showCoachHints" type="checkbox" checked /> Coach hints</label>
+                  <label><input id="showDebugStats" type="checkbox" /> Debug stats</label>
                 </section>
                 <section class="settings-section">
                   <h3>Effects</h3>
@@ -881,9 +891,10 @@
             <ol>
               <li>Click a glowing neutral border tile, then Expand.</li>
               <li>Animal Energy grows with territory and special zones.</li>
-              <li>Attack only connected enemy borders.</li>
-              <li>Defend border tiles before strong enemies arrive.</li>
-              <li>Build income and defense, then use your animal ability.</li>
+              <li>Use Bite, Push, Wave, or Max only on connected enemy borders.</li>
+              <li>Defend border tiles and build farms, nests, and guards.</li>
+              <li>Capture objectives, use specials carefully, and protect your Core Nest.</li>
+              <li>Control the pond or outlast the other animals to win.</li>
             </ol>
             <button id="closeTutorial" class="primary">Play</button>
           </div>
