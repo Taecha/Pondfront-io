@@ -496,6 +496,8 @@
             <span id="sandboxBadge" class="sandbox-badge hidden">Sandbox Mode - stats disabled</span>
             <button id="sandboxOpenButton" class="help-button sandbox-open hidden" type="button">Sandbox</button>
             <button id="helpButton" class="help-button" data-tip="Open the in-game guide.">Help</button>
+            <button id="togglePanelsButton" class="help-button panel-toggle-button" type="button" title="Collapse or restore side panels">Panels</button>
+            <button id="settingsButton" class="help-button settings-button" type="button" aria-controls="settingsPanel" aria-expanded="false" title="Open settings">Settings</button>
           </div>
           <div class="top-stats">
             <div class="stat"><span>Energy <button class="info-button" data-tip-key="energy" aria-label="Energy info">?</button></span><strong id="energyStat">0 / 0</strong></div>
@@ -597,21 +599,41 @@
           </aside>
 
           <aside class="right-panel">
-            <canvas id="miniMap" aria-label="Minimap"></canvas>
-            <div class="panel objective-panel">
-              <span class="label">Lake Objectives</span>
-              <div id="objectiveList" class="compact-list"></div>
+            <div class="minimap-card">
+              <div class="panel-head-row">
+                <span class="label">Minimap</span>
+                <small>Territory view</small>
+              </div>
+              <canvas id="miniMap" aria-label="Minimap"></canvas>
             </div>
-            <div class="panel mission-panel">
-              <span class="label">Missions</span>
-              <div id="missionList" class="compact-list"></div>
+            <div class="right-panel-tabs" role="tablist" aria-label="Right panel">
+              <button class="active" data-right-panel-tab="leaderboard" type="button">Leaders</button>
+              <button data-right-panel-tab="objectives" type="button">Objectives</button>
+              <button data-right-panel-tab="missions" type="button">Missions</button>
             </div>
-            <div class="panel leaderboard-panel">
+            <div class="panel leaderboard-panel right-tab-panel active" data-right-panel="leaderboard">
               <div class="panel-head-row">
                 <span class="label">Leaderboard</span>
-                <button id="leaderboardToggle" type="button">Players</button>
+                <div class="panel-head-actions">
+                  <button id="leaderboardToggle" type="button">Players</button>
+                  <button id="leaderboardExpandButton" type="button">More</button>
+                </div>
               </div>
               <ol id="leaderboard"></ol>
+            </div>
+            <div class="panel objective-panel right-tab-panel" data-right-panel="objectives">
+              <div class="panel-head-row">
+                <span class="label">Lake Objectives</span>
+                <small id="objectiveCount">0 active</small>
+              </div>
+              <div id="objectiveList" class="compact-list"></div>
+            </div>
+            <div class="panel mission-panel right-tab-panel" data-right-panel="missions">
+              <div class="panel-head-row">
+                <span class="label">Missions</span>
+                <small id="missionCount">0 open</small>
+              </div>
+              <div id="missionList" class="compact-list"></div>
             </div>
           </aside>
 
@@ -734,63 +756,89 @@
               </div>
             </div>
           </section>
-          <div class="view-toggle">
-            <label><input id="strategicView" type="checkbox" checked /> Strategic view</label>
-            <label><input id="autoStrategicView" type="checkbox" checked /> Auto strategic</label>
-            <label><input id="showIcons" type="checkbox" /> Tile icons</label>
-            <label><input id="showBorderStatus" type="checkbox" checked /> Border status</label>
-            <label>
-              UI
-              <select id="uiScale" aria-label="UI scale">
-                <option value="compact" selected>Compact</option>
-                <option value="tiny">Tiny</option>
-                <option value="normal">Normal</option>
-                <option value="large">Large</option>
-              </select>
-            </label>
-            <label>
-              Effects
-              <select id="effectsLevel" aria-label="Effects level">
-                <option value="ultra">Ultra</option>
-                <option value="high" selected>High</option>
-                <option value="medium">Medium</option>
-                <option value="low">Low</option>
-              </select>
-            </label>
-            <label>
-              Visual
-              <select id="visualQuality" aria-label="Visual quality">
-                <option value="ultra">Ultra</option>
-                <option value="high" selected>High</option>
-                <option value="medium">Medium</option>
-                <option value="low">Low</option>
-              </select>
-            </label>
-            <label>
-              Particles
-              <select id="particlesLevel" aria-label="Particle level">
-                <option value="high" selected>High</option>
-                <option value="ultra">Ultra</option>
-                <option value="medium">Medium</option>
-                <option value="low">Low</option>
-              </select>
-            </label>
-            <label><input id="mapDecorations" type="checkbox" checked /> Decorations</label>
-            <label><input id="floatingText" type="checkbox" checked /> Text</label>
-            <label><input id="attackArrows" type="checkbox" checked /> Arrows</label>
-            <label><input id="abilityEffects" type="checkbox" checked /> Abilities</label>
-            <label><input id="screenShake" type="checkbox" checked /> Shake</label>
-            <label><input id="reducedMotion" type="checkbox" /> Reduced motion</label>
-            <label><input id="autoLowPerformance" type="checkbox" checked /> Auto low</label>
-            <label><input id="soundEnabled" type="checkbox" checked /> Sound</label>
-            <label><input id="musicEnabled" type="checkbox" checked /> Ambience</label>
-            <label><input id="uiSounds" type="checkbox" checked /> UI SFX</label>
-            <label><input id="muteAll" type="checkbox" /> Mute</label>
-            <label class="range-setting">Master <input id="masterVolume" type="range" min="0" max="1" step="0.05" value="0.72" /></label>
-            <label class="range-setting">SFX <input id="sfxVolume" type="range" min="0" max="1" step="0.05" value="0.78" /></label>
-            <label class="range-setting">Music <input id="musicVolume" type="range" min="0" max="1" step="0.05" value="0.28" /></label>
-            <label class="range-setting">Ambient <input id="ambientVolume" type="range" min="0" max="1" step="0.05" value="1" /></label>
-          </div>
+          <section id="settingsPanel" class="settings-panel hidden" aria-modal="true" role="dialog" aria-labelledby="settingsTitle">
+            <div class="settings-card">
+              <header>
+                <div>
+                  <span class="label">Pond Controls</span>
+                  <h2 id="settingsTitle">Settings</h2>
+                </div>
+                <button id="settingsCloseButton" class="icon-button" type="button" aria-label="Close settings">X</button>
+              </header>
+              <div class="settings-grid">
+                <section class="settings-section">
+                  <h3>Map Readability</h3>
+                  <label><input id="strategicView" type="checkbox" checked /> Strategic view</label>
+                  <label><input id="autoStrategicView" type="checkbox" checked /> Auto strategic</label>
+                  <label><input id="showIcons" type="checkbox" /> Tile icons</label>
+                  <label><input id="showAnimalIcons" type="checkbox" checked /> Animal icons</label>
+                  <label><input id="showAnimalSprites" type="checkbox" checked /> Animal sprites</label>
+                  <label><input id="showAnimalAnimations" type="checkbox" checked /> Animal motion</label>
+                  <label><input id="showBorderStatus" type="checkbox" checked /> Border status</label>
+                  <label><input id="mapDecorations" type="checkbox" checked /> Decorations</label>
+                </section>
+                <section class="settings-section">
+                  <h3>Interface</h3>
+                  <label>
+                    UI scale
+                    <select id="uiScale" aria-label="UI scale">
+                      <option value="compact" selected>Compact</option>
+                      <option value="tiny">Tiny</option>
+                      <option value="normal">Normal</option>
+                      <option value="large">Large</option>
+                    </select>
+                  </label>
+                  <label>
+                    Visual quality
+                    <select id="visualQuality" aria-label="Visual quality">
+                      <option value="ultra">Ultra</option>
+                      <option value="high" selected>High</option>
+                      <option value="medium">Medium</option>
+                      <option value="low">Low</option>
+                    </select>
+                  </label>
+                  <label><input id="floatingText" type="checkbox" checked /> Floating text</label>
+                  <label><input id="attackArrows" type="checkbox" checked /> Attack arrows</label>
+                  <label><input id="abilityEffects" type="checkbox" checked /> Ability markers</label>
+                </section>
+                <section class="settings-section">
+                  <h3>Effects</h3>
+                  <label>
+                    Effects
+                    <select id="effectsLevel" aria-label="Effects level">
+                      <option value="ultra">Ultra</option>
+                      <option value="high" selected>High</option>
+                      <option value="medium">Medium</option>
+                      <option value="low">Low</option>
+                    </select>
+                  </label>
+                  <label>
+                    Particles
+                    <select id="particlesLevel" aria-label="Particle level">
+                      <option value="high" selected>High</option>
+                      <option value="ultra">Ultra</option>
+                      <option value="medium">Medium</option>
+                      <option value="low">Low</option>
+                    </select>
+                  </label>
+                  <label><input id="screenShake" type="checkbox" checked /> Screen shake</label>
+                  <label><input id="reducedMotion" type="checkbox" /> Reduced motion</label>
+                  <label><input id="autoLowPerformance" type="checkbox" checked /> Auto low performance</label>
+                </section>
+                <section class="settings-section">
+                  <h3>Audio</h3>
+                  <label><input id="soundEnabled" type="checkbox" checked /> Sound</label>
+                  <label><input id="musicEnabled" type="checkbox" checked /> Ambience</label>
+                  <label><input id="uiSounds" type="checkbox" checked /> UI SFX</label>
+                  <label><input id="muteAll" type="checkbox" /> Mute all</label>
+                  <label class="range-setting">Master <input id="masterVolume" type="range" min="0" max="1" step="0.05" value="0.72" /></label>
+                  <label class="range-setting">SFX <input id="sfxVolume" type="range" min="0" max="1" step="0.05" value="0.78" /></label>
+                  <label class="range-setting">Music <input id="musicVolume" type="range" min="0" max="1" step="0.05" value="0.28" /></label>
+                  <label class="range-setting">Ambient <input id="ambientVolume" type="range" min="0" max="1" step="0.05" value="1" /></label>
+                </section>
+              </div>
+            </div>
+          </section>
         </section>
 
         <footer class="bottombar">
@@ -956,6 +1004,7 @@
     <script src="/shared/teamConfig.js"></script>
     <script src="/shared/borderStatus.js"></script>
     <script src="/shared/animals.js"></script>
+    <script src="/shared/animalVisuals.js"></script>
     <script src="/shared/objectives.js"></script>
     <script src="/shared/lakeEvents.js"></script>
     <script src="/shared/progressionConfig.js"></script>

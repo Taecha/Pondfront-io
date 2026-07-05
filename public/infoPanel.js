@@ -221,6 +221,7 @@
     if (!player || player.id === state.humanId || !human) return null;
 
     const animal = state.config.animals[player.animal];
+    const visual = root.PondAnimalVisuals?.animals?.[player.animal] || {};
     const relation = relationshipFor(state, player.id);
     const relationText =
       relation?.label ||
@@ -246,10 +247,12 @@
           : "Scout the border first";
 
     return {
-      title: `${animal.icon} ${player.name}`,
-      meta: `${animal.label} L${player.level || 1} | ${Math.round(player.territoryPct * 100)}% territory | ${player.energy} energy | ${warText}`,
+      title: `${player.name}`,
+      meta: `${animal.label} L${player.level || 1} | ${visual.role || roleLabel} | ${Math.round(player.territoryPct * 100)}% territory | ${player.energy} energy | ${warText}`,
       facts: [
         { label: "Animal", value: animal.label },
+        { label: "Best Terrain", value: visual.terrain || "Mixed pond" },
+        { label: "Counterplay", value: visual.counterplay || "Watch its strongest border." },
         { label: "Team", value: player.teamName || "Solo" },
         { label: "Relationship", value: relationText },
         { label: "Role", value: roleLabel },

@@ -64,7 +64,8 @@
 
     handleEvent(event, state) {
       const player = state?.players?.find((candidate) => candidate.id === event.playerId);
-      const color = player?.color || "#d8ad48";
+      const visual = root.PondAnimalVisuals?.animals?.[player?.animal];
+      const color = visual?.badge || player?.color || "#d8ad48";
 
       if (event.kind === "expand") {
         this.spawnCaptureBurst(event.to, color, event.amount > 1 ? `+${event.amount} Tiles` : "Expanded");

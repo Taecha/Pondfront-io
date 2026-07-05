@@ -62,13 +62,7 @@
 
     content(tab) {
       if (tab === "animals") {
-        return cards([
-          ["Duck", "Fast open-water expansion, slightly higher max energy, and efficient open-water bite attacks."],
-          ["Snake", "Strong around reeds and mud. Ambush makes prepared attacks crack fortified borders harder."],
-          ["Frog", "Gains extra lily income and can jump short gaps. Big Leap captures nearby neutral clusters."],
-          ["Turtle", "Defensive tank. Slower expansion, stronger borders, better Reed Guards, and Shell Guard that slows attacks without making borders untouchable."],
-          ["Carp", "Economy scaler. Better water and lily income, cheaper Lily Farms, and Golden Current for growth pushes."],
-        ]);
+        return animalCards(root.PondAnimalVisuals?.animals || {});
       }
       if (tab === "terrain") {
         return cards([
@@ -102,13 +96,8 @@
         ]);
       }
       if (tab === "abilities") {
-        return cards([
-          ["Duck Flock Rush", "One tap. Open-water expansion gets cheaper for a short burst, and water attacks stay efficient for opening fights."],
-          ["Snake Ambush", "One tap prepares the next reed or mud attack. Use it to break reinforced enemy fronts with a Push or Wave."],
-          ["Frog Big Leap", "Tap Ability, then tap a glowing neutral leap target. Big Leap never captures enemy tiles."],
-          ["Turtle Shell Guard", "One tap. Turtle borders become harder to capture for a short defensive window, but repeated attacks still build pressure."],
-          ["Carp Golden Current", "One tap. Income rises and water or lily expansion becomes cheaper for a short economy surge."],
-        ]);
+        const visuals = root.PondAnimalVisuals?.animals || {};
+        return cards(Object.values(visuals).map((animal) => [`${animal.label} - ${animal.ability}`, `${animal.tooltip} Visual: ${animal.attackMotif}; defense: ${animal.defenseMotif}.`]));
       }
       if (tab === "diplomacy") {
         return list([
@@ -161,6 +150,26 @@
   function cards(items) {
     return `<div class="help-grid">${items
       .map(([title, body]) => `<article><strong>${escapeHtml(title)}</strong><p>${escapeHtml(body || "")}</p></article>`)
+      .join("")}</div>`;
+  }
+
+  function animalCards(animals) {
+    const fallback = [
+      { id: "duck", label: "Duck", role: "Fast Expansion", terrain: "Open Water", weakness: "Reed fights", counterplay: "Pressure Duck before it spreads too much." },
+      { id: "snake", label: "Snake", role: "Ambush Control", terrain: "Reeds and Mud", weakness: "Open water", counterplay: "Avoid Snake reeds and mud ambushes." },
+      { id: "frog", label: "Frog", role: "Mobility Tactics", terrain: "Lily Pads", weakness: "Open water defense", counterplay: "Defend objectives against Frog." },
+      { id: "turtle", label: "Turtle", role: "Shell Defense", terrain: "Mud and rocks", weakness: "Slow early expansion", counterplay: "Weaken Turtle before big attacks." },
+      { id: "carp", label: "Carp", role: "Economy Growth", terrain: "Water and lily pads", weakness: "Early pressure", counterplay: "Pressure Carp before economy scales." },
+    ];
+    const list = Object.values(animals).length ? Object.values(animals) : fallback;
+    return `<div class="help-grid animal-help-grid">${list
+      .map(
+        (animal) => `<article>
+          <strong><span class="animal-disc animal-visual-disc mini ${escapeHtml(animal.id)}" style="--animal-color:${escapeHtml(animal.badge || "#83dced")};--animal-accent:${escapeHtml(animal.accent || "#edf8fb")}">${escapeHtml(animal.short || animal.label?.[0] || "A")}</span>${escapeHtml(animal.label)}</strong>
+          <p>${escapeHtml(animal.role || "")} | Best terrain: ${escapeHtml(animal.terrain || "Mixed pond")} | Weakness: ${escapeHtml(animal.weakness || "None")}</p>
+          <small>${escapeHtml(animal.counterplay || "Play around its favorite terrain.")}</small>
+        </article>`,
+      )
       .join("")}</div>`;
   }
 

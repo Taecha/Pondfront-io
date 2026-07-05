@@ -227,6 +227,9 @@
         ...options,
         strategicView: Boolean(options.strategicView || autoStrategic),
         showIcons: autoStrategic ? false : options.showIcons,
+        showAnimalIcons: options.showAnimalIcons !== false,
+        showAnimalSprites: options.showAnimalSprites !== false && !autoStrategic,
+        showAnimalAnimations: options.showAnimalAnimations !== false && !effects.reducedMotion,
         visualQuality,
         mapDecorations: options.mapDecorations !== false,
         effects,
@@ -237,6 +240,8 @@
         if (effects.particles === "ultra") effects.particles = mobile || this.camera.zoom < 0.5 ? "medium" : "high";
         else if (effects.particles === "high") effects.particles = mobile || this.camera.zoom < 0.5 ? "low" : "medium";
         if (mobile && this.camera.zoom < 0.72) effects.floatingText = false;
+        if (mobile && this.camera.zoom < 0.72) next.showAnimalAnimations = false;
+        if (mobile && this.camera.zoom < 0.58) next.showAnimalSprites = false;
         if (visualQuality === "ultra") visualQuality = mobile || this.camera.zoom < 0.5 ? "medium" : "high";
         else if (visualQuality === "high") visualQuality = mobile || this.camera.zoom < 0.5 ? "low" : "medium";
         next.visualQuality = visualQuality;
@@ -244,6 +249,7 @@
       if (effects.reducedMotion) {
         effects.floatingText = false;
         next.mapDecorations = false;
+        next.showAnimalAnimations = false;
       }
       return next;
     }
@@ -346,6 +352,7 @@
       this.drawActiveAttacks(ctx);
       this.drawSpecialOverlays(ctx);
       this.vfx?.draw(ctx);
+      this.drawAnimalPresence(ctx, options);
       this.drawNames(ctx);
       ctx.restore();
       ctx.strokeStyle = "rgba(210, 242, 247, 0.28)";
@@ -741,13 +748,6 @@
       const serverTime = this.state?.serverTime || 0;
       const constructionLeft = Math.max(0, Math.ceil((tile.buildingActiveAt || 0) - serverTime));
       const underConstruction = constructionLeft > 0;
-      const icon = {
-        nest: "N",
-        lilyFarm: "L",
-        reedGuard: "G",
-        mudTunnel: "M",
-        jumpPad: "J",
-      }[tile.building] || tile.building[0].toUpperCase();
       const colors = {
         nest: "#f2d87a",
         lilyFarm: "#8ee6a2",
@@ -789,11 +789,7 @@
         ctx.lineCap = "butt";
       }
 
-      ctx.fillStyle = color;
-      ctx.font = `950 ${Math.max(8, size * 0.22)}px Inter, sans-serif`;
-      ctx.textAlign = "center";
-      ctx.textBaseline = "middle";
-      ctx.fillText(icon, cx, cy + 0.5);
+      this.drawBuildingGlyph(ctx, tile.building, cx, cy, Math.max(7, size * 0.42), color);
       if (tile.buildingLevel > 1 && size > 16) {
         ctx.fillStyle = "#edf8fb";
         ctx.font = `900 ${Math.max(6, size * 0.13)}px Inter, sans-serif`;
@@ -939,12 +935,15 @@
       tiles.forEach((tile) => {
         if (!tile.owner || tile.defenseEnergy < 10) return;
         if (!this.neighbors(tile).some((neighbor) => neighbor && neighbor.owner !== tile.owner)) return;
+        const defender = this.playerMap.get(tile.owner);
+        const visual = this.animalVisual(defender?.animal);
         const p = this.worldToScreen(tile.x * this.baseTile, tile.y * this.baseTile);
         const alpha = Math.max(0.18, Math.min(0.72, tile.defenseEnergy / 90));
-        ctx.strokeStyle = `rgba(226, 244, 247, ${alpha})`;
+        ctx.strokeStyle = this.withAlpha(visual.accent || defender?.color || "#edf8fb", alpha);
         ctx.lineWidth = Math.max(1, size * 0.045);
         this.roundRect(ctx, p.x + size * 0.18, p.y + size * 0.18, size * 0.64, size * 0.64, Math.max(3, size * 0.12));
         ctx.stroke();
+        if (size > 10) this.drawAnimalDefenseMotif(ctx, tile, defender?.animal, p.x, p.y, size, alpha);
       });
       ctx.restore();
     }
@@ -1032,6 +1031,8 @@
         if (!tile) return;
         markers.push({
           tile,
+          kind: "objective",
+          type: objective.type,
           active: objective.active,
           owner: objective.owner,
           label: objective.definition?.short || "OB",
@@ -1044,6 +1045,8 @@
         if (!tile) return;
         markers.push({
           tile,
+          kind: "camp",
+          type: camp.type,
           active: true,
           owner: camp.owner,
           label: camp.definition?.short || "CP",
@@ -1056,9 +1059,12 @@
         const owner = this.playerMap.get(tile.coreOwnerId);
         markers.push({
           tile,
+          kind: "core",
+          type: "core",
+          animal: owner?.animal,
           active: tile.owner === tile.coreOwnerId,
           owner: tile.owner,
-          label: "CN",
+          label: owner?.name || "Core",
           color: owner?.color || "#f0cc74",
           ring: true,
         });
@@ -1088,11 +1094,11 @@
         ctx.arc(p.x, p.y, Math.max(7, size * (marker.ring ? 0.31 + pulse * 0.05 : 0.26)), 0, Math.PI * 2);
         ctx.fill();
         ctx.stroke();
-        ctx.fillStyle = marker.color;
-        ctx.font = `900 ${Math.max(8, size * 0.23)}px Inter, sans-serif`;
-        ctx.textAlign = "center";
-        ctx.textBaseline = "middle";
-        ctx.fillText(marker.label, p.x, p.y + 0.5);
+        if (marker.kind === "core") {
+          this.drawAnimalBadge(ctx, marker.animal || "duck", p.x, p.y, Math.max(6, size * 0.24), marker.color, { compact: true });
+        } else {
+          this.drawObjectiveGlyph(ctx, marker.type, p.x, p.y, Math.max(6, size * 0.28), marker.color);
+        }
       });
       ctx.restore();
     }
@@ -1198,7 +1204,8 @@
           this.drawCurrentPush(ctx, wave, attacker, now, pulse);
           return;
         }
-        const color = attacker.color;
+        const animalVisual = this.animalVisual(attacker.animal);
+        const color = animalVisual.badge || attacker.color;
         const source = this.tileMap.get(wave.sourceTile);
         const target = this.tileMap.get(wave.targetStartTile);
 
@@ -1238,6 +1245,7 @@
           ctx.beginPath();
           ctx.arc(p.x + size / 2, p.y + size / 2, size * (0.24 + pulse * 0.1), 0, Math.PI * 2);
           ctx.stroke();
+          if (size > 9) this.drawAnimalAttackMotif(ctx, attacker.animal, p.x + size / 2, p.y + size / 2, size, color, pulse);
           ctx.restore();
         });
       });
@@ -1438,6 +1446,439 @@
       };
     }
 
+    animalVisual(animalId) {
+      return root.PondAnimalVisuals?.animals?.[animalId] || {
+        id: animalId || "duck",
+        label: this.state?.config?.animals?.[animalId]?.label || "Animal",
+        short: this.state?.config?.animals?.[animalId]?.icon || "A",
+        badge: this.state?.config?.animals?.[animalId]?.color || "#83dced",
+        accent: "#edf8fb",
+        dark: "#0b2634",
+      };
+    }
+
+    playerAnchorTile(player) {
+      if (!player) return null;
+      const core = player.coreTileId != null ? this.tileMap.get(player.coreTileId) : null;
+      if (core) return core;
+      return this.state.tiles.find((tile) => tile.owner === player.id) || null;
+    }
+
+    drawAnimalPresence(ctx, options = {}) {
+      if (!options.showAnimalIcons || !this.state?.players?.length) return;
+      const size = this.baseTile * this.camera.zoom;
+      const zoom = this.camera.zoom;
+      const spriteAllowed = options.showAnimalSprites && !options.strategicView && zoom > 0.62;
+      const limit = zoom > 0.72 ? 26 : zoom > 0.42 ? 18 : 12;
+      const players = this.state.players
+        .filter((player) => !player.defeated && player.ownedTiles > 0)
+        .slice()
+        .sort((a, b) => (b.id === this.state.humanId ? 1 : 0) - (a.id === this.state.humanId ? 1 : 0) || b.territory - a.territory)
+        .slice(0, limit);
+      ctx.save();
+      players.forEach((player, index) => {
+        const tile = this.playerAnchorTile(player);
+        if (!tile) return;
+        const p = this.tileCenter(tile);
+        if (p.x < -30 || p.y < -30 || p.x > this.canvas.clientWidth + 30 || p.y > this.canvas.clientHeight + 30) return;
+        const radius = Math.max(spriteAllowed ? 11 : 7, size * (spriteAllowed ? 0.48 : 0.31));
+        const offsetX = size * (0.3 + this.tileNoise(tile.id + 41, -0.12, 0.12));
+        const offsetY = -size * (0.35 + this.tileNoise(tile.id + 43, -0.08, 0.12));
+        const x = p.x + offsetX;
+        const y = p.y + offsetY;
+        const animate = options.showAnimalAnimations && !options.effects?.reducedMotion;
+        if (spriteAllowed) this.drawAnimalSprite(ctx, player.animal, x, y, radius, player.color, { animate, seed: tile.id + index * 17, player });
+        else this.drawAnimalBadge(ctx, player.animal, x, y, radius, player.color, { compact: true });
+      });
+      ctx.restore();
+    }
+
+    drawAnimalBadge(ctx, animalId, x, y, radius, ownerColor = "#83dced", options = {}) {
+      const visual = this.animalVisual(animalId);
+      const fill = visual.badge || ownerColor;
+      const accent = visual.accent || "#edf8fb";
+      ctx.save();
+      ctx.shadowColor = this.withAlpha(fill, options.compact ? 0.22 : 0.35);
+      ctx.shadowBlur = Math.max(2, radius * 0.5);
+      ctx.fillStyle = "rgba(4, 13, 20, 0.84)";
+      ctx.beginPath();
+      ctx.arc(x, y, radius, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.shadowBlur = 0;
+      ctx.strokeStyle = fill;
+      ctx.lineWidth = Math.max(1, radius * 0.16);
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.arc(x, y, radius * 0.72, 0, Math.PI * 2);
+      ctx.fillStyle = this.withAlpha(fill, 0.18);
+      ctx.fill();
+      this.drawAnimalGlyph(ctx, animalId, x, y, radius * 0.82, fill, accent, options);
+      ctx.restore();
+    }
+
+    drawAnimalSprite(ctx, animalId, x, y, radius, ownerColor = "#83dced", options = {}) {
+      const visual = this.animalVisual(animalId);
+      const fill = visual.badge || ownerColor;
+      const accent = visual.accent || "#edf8fb";
+      const now = performance.now();
+      const wobble = options.animate ? Math.sin(now * 0.003 + (options.seed || 0)) * radius * 0.12 : 0;
+      ctx.save();
+      ctx.globalAlpha = 0.62;
+      ctx.fillStyle = "rgba(210, 247, 250, 0.13)";
+      ctx.beginPath();
+      ctx.ellipse(x, y + radius * 0.65, radius * 1.15, radius * 0.25, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.globalAlpha = 0.9;
+      if (animalId === "frog") {
+        ctx.fillStyle = "rgba(156, 227, 157, 0.34)";
+        ctx.beginPath();
+        ctx.ellipse(x, y + radius * 0.35, radius * 1.15, radius * 0.52, -0.18, 0, Math.PI * 2);
+        ctx.fill();
+      } else if (animalId === "snake") {
+        ctx.strokeStyle = this.withAlpha(fill, 0.38);
+        ctx.lineWidth = Math.max(1, radius * 0.18);
+        ctx.beginPath();
+        ctx.moveTo(x - radius * 1.2, y + radius * 0.28);
+        ctx.quadraticCurveTo(x - radius * 0.35, y - radius * 0.3 + wobble, x + radius * 0.45, y + radius * 0.18);
+        ctx.quadraticCurveTo(x + radius * 0.9, y + radius * 0.45, x + radius * 1.28, y - radius * 0.1);
+        ctx.stroke();
+      } else if (animalId === "carp") {
+        ctx.strokeStyle = this.withAlpha(accent, 0.34);
+        ctx.lineWidth = Math.max(1, radius * 0.1);
+        ctx.beginPath();
+        ctx.moveTo(x - radius * 1.2, y + radius * 0.55);
+        ctx.quadraticCurveTo(x, y + radius * 0.1 + wobble, x + radius * 1.25, y + radius * 0.48);
+        ctx.stroke();
+      }
+      this.drawAnimalBadge(ctx, animalId, x, y + wobble, radius, ownerColor, { compact: false });
+      ctx.restore();
+    }
+
+    drawAnimalGlyph(ctx, animalId, x, y, r, color = "#83dced", accent = "#edf8fb") {
+      ctx.save();
+      ctx.lineCap = "round";
+      ctx.lineJoin = "round";
+      ctx.fillStyle = color;
+      ctx.strokeStyle = accent;
+      ctx.lineWidth = Math.max(1, r * 0.12);
+      if (animalId === "duck") {
+        ctx.beginPath();
+        ctx.ellipse(x - r * 0.08, y + r * 0.08, r * 0.48, r * 0.3, -0.16, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.beginPath();
+        ctx.arc(x + r * 0.28, y - r * 0.15, r * 0.23, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillStyle = accent;
+        ctx.beginPath();
+        ctx.moveTo(x + r * 0.45, y - r * 0.16);
+        ctx.lineTo(x + r * 0.76, y - r * 0.06);
+        ctx.lineTo(x + r * 0.46, y + r * 0.04);
+        ctx.closePath();
+        ctx.fill();
+      } else if (animalId === "snake") {
+        ctx.strokeStyle = color;
+        ctx.lineWidth = Math.max(2, r * 0.22);
+        ctx.beginPath();
+        ctx.moveTo(x - r * 0.62, y + r * 0.08);
+        ctx.quadraticCurveTo(x - r * 0.18, y - r * 0.42, x + r * 0.22, y - r * 0.02);
+        ctx.quadraticCurveTo(x + r * 0.48, y + r * 0.24, x + r * 0.64, y - r * 0.2);
+        ctx.stroke();
+        ctx.fillStyle = accent;
+        ctx.beginPath();
+        ctx.arc(x + r * 0.66, y - r * 0.22, r * 0.13, 0, Math.PI * 2);
+        ctx.fill();
+      } else if (animalId === "frog") {
+        ctx.fillStyle = color;
+        ctx.beginPath();
+        ctx.arc(x, y + r * 0.1, r * 0.42, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillStyle = accent;
+        ctx.beginPath();
+        ctx.arc(x - r * 0.22, y - r * 0.23, r * 0.15, 0, Math.PI * 2);
+        ctx.arc(x + r * 0.22, y - r * 0.23, r * 0.15, 0, Math.PI * 2);
+        ctx.fill();
+      } else if (animalId === "turtle") {
+        ctx.fillStyle = color;
+        ctx.beginPath();
+        ctx.ellipse(x, y + r * 0.04, r * 0.52, r * 0.4, 0, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.strokeStyle = accent;
+        ctx.lineWidth = Math.max(1, r * 0.09);
+        ctx.beginPath();
+        ctx.moveTo(x - r * 0.28, y - r * 0.06);
+        ctx.lineTo(x + r * 0.28, y - r * 0.06);
+        ctx.moveTo(x, y - r * 0.32);
+        ctx.lineTo(x, y + r * 0.36);
+        ctx.stroke();
+        ctx.fillStyle = accent;
+        ctx.beginPath();
+        ctx.arc(x + r * 0.58, y, r * 0.13, 0, Math.PI * 2);
+        ctx.fill();
+      } else if (animalId === "carp") {
+        ctx.fillStyle = color;
+        ctx.beginPath();
+        ctx.ellipse(x - r * 0.04, y, r * 0.5, r * 0.28, -0.08, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.beginPath();
+        ctx.moveTo(x - r * 0.48, y);
+        ctx.lineTo(x - r * 0.78, y - r * 0.25);
+        ctx.lineTo(x - r * 0.74, y + r * 0.25);
+        ctx.closePath();
+        ctx.fill();
+        ctx.strokeStyle = accent;
+        ctx.lineWidth = Math.max(1, r * 0.08);
+        ctx.beginPath();
+        ctx.arc(x + r * 0.08, y, r * 0.2, -0.8, 0.8);
+        ctx.stroke();
+      } else {
+        ctx.fillStyle = color;
+        ctx.beginPath();
+        ctx.arc(x, y, r * 0.45, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      ctx.restore();
+    }
+
+    drawAnimalAttackMotif(ctx, animalId, x, y, size, color, pulse = 0.5) {
+      ctx.save();
+      ctx.globalAlpha = 0.48 + pulse * 0.26;
+      ctx.strokeStyle = color;
+      ctx.fillStyle = color;
+      ctx.lineWidth = Math.max(1, size * 0.035);
+      if (animalId === "duck") {
+        for (let i = -1; i <= 1; i += 1) {
+          ctx.beginPath();
+          ctx.moveTo(x - size * 0.28, y + i * size * 0.08);
+          ctx.lineTo(x + size * 0.24, y + i * size * 0.02);
+          ctx.stroke();
+        }
+      } else if (animalId === "snake") {
+        ctx.beginPath();
+        ctx.moveTo(x - size * 0.28, y + size * 0.12);
+        ctx.lineTo(x, y - size * 0.18);
+        ctx.lineTo(x + size * 0.28, y + size * 0.12);
+        ctx.stroke();
+      } else if (animalId === "frog") {
+        ctx.beginPath();
+        ctx.ellipse(x, y, size * 0.28, size * 0.12, 0, 0, Math.PI * 2);
+        ctx.stroke();
+      } else if (animalId === "turtle") {
+        ctx.beginPath();
+        ctx.arc(x, y, size * (0.18 + pulse * 0.05), 0, Math.PI * 2);
+        ctx.stroke();
+        ctx.beginPath();
+        ctx.moveTo(x - size * 0.16, y);
+        ctx.lineTo(x + size * 0.16, y);
+        ctx.stroke();
+      } else if (animalId === "carp") {
+        for (let i = 0; i < 3; i += 1) {
+          ctx.beginPath();
+          ctx.arc(x - size * 0.18 + i * size * 0.16, y, size * 0.08, -1.1, 1.1);
+          ctx.stroke();
+        }
+      }
+      ctx.restore();
+    }
+
+    drawAnimalDefenseMotif(ctx, tile, animalId, x, y, size, alpha = 0.5) {
+      const visual = this.animalVisual(animalId);
+      const color = visual.accent || visual.badge || "#edf8fb";
+      const cx = x + size / 2;
+      const cy = y + size / 2;
+      ctx.save();
+      ctx.globalAlpha = Math.min(0.72, alpha);
+      ctx.strokeStyle = color;
+      ctx.fillStyle = this.withAlpha(color, 0.2);
+      ctx.lineWidth = Math.max(1, size * 0.03);
+      if (animalId === "snake") {
+        ctx.setLineDash([Math.max(2, size * 0.12), Math.max(2, size * 0.08)]);
+        this.roundRect(ctx, x + size * 0.22, y + size * 0.22, size * 0.56, size * 0.56, Math.max(3, size * 0.16));
+        ctx.stroke();
+        ctx.setLineDash([]);
+      } else if (animalId === "frog") {
+        ctx.beginPath();
+        ctx.ellipse(cx, cy, size * 0.22, size * 0.1, -0.25, 0, Math.PI * 2);
+        ctx.stroke();
+      } else if (animalId === "turtle") {
+        ctx.beginPath();
+        ctx.arc(cx, cy, size * 0.24, 0, Math.PI * 2);
+        ctx.stroke();
+        ctx.beginPath();
+        ctx.moveTo(cx - size * 0.18, cy);
+        ctx.lineTo(cx + size * 0.18, cy);
+        ctx.moveTo(cx, cy - size * 0.18);
+        ctx.lineTo(cx, cy + size * 0.18);
+        ctx.stroke();
+      } else if (animalId === "carp") {
+        for (let i = -1; i <= 1; i += 1) {
+          ctx.beginPath();
+          ctx.arc(cx + i * size * 0.12, cy, size * 0.08, -1.1, 1.1);
+          ctx.stroke();
+        }
+      } else {
+        ctx.beginPath();
+        ctx.moveTo(cx - size * 0.2, cy + size * 0.08);
+        ctx.quadraticCurveTo(cx, cy - size * 0.13, cx + size * 0.2, cy + size * 0.08);
+        ctx.stroke();
+      }
+      ctx.restore();
+    }
+
+    drawBuildingGlyph(ctx, building, x, y, r, color = "#83dced") {
+      ctx.save();
+      ctx.strokeStyle = color;
+      ctx.fillStyle = color;
+      ctx.lineWidth = Math.max(1, r * 0.12);
+      ctx.lineCap = "round";
+      if (building === "nest") {
+        ctx.beginPath();
+        ctx.ellipse(x, y + r * 0.08, r * 0.48, r * 0.28, -0.1, 0, Math.PI * 2);
+        ctx.stroke();
+        ctx.beginPath();
+        ctx.arc(x - r * 0.16, y - r * 0.05, r * 0.12, 0, Math.PI * 2);
+        ctx.arc(x + r * 0.12, y - r * 0.02, r * 0.1, 0, Math.PI * 2);
+        ctx.fill();
+      } else if (building === "lilyFarm") {
+        ctx.beginPath();
+        ctx.ellipse(x - r * 0.12, y, r * 0.36, r * 0.18, -0.35, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillStyle = "#fff1a8";
+        ctx.beginPath();
+        ctx.arc(x + r * 0.18, y - r * 0.08, r * 0.12, 0, Math.PI * 2);
+        ctx.fill();
+      } else if (building === "reedGuard") {
+        for (let i = -2; i <= 2; i += 1) {
+          ctx.beginPath();
+          ctx.moveTo(x + i * r * 0.16, y + r * 0.42);
+          ctx.quadraticCurveTo(x + i * r * 0.1, y, x + i * r * 0.16 + r * 0.08, y - r * 0.42);
+          ctx.stroke();
+        }
+      } else if (building === "mudTunnel") {
+        ctx.beginPath();
+        ctx.arc(x, y, r * 0.36, 0.2, Math.PI * 1.9);
+        ctx.stroke();
+        ctx.beginPath();
+        ctx.arc(x, y, r * 0.18, Math.PI * 1.2, Math.PI * 2.4);
+        ctx.stroke();
+      } else if (building === "jumpPad") {
+        ctx.beginPath();
+        ctx.ellipse(x, y + r * 0.16, r * 0.45, r * 0.18, 0, 0, Math.PI * 2);
+        ctx.stroke();
+        ctx.beginPath();
+        ctx.moveTo(x - r * 0.22, y - r * 0.02);
+        ctx.quadraticCurveTo(x, y - r * 0.5, x + r * 0.24, y - r * 0.02);
+        ctx.stroke();
+      } else {
+        ctx.beginPath();
+        ctx.arc(x, y, r * 0.35, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      ctx.restore();
+    }
+
+    drawObjectiveGlyph(ctx, type, x, y, r, color = "#83dced") {
+      ctx.save();
+      ctx.strokeStyle = color;
+      ctx.fillStyle = color;
+      ctx.lineWidth = Math.max(1, r * 0.12);
+      ctx.lineCap = "round";
+      if (type === "goldenLily") {
+        ctx.beginPath();
+        ctx.ellipse(x - r * 0.08, y, r * 0.38, r * 0.22, -0.35, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillStyle = "#fff1a8";
+        ctx.beginPath();
+        ctx.arc(x + r * 0.25, y - r * 0.08, r * 0.12, 0, Math.PI * 2);
+        ctx.fill();
+      } else if (type === "ancientReed") {
+        for (let i = -1; i <= 1; i += 1) {
+          ctx.beginPath();
+          ctx.moveTo(x + i * r * 0.16, y + r * 0.42);
+          ctx.quadraticCurveTo(x + i * r * 0.08, y, x + i * r * 0.16 + r * 0.08, y - r * 0.44);
+          ctx.stroke();
+        }
+      } else if (type === "mudSpring") {
+        ctx.beginPath();
+        ctx.ellipse(x, y + r * 0.1, r * 0.42, r * 0.24, 0.1, 0, Math.PI * 2);
+        ctx.stroke();
+        ctx.beginPath();
+        ctx.arc(x - r * 0.16, y - r * 0.2, r * 0.09, 0, Math.PI * 2);
+        ctx.arc(x + r * 0.18, y - r * 0.28, r * 0.07, 0, Math.PI * 2);
+        ctx.fill();
+      } else if (type === "clearWaterShrine") {
+        ctx.beginPath();
+        ctx.moveTo(x, y - r * 0.48);
+        ctx.lineTo(x + r * 0.38, y);
+        ctx.lineTo(x, y + r * 0.48);
+        ctx.lineTo(x - r * 0.38, y);
+        ctx.closePath();
+        ctx.stroke();
+        ctx.beginPath();
+        ctx.arc(x, y, r * 0.12, 0, Math.PI * 2);
+        ctx.fill();
+      } else if (type === "deepCurrent") {
+        ctx.beginPath();
+        ctx.moveTo(x - r * 0.5, y + r * 0.08);
+        ctx.quadraticCurveTo(x - r * 0.18, y - r * 0.28, x + r * 0.12, y + r * 0.04);
+        ctx.quadraticCurveTo(x + r * 0.3, y + r * 0.22, x + r * 0.52, y - r * 0.08);
+        ctx.stroke();
+      } else if (type === "turtleCamp") {
+        this.drawAnimalGlyph(ctx, "turtle", x, y, r, color, "#edf8fb");
+      } else if (type === "crabCamp") {
+        ctx.beginPath();
+        ctx.arc(x - r * 0.18, y, r * 0.18, Math.PI * 0.2, Math.PI * 1.65);
+        ctx.arc(x + r * 0.18, y, r * 0.18, Math.PI * 1.35, Math.PI * 2.8);
+        ctx.stroke();
+      } else if (type === "otterCamp") {
+        ctx.beginPath();
+        ctx.arc(x, y + r * 0.12, r * 0.16, 0, Math.PI * 2);
+        ctx.arc(x - r * 0.22, y - r * 0.1, r * 0.1, 0, Math.PI * 2);
+        ctx.arc(x, y - r * 0.18, r * 0.1, 0, Math.PI * 2);
+        ctx.arc(x + r * 0.22, y - r * 0.1, r * 0.1, 0, Math.PI * 2);
+        ctx.fill();
+      } else if (type === "dragonflySwarm") {
+        ctx.beginPath();
+        ctx.ellipse(x - r * 0.18, y - r * 0.1, r * 0.2, r * 0.1, -0.5, 0, Math.PI * 2);
+        ctx.ellipse(x + r * 0.18, y - r * 0.1, r * 0.2, r * 0.1, 0.5, 0, Math.PI * 2);
+        ctx.ellipse(x - r * 0.12, y + r * 0.12, r * 0.16, r * 0.08, 0.5, 0, Math.PI * 2);
+        ctx.ellipse(x + r * 0.12, y + r * 0.12, r * 0.16, r * 0.08, -0.5, 0, Math.PI * 2);
+        ctx.stroke();
+      } else {
+        ctx.beginPath();
+        ctx.arc(x, y, r * 0.38, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      ctx.restore();
+    }
+
+    drawMiniAnimalMarkers(ctx, cellW, cellH, options = {}) {
+      if (!options.showAnimalIcons) return;
+      ctx.save();
+      this.state.players
+        .filter((player) => !player.defeated && player.ownedTiles > 0)
+        .forEach((player) => {
+          const tile = this.playerAnchorTile(player);
+          if (!tile) return;
+          const visual = this.animalVisual(player.animal);
+          const x = (tile.x + 0.5) * cellW;
+          const y = (tile.y + 0.5) * cellH;
+          const r = player.id === this.state.humanId ? 4.4 : 3.4;
+          ctx.globalAlpha = 0.95;
+          ctx.fillStyle = "rgba(5, 16, 25, 0.86)";
+          ctx.beginPath();
+          ctx.arc(x, y, r + 1.6, 0, Math.PI * 2);
+          ctx.fill();
+          ctx.fillStyle = visual.badge || player.color;
+          ctx.beginPath();
+          ctx.arc(x, y, r, 0, Math.PI * 2);
+          ctx.fill();
+          ctx.strokeStyle = player.teamColor || "#edf8fb";
+          ctx.lineWidth = player.id === this.state.humanId ? 1.3 : 0.8;
+          ctx.stroke();
+        });
+      ctx.restore();
+    }
+
     drawNames(ctx) {
       const labelLimit = this.camera.zoom > 0.72 ? 12 : this.camera.zoom > 0.48 ? 8 : 5;
       const leaders = this.state.players
@@ -1455,38 +1896,58 @@
         const y = (avg.y / tiles.length + 0.5) * this.baseTile;
         const p = this.worldToScreen(x, y);
         const player = this.playerMap.get(id);
+        if (!player) return;
+        const visual = this.animalVisual(player.animal);
         const fontSize = Math.max(10, 13 * this.camera.zoom);
-        ctx.font = `900 ${fontSize}px Inter, sans-serif`;
-        ctx.textAlign = "center";
+        const small = this.camera.zoom < 0.58;
+        const badgeR = Math.max(7, fontSize * (small ? 0.66 : 0.78));
         ctx.textBaseline = "middle";
-        const animal = this.state.config.animals[player.animal];
+        ctx.font = `900 ${fontSize}px Inter, sans-serif`;
         const firstName = (player.name || "Player").split(" ")[0];
-        const teamBadge = player.teamBadge ? `[${player.teamBadge}] ` : "";
-        const name = `${teamBadge}${animal.icon} ${firstName}`;
-        const textW = ctx.measureText(name).width;
+        const name = `${player.teamBadge ? `${player.teamBadge} ` : ""}${firstName}`;
+        const detail = small ? "" : `${visual.label || player.animal} L${player.level || 1}`;
+        const nameW = ctx.measureText(name).width;
+        ctx.font = `800 ${Math.max(8, fontSize * 0.68)}px Inter, sans-serif`;
+        const detailW = detail ? ctx.measureText(detail).width : 0;
+        const textW = Math.max(nameW, detailW);
+        const plateW = Math.max(42, badgeR * 2 + textW + 22);
+        const plateH = small ? Math.max(22, badgeR * 2 + 5) : Math.max(34, badgeR * 2 + 9);
+        const left = p.x - plateW / 2;
+        const top = p.y - plateH / 2;
         ctx.save();
         ctx.globalAlpha = 0.9;
         ctx.fillStyle = "rgba(3, 12, 19, 0.58)";
-        this.roundRect(ctx, p.x - textW / 2 - 8, p.y - fontSize / 2 - 4, textW + 16, fontSize + 8, 8);
+        this.roundRect(ctx, left, top, plateW, plateH, 8);
         ctx.fill();
         ctx.strokeStyle = this.withAlpha(player.color, id === this.state.humanId ? 0.92 : 0.62);
         ctx.lineWidth = id === this.state.humanId ? 1.6 : 1;
-        this.roundRect(ctx, p.x - textW / 2 - 8, p.y - fontSize / 2 - 4, textW + 16, fontSize + 8, 8);
+        this.roundRect(ctx, left, top, plateW, plateH, 8);
         ctx.stroke();
         if (player.teamColor) {
           ctx.strokeStyle = this.withAlpha(player.teamColor, 0.72);
           ctx.lineWidth = 2;
           ctx.beginPath();
-          ctx.moveTo(p.x - textW / 2 - 6, p.y + fontSize / 2 + 5);
-          ctx.lineTo(p.x + textW / 2 + 6, p.y + fontSize / 2 + 5);
+          ctx.moveTo(left + 6, top + plateH - 3);
+          ctx.lineTo(left + plateW - 6, top + plateH - 3);
           ctx.stroke();
         }
+        this.drawAnimalBadge(ctx, player.animal, left + badgeR + 6, p.y, badgeR, player.color, { compact: true });
         ctx.restore();
-        ctx.lineWidth = 3.5;
-        ctx.strokeStyle = "rgba(6,16,25,0.82)";
+        ctx.textAlign = "left";
+        ctx.lineWidth = 3;
+        ctx.strokeStyle = "rgba(6,16,25,0.86)";
         ctx.fillStyle = "#edf8fb";
-        ctx.strokeText(name, p.x, p.y);
-        ctx.fillText(name, p.x, p.y);
+        ctx.font = `900 ${fontSize}px Inter, sans-serif`;
+        const textX = left + badgeR * 2 + 12;
+        const nameY = small ? p.y + 0.5 : p.y - fontSize * 0.23;
+        ctx.strokeText(name, textX, nameY);
+        ctx.fillText(name, textX, nameY);
+        if (detail) {
+          ctx.font = `800 ${Math.max(8, fontSize * 0.66)}px Inter, sans-serif`;
+          ctx.fillStyle = this.withAlpha(visual.accent || "#bceaf0", 0.96);
+          ctx.strokeText(detail, textX, p.y + fontSize * 0.56);
+          ctx.fillText(detail, textX, p.y + fontSize * 0.56);
+        }
       });
     }
 
@@ -1578,6 +2039,7 @@
       });
       ctx.globalAlpha = 1;
       this.drawMiniObjectives(ctx, cellW, cellH);
+      this.drawMiniAnimalMarkers(ctx, cellW, cellH, options);
       this.drawMiniPings(ctx, cellW, cellH);
       const humanTiles = this.state.tiles.filter((tile) => tile.owner === this.state.humanId);
       if (humanTiles.length) {

@@ -4,10 +4,10 @@
   else root.PondTeams = teamConfig;
 })(typeof globalThis !== "undefined" ? globalThis : window, function makeTeamConfig() {
   const TEAM_COLORS = [
-    { id: "blue", name: "Blue Team", color: "#4fb7e8", badge: "B" },
-    { id: "green", name: "Green Team", color: "#65ce8f", badge: "G" },
-    { id: "gold", name: "Gold Team", color: "#e0bd64", badge: "O" },
-    { id: "red", name: "Red Team", color: "#e66f67", badge: "R" },
+    { id: "blue", name: "Pond Team", color: "#4fb7e8", badge: "P" },
+    { id: "green", name: "Marsh Team", color: "#65ce8f", badge: "M" },
+    { id: "gold", name: "Lily Team", color: "#e0bd64", badge: "L" },
+    { id: "red", name: "River Team", color: "#e66f67", badge: "R" },
   ];
 
   return {

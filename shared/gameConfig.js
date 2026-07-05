@@ -225,5 +225,12 @@
       "Rivergold",
       "Lilyfin",
     ],
+    BOT_NAME_POOLS: {
+      duck: ["Duck Bay", "Golden Beak", "Ripple Duck", "Stillwater Beak", "Feather Wake", "Pond Skimmer"],
+      snake: ["Reed Fang", "Marsh Coil", "Snake Channel", "Moss Stripe", "Cattail Fang", "Mud Coil"],
+      frog: ["Lily Jumper", "Frog Hollow", "Pond Leap", "Nile Jumper", "Baikal Leap", "Lotus Hopper"],
+      turtle: ["Tahoe Shell", "Mudbank Elder", "Shell Cove", "Delta Shield", "Baikal Guard", "Reedback"],
+      carp: ["Golden Current", "Lotus Scale", "Rivergold", "Amazon Scale", "Golden Mekong", "Lilyfin"],
+    },
   };
 });

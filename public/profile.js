@@ -125,11 +125,15 @@
       if (tab === "animals") {
         this.nodes.tabContent.innerHTML = `<div class="animal-stat-grid">${profile.animals
           .map(
-            (animal) => `<article>
-              <span class="animal-disc ${this.escape(animal.animal)}">${this.escape(animal.icon)}</span>
+            (animal) => {
+              const visual = this.visualFor(animal.animal);
+              return `<article>
+              <span class="animal-disc animal-visual-disc ${this.escape(animal.animal)}" style="--animal-color:${this.escape(visual.badge || "#83dced")};--animal-accent:${this.escape(visual.accent || "#edf8fb")}">${this.escape(visual.short || animal.icon)}</span>
               <strong>${this.escape(animal.label)}</strong>
+              <small>${this.escape(visual.role || "Pond strategy")} | ${this.escape(visual.terrain || "Mixed pond")}</small>
               <small>${animal.gamesPlayed} games | ${animal.wins} wins | ${Math.round((animal.highestTerritoryPercent || 0) * 10) / 10}% best</small>
-            </article>`,
+            </article>`;
+            },
           )
           .join("")}</div>`;
         return;
@@ -223,6 +227,16 @@
 
     animalLabel(animal) {
       return root.PondAnimals?.[animal]?.label || animal || "Duck";
+    }
+
+    visualFor(animal) {
+      return root.PondAnimalVisuals?.animals?.[animal] || {
+        short: root.PondAnimals?.[animal]?.icon || "A",
+        badge: root.PondAnimals?.[animal]?.color || "#83dced",
+        accent: "#edf8fb",
+        role: root.PondAnimals?.[animal]?.ability || "Pond strategy",
+        terrain: "Mixed pond",
+      };
     }
 
     formatTime(seconds) {

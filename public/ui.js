@@ -130,6 +130,10 @@
         selectedAnimalSummary: document.querySelector("#selectedAnimalSummary"),
         selectedAnimalStats: document.querySelector("#selectedAnimalStats"),
         helpButton: document.querySelector("#helpButton"),
+        settingsButton: document.querySelector("#settingsButton"),
+        settingsPanel: document.querySelector("#settingsPanel"),
+        settingsCloseButton: document.querySelector("#settingsCloseButton"),
+        togglePanelsButton: document.querySelector("#togglePanelsButton"),
         difficulty: document.querySelector("#difficulty"),
         animalChoices: [...document.querySelectorAll(".animal-choice")],
         energyStat: document.querySelector("#energyStat"),
@@ -168,6 +172,8 @@
         tileDefense: document.querySelector("#tileDefense"),
         tileFacts: document.querySelector("#tileFacts"),
         tileWarning: document.querySelector("#tileWarning"),
+        leftPanel: document.querySelector(".left-panel"),
+        rightPanel: document.querySelector(".right-panel"),
         playerPanel: document.querySelector("#playerPanel"),
         selectedPlayer: document.querySelector("#selectedPlayer"),
         selectedPlayerMeta: document.querySelector("#selectedPlayerMeta"),
@@ -180,11 +186,19 @@
         levelDetails: document.querySelector("#levelDetails"),
         xpBar: document.querySelector("#xpBar"),
         objectiveList: document.querySelector("#objectiveList"),
+        objectiveCount: document.querySelector("#objectiveCount"),
         missionList: document.querySelector("#missionList"),
+        missionCount: document.querySelector("#missionCount"),
         leaderboard: document.querySelector("#leaderboard"),
         leaderboardToggle: document.querySelector("#leaderboardToggle"),
+        leaderboardExpandButton: document.querySelector("#leaderboardExpandButton"),
+        rightPanelTabs: [...document.querySelectorAll("[data-right-panel-tab]")],
+        rightTabPanels: [...document.querySelectorAll("[data-right-panel]")],
         toast: document.querySelector("#toast"),
         toastStack: document.querySelector("#toastStack"),
+        percentRow: document.querySelector(".percent-row"),
+        attackStyleRow: document.querySelector(".attack-style-row"),
+        actionRow: document.querySelector(".action-row"),
         percentButtons: [...document.querySelectorAll(".percent-row [data-percent]")],
         attackStyleButtons: [...document.querySelectorAll("[data-attack-style]")],
         expandButton: document.querySelector("#expandButton"),
@@ -200,6 +214,9 @@
         strategicView: document.querySelector("#strategicView"),
         autoStrategicView: document.querySelector("#autoStrategicView"),
         showIcons: document.querySelector("#showIcons"),
+        showAnimalIcons: document.querySelector("#showAnimalIcons"),
+        showAnimalSprites: document.querySelector("#showAnimalSprites"),
+        showAnimalAnimations: document.querySelector("#showAnimalAnimations"),
         showBorderStatus: document.querySelector("#showBorderStatus"),
         uiScale: document.querySelector("#uiScale"),
         effectsLevel: document.querySelector("#effectsLevel"),
@@ -247,20 +264,29 @@
         closeTeamSheet: document.querySelector("#closeTeamSheet"),
       };
       this.leaderboardMode = "players";
+      this.leaderboardExpanded = false;
+      this.rightPanelTab = "leaderboard";
+      this.debugMode = new URLSearchParams(window.location.search).has("debug") || localStorage.getItem("pondfront:debug") === "1";
+      document.body.classList.toggle("debug-open", this.debugMode);
       this.nodes.strategicView.checked = true;
       this.nodes.showIcons.checked = false;
+      if (this.nodes.showAnimalIcons) this.nodes.showAnimalIcons.checked = true;
+      if (this.nodes.showAnimalSprites) this.nodes.showAnimalSprites.checked = true;
+      if (this.nodes.showAnimalAnimations) this.nodes.showAnimalAnimations.checked = true;
       if (this.nodes.showBorderStatus) this.nodes.showBorderStatus.checked = true;
       if (this.isMobile()) {
         if (this.nodes.effectsLevel) this.nodes.effectsLevel.value = "medium";
         if (this.nodes.visualQuality) this.nodes.visualQuality.value = "medium";
         if (this.nodes.particlesLevel) this.nodes.particlesLevel.value = "medium";
         if (this.nodes.screenShake) this.nodes.screenShake.checked = false;
+        if (this.nodes.showAnimalAnimations) this.nodes.showAnimalAnimations.checked = false;
       }
       this.setUiScale(localStorage.getItem("pondfront:ui-scale") || "compact");
       this.syncAudioControls();
       this.tooltips = root.PondTooltips ? new root.PondTooltips() : null;
       this.helpMenu = root.PondHelpMenu ? new root.PondHelpMenu(this.nodes.helpButton) : null;
       this.bind();
+      this.setRightPanelTab("leaderboard");
       this.updateLobbyAnimal();
       this.updateLobbyMode();
       this.syncBotOptions(true);
@@ -362,6 +388,34 @@
       this.nodes.lobbyGuide?.addEventListener("click", (event) => {
         if (event.target === this.nodes.lobbyGuide) this.nodes.lobbyGuide.classList.add("hidden");
       });
+      this.nodes.settingsButton?.addEventListener("click", () => this.openSettings());
+      this.nodes.settingsCloseButton?.addEventListener("click", () => this.closeSettings());
+      this.nodes.settingsPanel?.addEventListener("click", (event) => {
+        if (event.target === this.nodes.settingsPanel) this.closeSettings();
+      });
+      document.addEventListener("keydown", (event) => {
+        if (event.key === "Escape" && !this.nodes.settingsPanel?.classList.contains("hidden")) this.closeSettings();
+      });
+      this.nodes.togglePanelsButton?.addEventListener("click", () => {
+        document.body.classList.toggle("side-panels-collapsed");
+        const collapsed = document.body.classList.contains("side-panels-collapsed");
+        this.nodes.togglePanelsButton.classList.toggle("active", collapsed);
+        this.nodes.togglePanelsButton.textContent = collapsed ? "Show" : "Panels";
+      });
+      this.nodes.rightPanelTabs?.forEach((button) => {
+        button.addEventListener("click", () => {
+          this.setRightPanelTab(button.dataset.rightPanelTab || "leaderboard");
+          if (this.isMobile()) {
+            document.body.classList.add("leaderboard-open");
+            this.nodes.openLeaderboardButton?.classList.add("active");
+          }
+        });
+      });
+      this.nodes.leaderboardExpandButton?.addEventListener("click", () => {
+        this.leaderboardExpanded = !this.leaderboardExpanded;
+        this.nodes.rightPanel?.classList.toggle("leaderboard-expanded", this.leaderboardExpanded);
+        this.updateLeaderboard(this.lastState);
+      });
       this.nodes.lakeEventBanner?.addEventListener("click", () => {
         const tileId = Number(this.nodes.lakeEventBanner.dataset.focusTileId);
         if (Number.isFinite(tileId)) this.emit("camera", { type: "focusTile", tileId });
@@ -405,6 +459,9 @@
       this.nodes.strategicView.addEventListener("change", () => this.emit("viewChanged"));
       this.nodes.autoStrategicView.addEventListener("change", () => this.emit("viewChanged"));
       this.nodes.showIcons.addEventListener("change", () => this.emit("viewChanged"));
+      this.nodes.showAnimalIcons?.addEventListener("change", () => this.emit("viewChanged"));
+      this.nodes.showAnimalSprites?.addEventListener("change", () => this.emit("viewChanged"));
+      this.nodes.showAnimalAnimations?.addEventListener("change", () => this.emit("viewChanged"));
       this.nodes.showBorderStatus?.addEventListener("change", () => this.emit("viewChanged"));
       this.nodes.uiScale?.addEventListener("change", () => this.setUiScale(this.nodes.uiScale.value));
       this.nodes.effectsLevel.addEventListener("change", () => this.emit("viewChanged"));
@@ -457,8 +514,10 @@
         this.nodes.collapseUiButton.classList.toggle("active", document.body.classList.contains("ui-collapsed"));
       });
       this.nodes.openLeaderboardButton?.addEventListener("click", () => {
-        document.body.classList.toggle("leaderboard-open");
-        this.nodes.openLeaderboardButton.classList.toggle("active", document.body.classList.contains("leaderboard-open"));
+        const open = this.rightPanelTab !== "leaderboard" || !document.body.classList.contains("leaderboard-open");
+        document.body.classList.toggle("leaderboard-open", open);
+        this.setRightPanelTab("leaderboard");
+        this.nodes.openLeaderboardButton.classList.toggle("active", open);
       });
       this.nodes.leaderboardToggle?.addEventListener("click", () => {
         this.leaderboardMode = this.leaderboardMode === "teams" ? "players" : "teams";
@@ -519,6 +578,26 @@
         this.nodes.teamSheet.classList.add("hidden");
         this.emit("teamCommand", button.dataset.teamCommand);
       });
+    }
+
+    openSettings() {
+      this.nodes.settingsPanel?.classList.remove("hidden");
+      this.nodes.settingsButton?.setAttribute("aria-expanded", "true");
+      document.body.classList.add("settings-open");
+    }
+
+    closeSettings() {
+      this.nodes.settingsPanel?.classList.add("hidden");
+      this.nodes.settingsButton?.setAttribute("aria-expanded", "false");
+      document.body.classList.remove("settings-open");
+    }
+
+    setRightPanelTab(tab = "leaderboard") {
+      const allowed = ["leaderboard", "objectives", "missions"];
+      this.rightPanelTab = allowed.includes(tab) ? tab : "leaderboard";
+      this.nodes.rightPanelTabs?.forEach((button) => button.classList.toggle("active", button.dataset.rightPanelTab === this.rightPanelTab));
+      this.nodes.rightTabPanels?.forEach((panel) => panel.classList.toggle("active", panel.dataset.rightPanel === this.rightPanelTab));
+      document.body.dataset.rightPanelTab = this.rightPanelTab;
     }
 
     setUiScale(scale = "compact") {
@@ -719,14 +798,15 @@
       this.nodes.lobbyPlayerList.innerHTML = lobby.players
         .map((player) => {
           const animal = LOBBY_ANIMALS[player.animal] || LOBBY_ANIMALS.duck;
-          const animalColor = root.PondAnimals?.[player.animal]?.color || "#83dced";
+          const visual = this.visualFor(player.animal);
+          const animalColor = visual.badge || root.PondAnimals?.[player.animal]?.color || "#83dced";
           const team = teams.get(player.teamId);
           const ready = player.isHost ? "Host" : player.ready ? "Ready" : "Not ready";
           const badge = (root.PondBadgeConfig || []).find((entry) => entry.id === player.selectedBadge);
           const accountLine = player.accountUserId ? `L${player.accountLevel || 1} | ${this.escape(badge?.label || "Badge")}` : "Guest";
           return `<div class="lobby-player-row ${player.isViewer ? "viewer" : ""} ${player.connected ? "" : "disconnected"}" style="--team-color:${this.escape(team?.color || animalColor)}">
-            <span class="animal-disc ${this.escape(animal.className)}">${this.escape(animal.icon)}</span>
-            <span class="lobby-player-main"><b>${this.escape(player.name)} ${player.isHost ? "<em>HOST</em>" : ""}</b><small>${this.escape(animal.name)}${team ? ` | ${this.escape(team.name)}` : " | Free-for-all"} | ${accountLine}</small></span>
+            ${this.animalDisc(player.animal, `${visual.label} ${visual.role}`)}
+            <span class="lobby-player-main"><b>${this.escape(player.name)} ${player.isHost ? "<em>HOST</em>" : ""}</b><small>${this.escape(animal.name)} | ${this.escape(visual.role || "Pond role")}${team ? ` | ${this.escape(team.name)}` : " | Free-for-all"} | ${accountLine}</small></span>
             <strong>${this.escape(ready)}</strong>
           </div>`;
         })
@@ -804,6 +884,71 @@
       select.value = stringValue;
     }
 
+    visualFor(animalId) {
+      return root.PondAnimalVisuals?.animals?.[animalId] || {
+        id: animalId || "duck",
+        label: root.PondAnimals?.[animalId]?.label || "Animal",
+        short: root.PondAnimals?.[animalId]?.icon || "A",
+        badge: root.PondAnimals?.[animalId]?.color || "#83dced",
+        accent: "#edf8fb",
+        role: "Pond Strategy",
+        terrain: "Mixed pond",
+        weakness: "None",
+        ability: root.PondAnimals?.[animalId]?.ability || "Ability",
+        difficulty: "Medium",
+        victoryTitle: "Pond Commander",
+        tooltip: root.PondAnimals?.[animalId]?.perk || "Animal ability.",
+      };
+    }
+
+    animalDisc(animalId, title = "", className = "") {
+      const visual = this.visualFor(animalId);
+      const label = title || visual.label;
+      return `<span class="animal-disc animal-visual-disc ${this.escape(visual.id)} ${this.escape(className)}" style="--animal-color:${this.escape(visual.badge)};--animal-accent:${this.escape(visual.accent)}" title="${this.escape(label)}">${this.escape(visual.short)}</span>`;
+    }
+
+    animalInline(animalId, text = "") {
+      const visual = this.visualFor(animalId);
+      const label = text || visual.label;
+      return `<span class="animal-inline">${this.animalDisc(animalId, visual.label, "mini")}<span>${this.escape(label)}</span></span>`;
+    }
+
+    abilityInline(animalId, abilityName = "") {
+      const visual = this.visualFor(animalId);
+      return `<span class="ability-inline ability-${this.escape(visual.id)}"><i class="ability-icon ${this.escape(visual.abilityIcon || visual.id)}"></i><span>${this.escape(abilityName || visual.ability)}</span></span>`;
+    }
+
+    buildingVisual(id) {
+      return root.PondAnimalVisuals?.buildings?.[id] || { icon: id, label: id, synergy: "Useful building", role: "Upgrade", color: "#83dced" };
+    }
+
+    buildingIcon(id) {
+      const visual = this.buildingVisual(id);
+      return `<i class="building-icon building-${this.escape(id)}" style="--building-color:${this.escape(visual.color || "#83dced")}" title="${this.escape(visual.label || id)}"></i>`;
+    }
+
+    objectiveVisual(id, def = {}) {
+      return root.PondAnimalVisuals?.objectives?.[id] || { icon: id, label: def.label || id, best: "All animals", color: def.color || "#83dced" };
+    }
+
+    objectiveIcon(id, def = {}) {
+      const visual = this.objectiveVisual(id, def);
+      return `<i class="objective-icon objective-${this.escape(id)}" style="--objective-color:${this.escape(visual.color || def.color || "#83dced")}" title="${this.escape(visual.label || def.label || id)}"></i>`;
+    }
+
+    teamCommandIcon(id) {
+      const kind = {
+        attack: "splash",
+        push: "splash",
+        defend: "shell",
+        protect: "shell",
+        help: "lily",
+        objective: "lily",
+        retreat: "current",
+      }[id] || "splash";
+      return `<i class="team-command-icon ${this.escape(kind)}" aria-hidden="true"></i>`;
+    }
+
     syncBotOptions(initial = false) {
       const mapSize = this.nodes.mapSize?.value || "medium";
       const map = root.PondMapConfig?.[mapSize] || root.PondMapConfig?.medium;
@@ -838,21 +983,39 @@
 
     updateLobbyAnimal() {
       const info = LOBBY_ANIMALS[this.selectedAnimal] || LOBBY_ANIMALS.duck;
+      const visual = this.visualFor(this.selectedAnimal);
       if (this.nodes.startButton) this.nodes.startButton.textContent = `Solo Match: ${info.name}`;
       this.setSelectValue(this.nodes.createAnimalSelect, this.selectedAnimal);
       this.setSelectValue(this.nodes.joinAnimalSelect, this.selectedAnimal);
       if (this.nodes.selectedAnimalIcon) {
-        this.nodes.selectedAnimalIcon.className = `animal-disc ${info.className}`;
-        this.nodes.selectedAnimalIcon.textContent = info.icon;
+        this.nodes.selectedAnimalIcon.className = `animal-disc animal-visual-disc ${info.className}`;
+        this.nodes.selectedAnimalIcon.textContent = visual.short || info.icon;
+        this.nodes.selectedAnimalIcon.style.setProperty("--animal-color", visual.badge || root.PondAnimals?.[this.selectedAnimal]?.color || "#83dced");
+        this.nodes.selectedAnimalIcon.style.setProperty("--animal-accent", visual.accent || "#edf8fb");
       }
-      if (this.nodes.selectedAnimalName) this.nodes.selectedAnimalName.textContent = info.name;
-      if (this.nodes.selectedAnimalSummary) this.nodes.selectedAnimalSummary.textContent = info.summary;
+      this.nodes.animalChoices?.forEach((button) => {
+        const choiceVisual = this.visualFor(button.dataset.animal);
+        button.style.setProperty("--animal", choiceVisual.badge || "#83dced");
+        button.style.setProperty("--animal-accent", choiceVisual.accent || "#edf8fb");
+        button.dataset.role = choiceVisual.role || "";
+        const disc = button.querySelector(".animal-disc");
+        if (disc) {
+          disc.classList.add("animal-visual-disc");
+          disc.textContent = choiceVisual.short || disc.textContent;
+          disc.style.setProperty("--animal-color", choiceVisual.badge || "#83dced");
+          disc.style.setProperty("--animal-accent", choiceVisual.accent || "#edf8fb");
+          disc.title = `${choiceVisual.label}: ${choiceVisual.mapPose || choiceVisual.role}`;
+        }
+      });
+      if (this.nodes.selectedAnimalName) this.nodes.selectedAnimalName.textContent = `${info.name} - ${visual.role || info.strategy}`;
+      if (this.nodes.selectedAnimalSummary) this.nodes.selectedAnimalSummary.textContent = `${info.summary} Visual identity: ${visual.mapPose || "pond animal marker"} with ${visual.attackMotif || "themed attacks"}.`;
       if (this.nodes.selectedAnimalStats) {
         this.nodes.selectedAnimalStats.innerHTML = `
-          <dt>Ability</dt><dd>${this.escape(info.ability)}</dd>
-          <dt>Best Terrain</dt><dd>${this.escape(info.terrain)}</dd>
-          <dt>Weakness</dt><dd>${this.escape(info.weakness)}</dd>
-          <dt>Playstyle</dt><dd>${this.escape(info.strategy)}</dd>
+          <dt>Ability</dt><dd>${this.escape(visual.ability || info.ability)}</dd>
+          <dt>Best Terrain</dt><dd>${this.escape(visual.terrain || info.terrain)}</dd>
+          <dt>Weakness</dt><dd>${this.escape(visual.weakness || info.weakness)}</dd>
+          <dt>Role</dt><dd>${this.escape(visual.role || info.strategy)}</dd>
+          <dt>Counterplay</dt><dd>${this.escape(visual.counterplay || "Play around its favorite terrain.")}</dd>
         `;
       }
     }
@@ -918,6 +1081,7 @@
       const human = state.players.find((player) => player.id === state.humanId);
       if (!human) return;
       const animal = state.config.animals[human.animal];
+      const animalVisual = this.visualFor(human.animal);
       this.lastState = state;
       this.lastTile = selectedTile;
       this.lastContext = context;
@@ -926,7 +1090,7 @@
       this.nodes.energyStat.textContent = `${human.energy} / ${human.maxEnergy}`;
       this.nodes.incomeStat.textContent = `+${human.income}/s`;
       this.nodes.territoryStat.textContent = `${Math.round(human.territoryPct * 100)}%`;
-      this.nodes.animalStat.textContent = `${animal.label} L${human.level || 1}`;
+      this.nodes.animalStat.innerHTML = this.animalInline(human.animal, `${animal.label} L${human.level || 1}`);
       const humanTeam = human.teamId ? state.teamState?.teams?.find((team) => team.id === human.teamId) : null;
       if (this.nodes.teamStat) {
         this.nodes.teamStat.textContent = humanTeam ? `${humanTeam.name.replace(" Team", "")} ${Math.round(humanTeam.territoryPct * 100)}%` : "Solo";
@@ -943,13 +1107,13 @@
       }
 
       const abilityStatus = human.abilityStatus || {};
-      this.nodes.abilityName.textContent = animal.ability;
+      this.nodes.abilityName.innerHTML = this.abilityInline(human.animal, animal.ability);
       const cooldownLeft = Math.max(0, abilityStatus.cooldownLeft ?? human.abilityReadyAt - state.serverTime);
       const activeLeft = Math.max(0, abilityStatus.activeLeft ?? human.abilityActiveUntil - state.serverTime);
-      const realModifier = abilityStatus.realModifier || root.PondInfo?.abilityTip(human.animal) || animal.perk;
+      const realModifier = abilityStatus.realModifier || root.PondInfo?.abilityTip(human.animal) || animalVisual.tooltip || animal.perk;
       this.nodes.abilityPerk.textContent = abilityStatus.activeEffect
         ? `${abilityStatus.activeEffect}: ${realModifier}`
-        : realModifier;
+        : `${realModifier} Visual: ${animalVisual.attackMotif || "pond effect"}.`;
       this.nodes.cooldownText.textContent =
         activeLeft > 0
           ? `${abilityStatus.activeEffect || "Active"}: ${Math.ceil(activeLeft)}s`
@@ -967,7 +1131,7 @@
       this.nodes.abilityButton.dataset.tip =
         cooldownLeft > 0 && activeLeft <= 0
           ? `${animal.ability} cooldown: ${Math.ceil(cooldownLeft)}s. ${realModifier}`
-          : `${animal.ability}: ${realModifier}`;
+          : `${animal.ability}: ${realModifier} ${animalVisual.defenseMotif ? `Defense look: ${animalVisual.defenseMotif}.` : ""}`;
       this.nodes.mobileStrategicButton?.classList.toggle("active", this.nodes.strategicView.checked);
 
       this.updateSelectedTile(state, selectedTile, context);
@@ -979,6 +1143,7 @@
       this.updateCurrentPushWarning(state, human);
       this.updateLeaderboard(state);
       this.updateActionLabels(human);
+      this.updateActionVisibility(state, selectedTile, context);
       this.updateMobileActionCard(state, selectedTile, context);
       if (!this.nodes.specialSheet?.classList.contains("hidden")) this.openSpecialSheet();
       if (!this.nodes.teamSheet?.classList.contains("hidden")) this.renderTeamSheet();
@@ -988,8 +1153,7 @@
     updateWinDebug(state) {
       if (!this.nodes.winDebugPanel) return;
       const debug = state.winDebug;
-      const isLocal = ["localhost", "127.0.0.1", ""].includes(window.location.hostname);
-      if (!debug || !isLocal) {
+      if (!debug || !this.debugMode) {
         this.nodes.winDebugPanel.classList.add("hidden");
         return;
       }
@@ -1083,9 +1247,7 @@
           : "Click a glowing border or right-click any tile for quick actions.";
         this.nodes.tileOwner.textContent = "Neutral";
         this.nodes.tileDefense.textContent = "Def 0";
-        this.nodes.tileFacts.innerHTML = (root.PondInfo?.incomeFacts(human) || [])
-          .map((fact) => `<div><span>${this.escape(fact.label)}</span><strong>${this.escape(fact.value)}</strong></div>`)
-          .join("");
+        this.nodes.tileFacts.innerHTML = this.renderFactRows(root.PondInfo?.incomeFacts(human) || [], 4);
         this.nodes.tileWarning.classList.add("hidden");
         return;
       }
@@ -1098,11 +1260,17 @@
       this.nodes.tileDetails.textContent = `${summary.detail}${coreText}`;
       this.nodes.tileOwner.textContent = summary.ownerText;
       this.nodes.tileDefense.textContent = context.kind === "attackBorder" ? `Wave cost ~${context.nextCost}` : summary.defenseText;
-      this.nodes.tileFacts.innerHTML = facts
-        .map((fact) => `<div><span>${this.escape(fact.label)}</span><strong>${this.escape(fact.value)}</strong></div>`)
-        .join("");
+      this.nodes.tileFacts.innerHTML = this.renderFactRows(facts, 4);
       this.nodes.tileWarning.textContent = summary.warning || "";
       this.nodes.tileWarning.classList.toggle("hidden", !summary.warning);
+    }
+
+    renderFactRows(facts = [], visibleCount = 4) {
+      const row = (fact) => `<div><span>${this.escape(fact.label)}</span><strong>${this.escape(fact.value)}</strong></div>`;
+      const visible = facts.slice(0, visibleCount).map(row).join("");
+      const hidden = facts.slice(visibleCount).map(row).join("");
+      if (!hidden) return visible;
+      return `${visible}<details class="more-details"><summary>More Details</summary>${hidden}</details>`;
     }
 
     updatePlayerPanel(state, selectedPlayerId) {
@@ -1114,11 +1282,11 @@
         return;
       }
       this.nodes.playerPanel.classList.remove("hidden");
-      this.nodes.selectedPlayer.textContent = summary.title;
-      this.nodes.selectedPlayerMeta.textContent = summary.meta;
-      this.nodes.selectedPlayerFacts.innerHTML = summary.facts
-        .map((fact) => `<div><span>${this.escape(fact.label)}</span><strong>${this.escape(fact.value)}</strong></div>`)
-        .join("");
+      const selected = state.players.find((player) => player.id === selectedPlayerId);
+      const visual = this.visualFor(selected?.animal);
+      this.nodes.selectedPlayer.innerHTML = selected ? this.animalInline(selected.animal, selected.name || summary.title) : this.escape(summary.title);
+      this.nodes.selectedPlayerMeta.textContent = selected ? `${visual.label} L${selected.level || 1} | ${visual.role || "Pond role"} | ${summary.meta}` : summary.meta;
+      this.nodes.selectedPlayerFacts.innerHTML = this.renderFactRows(summary.facts, 4);
       this.updateDiplomacyButtons(state, selectedPlayerId);
     }
 
@@ -1182,14 +1350,19 @@
     updateLeaderboard(state) {
       if (!state) return;
       const teamModeAvailable = Boolean(state.teamState?.active && state.teamState?.teams?.length);
+      const limit = this.leaderboardExpanded ? 12 : 5;
       if (!teamModeAvailable && this.leaderboardMode === "teams") this.leaderboardMode = "players";
       if (this.nodes.leaderboardToggle) {
         this.nodes.leaderboardToggle.textContent = this.leaderboardMode === "teams" ? "Teams" : "Players";
         this.nodes.leaderboardToggle.disabled = !teamModeAvailable;
       }
+      if (this.nodes.leaderboardExpandButton) {
+        this.nodes.leaderboardExpandButton.textContent = this.leaderboardExpanded ? "Compact" : "More";
+        this.nodes.leaderboardExpandButton.title = this.leaderboardExpanded ? "Show top 5 only" : "Show more leaderboard rows";
+      }
       if (this.leaderboardMode === "teams" && teamModeAvailable) {
         this.nodes.leaderboard.innerHTML = state.teamState.teams
-          .slice(0, 8)
+          .slice(0, limit)
           .map((team, index) => {
             const local = state.players.find((player) => player.id === state.humanId)?.teamId === team.id;
             return `<li class="team-row ${local ? "local" : ""}" style="--team-color:${this.escape(team.color)}">
@@ -1207,10 +1380,11 @@
         .filter((player) => !player.defeated)
         .slice()
         .sort((a, b) => b.territoryPct - a.territoryPct)
-        .slice(0, 8);
+        .slice(0, limit);
       this.nodes.leaderboard.innerHTML = rows
         .map((player, index) => {
           const animal = state.config.animals[player.animal];
+          const visual = this.visualFor(player.animal);
           const relation = this.relationshipFor(state, player.id);
           const relationBadge =
             player.id !== state.humanId && relation && relation.state !== "neutral"
@@ -1226,8 +1400,8 @@
           const name = player.id === state.humanId ? player.name || "You" : player.name;
           return `<li class="${player.id === state.humanId ? "local" : ""}">
             <span class="leader-rank">#${index + 1}</span>
-            <span class="leader-animal animal-${this.escape(player.animal)}" title="${this.escape(animal.label)}">${this.escape(animal.icon)}</span>
-            <span class="leader-name"><b>${teamBadge}${profileBadge}${this.escape(name)} ${relationBadge}</b><small>${this.escape(animal.label)} L${player.level || 1}${profileTitle ? ` | ${this.escape(profileTitle)}` : player.teamName ? ` | ${this.escape(player.teamName)}` : relation ? ` | ${this.escape(relation.label)}` : ""}</small></span>
+            <span class="leader-animal animal-visual-disc animal-${this.escape(player.animal)} ${this.escape(player.animal)}" style="--animal-color:${this.escape(visual.badge || animal.color)};--animal-accent:${this.escape(visual.accent || "#edf8fb")}" title="${this.escape(`${animal.label}: ${visual.role || ""}`)}">${this.escape(visual.short || animal.icon)}</span>
+            <span class="leader-name"><b>${teamBadge}${profileBadge}${this.escape(name)} ${relationBadge}</b><small>${this.escape(animal.label)} L${player.level || 1} | ${this.escape(visual.role || "Pond role")}${profileTitle ? ` | ${this.escape(profileTitle)}` : player.teamName ? ` | ${this.escape(player.teamName)}` : relation ? ` | ${this.escape(relation.label)}` : ""}</small></span>
             <span class="leader-territory">${Math.round(player.territoryPct * 100)}%</span>
             <span class="leader-energy">${player.energy}</span>
           </li>`;
@@ -1246,14 +1420,16 @@
     updateObjectives(state) {
       const objectives = state.objectives || [];
       const camps = state.camps || [];
+      if (this.nodes.objectiveCount) this.nodes.objectiveCount.textContent = `${objectives.length + camps.length} active`;
       const playerName = (id) => state.players.find((player) => player.id === id)?.name || "Neutral";
       const objectiveRows = objectives
         .map((objective) => {
           const def = objective.definition || state.config.objectives?.LAKE_OBJECTIVES?.[objective.type] || {};
+          const visual = this.objectiveVisual(objective.type, def);
           const owner = objective.owner ? playerName(objective.owner) : objective.active ? "Open" : `Appears ${Math.ceil(Math.max(0, objective.activeAt - state.serverTime))}s`;
           return `<div class="compact-row ${objective.owner === state.humanId ? "owned" : ""}">
-            <i style="--item-color:${this.escape(def.color || "#83dced")}">${this.escape(def.short || "OB")}</i>
-            <span><b>${this.escape(def.label || objective.type)}</b><small>${this.escape(owner)}</small></span>
+            ${this.objectiveIcon(objective.type, def)}
+            <span><b>${this.escape(def.label || objective.type)}</b><small>${this.escape(owner)} | Best: ${this.escape(visual.best || "All animals")}</small></span>
           </div>`;
         })
         .join("");
@@ -1261,10 +1437,11 @@
         .slice(0, 4)
         .map((camp) => {
           const def = camp.definition || state.config.objectives?.CRITTER_CAMPS?.[camp.type] || {};
+          const visual = this.objectiveVisual(camp.type, def);
           const owner = camp.owner ? playerName(camp.owner) : "Neutral";
           return `<div class="compact-row camp ${camp.owner === state.humanId ? "owned" : ""}">
-            <i style="--item-color:${this.escape(def.color || "#d8ad48")}">${this.escape(def.short || "CP")}</i>
-            <span><b>${this.escape(def.label || camp.type)}</b><small>${this.escape(owner)}</small></span>
+            ${this.objectiveIcon(camp.type, def)}
+            <span><b>${this.escape(def.label || camp.type)}</b><small>${this.escape(owner)} | ${this.escape(visual.best || def.effect || "Bonus")}</small></span>
           </div>`;
         })
         .join("");
@@ -1273,6 +1450,7 @@
 
     updateMissions(state) {
       const missions = (state.missions || []).slice(0, 4);
+      if (this.nodes.missionCount) this.nodes.missionCount.textContent = `${missions.filter((mission) => !mission.done).length} open`;
       this.nodes.missionList.innerHTML =
         missions
           .map((mission) => {
@@ -1381,6 +1559,10 @@
       this.nodes.buildButton.textContent = construction > 0 ? `Building ${construction}s` : "Build";
       this.nodes.buildButton.classList.toggle("cooldown", construction > 0);
       this.nodes.buildButton.classList.toggle("ready", construction <= 0 && Boolean(human));
+      if (this.nodes.abilityButton && human) {
+        this.nodes.abilityButton.dataset.animal = human.animal;
+        this.nodes.abilityButton.innerHTML = `${this.abilityInline(human.animal, "Ability")}`;
+      }
       if (this.nodes.specialButton) {
         this.nodes.specialButton.textContent = nextSpecialReady ? "Special Ready" : Number.isFinite(shortestSpecialLeft) ? `Special ${shortestSpecialLeft}s` : "Special";
         this.nodes.specialButton.disabled = !human || human.defeated || this.lastState?.ended;
@@ -1390,6 +1572,52 @@
           ? "Choose Lily Barrage, Dragonfly Guard, or Reed Shield."
           : "Pond specials cost a lot of Animal Energy and have cooldowns.";
       }
+    }
+
+    updateActionVisibility(state, tile, context = {}) {
+      const human = state?.players?.find((player) => player.id === state.humanId);
+      const ownsTile = Boolean(tile && human && tile.owner === human.id);
+      const enemyTile = Boolean(tile?.owner && tile.owner !== human?.id);
+      const neutralTile = Boolean(tile && !tile.owner);
+      const contextName = !tile ? "none" : enemyTile ? "enemy" : ownsTile ? "own" : neutralTile ? "neutral" : "blocked";
+      document.body.dataset.actionContext = contextName;
+
+      const teamActive = Boolean(state?.teamState?.active);
+      const showAttack = enemyTile;
+      const showExpand = neutralTile && (context.canExpand || !tile.type?.blocks);
+      const showDefend = ownsTile;
+      const showBuild = ownsTile || Boolean(neutralTile && context.canBuild);
+      const showPercent = showExpand || showDefend;
+      const showAttackStyle = showAttack;
+
+      this.nodes.percentRow?.classList.toggle("hidden-action", !showPercent);
+      this.nodes.attackStyleRow?.classList.toggle("hidden-action", !showAttackStyle);
+      this.setActionVisible(this.nodes.expandButton, showExpand);
+      this.setActionVisible(this.nodes.attackButton, showAttack);
+      this.setActionVisible(this.nodes.currentPushButton, showAttack);
+      this.setActionVisible(this.nodes.defendButton, showDefend);
+      this.setActionVisible(this.nodes.buildButton, showBuild);
+      this.setActionVisible(this.nodes.teamButton, teamActive);
+      this.setActionVisible(this.nodes.abilityButton, true);
+      this.setActionVisible(this.nodes.specialButton, true);
+      this.nodes.buildSelect?.classList.toggle("hidden-action", !showBuild);
+
+      if (this.nodes.expandButton) this.nodes.expandButton.disabled = !human || human.defeated || !context.canExpand;
+      if (this.nodes.defendButton) this.nodes.defendButton.disabled = !human || human.defeated || !context.canDefend;
+      if (this.nodes.buildButton) {
+        const construction = this.constructionLeft(tile, state);
+        const canManageBuilding = ownsTile && Boolean(tile?.building);
+        const canBuildHere = Boolean(context.canBuild || context.canUpgradeBuilding || canManageBuilding);
+        this.nodes.buildButton.disabled = !human || human.defeated || !canBuildHere;
+        if (canManageBuilding && construction <= 0) this.nodes.buildButton.textContent = context.canUpgradeBuilding ? "Upgrade" : "Building";
+      }
+      if (this.nodes.attackButton) this.nodes.attackButton.disabled = this.nodes.attackButton.disabled || !context.canAttack;
+      if (this.nodes.currentPushButton) this.nodes.currentPushButton.disabled = this.nodes.currentPushButton.disabled || !context.canAttack;
+    }
+
+    setActionVisible(button, visible) {
+      if (!button) return;
+      button.classList.toggle("hidden-action", !visible);
     }
 
     toast(message, bad = false) {
@@ -1432,6 +1660,9 @@
         strategicView: this.nodes.strategicView.checked,
         autoStrategicView: this.nodes.autoStrategicView.checked,
         showIcons: this.nodes.showIcons.checked,
+        showAnimalIcons: this.nodes.showAnimalIcons?.checked !== false,
+        showAnimalSprites: this.nodes.showAnimalSprites?.checked !== false,
+        showAnimalAnimations: this.nodes.showAnimalAnimations?.checked !== false,
         showBorderStatus: this.nodes.showBorderStatus?.checked !== false,
         visualQuality: this.nodes.visualQuality?.value || "high",
         mapDecorations: this.nodes.mapDecorations?.checked !== false,
@@ -1475,7 +1706,7 @@
       const commandButtons = Object.entries(commands)
         .map(
           ([id, command]) => `<button data-team-command="${this.escape(id)}" style="--team-command:${this.escape(command.tone || team?.color || "#83dced")}">
-            <strong>${this.escape(command.short || command.label)}</strong>
+            <strong>${this.teamCommandIcon(id)} ${this.escape(command.short || command.label)}</strong>
             <span>${this.escape(command.label)}</span>
           </button>`,
         )
@@ -1484,8 +1715,9 @@
         teammates
           .map((player) => {
             const animal = state.config.animals[player.animal] || {};
+            const visual = this.visualFor(player.animal);
             return `<div class="team-member-row">
-              <i style="--team-color:${this.escape(player.teamColor || team?.color || "#83dced")}">${this.escape(player.teamBadge || "T")}</i>
+              ${this.animalDisc(player.animal, visual.label, "team-mini")}
               <span><b>${this.escape(player.name)}</b><small>${player.defeated ? "Out | " : ""}${this.escape(animal.label || player.animal)} | ${this.escape(this.roleLabel(player.role))} | ${Math.round(player.territoryPct * 100)}%</small></span>
               <strong>${player.energy}</strong>
             </div>`;
@@ -1564,6 +1796,7 @@
       if (!state || !human) return;
       if (tile?.owner === human.id && tile.building) {
         const building = state.config.buildings[tile.building] || {};
+        const buildingVisual = this.buildingVisual(tile.building);
         const level = tile.buildingLevel || 1;
         const upgradeCost = this.upgradeCost(tile.building, level, human, state);
         const construction = this.constructionLeft(tile, state);
@@ -1571,8 +1804,9 @@
         const defendEnergy = Math.round(human.energy * this.percent * 0.75);
         this.nodes.buildSheetList.innerHTML = `
           <div class="building-sheet-card">
-            <strong>${this.escape(building.label || tile.building)} L${level}</strong>
+            <strong>${this.buildingIcon(tile.building)} ${this.escape(building.label || tile.building)} L${level}</strong>
             <span>${this.escape(this.buildingEffect(tile.building))}</span>
+            <small>${this.escape(buildingVisual.synergy || "Useful for all animals")} | ${this.escape(buildingVisual.role || "Pond upgrade")}</small>
             <small>Defense ${Math.round(tile.defenseEnergy || 0)} | ${construction > 0 ? `Under construction ${construction}s` : level >= 3 ? "Max level" : `Upgrade cost ${upgradeCost}`}</small>
           </div>
           <button data-building-action="upgradeBuilding" ${canUpgrade ? "" : "disabled"}>
@@ -1596,6 +1830,7 @@
       }
       this.nodes.buildSheetList.innerHTML = Object.entries(state.config.buildings)
         .map(([id, building]) => {
+          const buildingVisual = this.buildingVisual(id);
           const cost = this.buildingCost(id, human, state);
           const animalLocked = building.animal && building.animal !== human.animal;
           const occupiedLocked = Boolean(tile?.building);
@@ -1612,9 +1847,9 @@
                     ? `Need ${cost} energy`
                     : `Ready. Takes ${state.config.balance?.buildTimeSeconds || 10}s to finish.`;
           return `<button data-build-choice="${this.escape(id)}" ${disabled ? "disabled" : ""}>
-            <strong>${this.escape(building.label)}</strong>
+            <strong>${this.buildingIcon(id)} ${this.escape(building.label)}</strong>
             <span>Cost ${cost} | ${this.escape(this.buildingEffect(id))}</span>
-            <small>${this.escape(reason)}</small>
+            <small>${this.escape(buildingVisual.synergy || "Useful building")} | ${this.escape(reason)}</small>
           </button>`;
         })
         .join("");
@@ -1629,11 +1864,11 @@
 
     buildingEffect(id) {
       return {
-        nest: "Raises your max Animal Energy.",
-        lilyFarm: "Increases income per second. Cost rises as you build more.",
-        reedGuard: "Strengthens nearby borders against attacks.",
-        mudTunnel: "Improves control around mud and reeds.",
-        jumpPad: "Improves leap and mobility bonuses.",
+        nest: "Warm pond nest that raises max Animal Energy.",
+        lilyFarm: "Lily pads and flowers that increase income per second.",
+        reedGuard: "Reed wall that strengthens nearby animal borders.",
+        mudTunnel: "Hidden mud swirl that helps Snake control reeds and mud.",
+        jumpPad: "Lily bounce pad that improves Frog leap mobility.",
       }[id] || "Upgrade";
     }
 
@@ -1657,6 +1892,8 @@
       const winner = state.players.find((player) => player.id === state.winnerId);
       const winningTeam = state.winnerTeamId ? state.teamState?.teams?.find((team) => team.id === state.winnerTeamId) : null;
       const humanTeam = human.teamId ? state.teamState?.teams?.find((team) => team.id === human.teamId) : null;
+      const humanVisual = this.visualFor(human.animal);
+      const winnerVisual = this.visualFor(winner?.animal || human.animal);
       const sandbox = Boolean(state.sandbox?.enabled || state.matchSettings?.sandbox?.enabled);
       const bestTeammate = state.players
         .filter((player) => player.teamId && player.teamId === human.teamId && player.id !== human.id)
@@ -1670,12 +1907,12 @@
       this.nodes.resultScreen.classList.remove("hidden");
       const teamVictory = winningTeam && humanTeam && winningTeam.id === humanTeam.id;
       this.nodes.resultTitle.textContent = sandbox ? "Sandbox Ended" : winningTeam ? (teamVictory ? "Team Victory" : "Team Defeat") : winner?.id === state.humanId ? "Victory" : "Defeat";
-      this.nodes.resultSummary.textContent = sandbox
-        ? "Sandbox ended. No stats, XP, coins, achievements, or ranked progress were saved."
+      this.nodes.resultSummary.innerHTML = sandbox
+        ? `${this.animalInline(human.animal, `${humanVisual.label} sandbox test`)} Sandbox ended. No stats, XP, coins, achievements, or ranked progress were saved.`
         : winningTeam
           ? `${winningTeam.name} is the last team in the pond.`
           : winner
-            ? `${winner.name} is the last animal standing.`
+            ? `${this.animalInline(winner.animal, `${winner.name} - ${winnerVisual.victoryTitle || "Pond Victor"}`)} is the last animal standing.`
             : "The match ended.";
       const rank =
         winningTeam && humanTeam
@@ -1684,7 +1921,7 @@
               .slice()
               .sort((a, b) => b.territoryPct - a.territoryPct)
               .findIndex((player) => player.id === state.humanId) + 1;
-      const title = this.playstyleTitle(human);
+      const title = humanVisual.victoryTitle || this.playstyleTitle(human);
       this.nodes.resultStats.innerHTML = `
         <dt>Title</dt><dd>${this.escape(title)}</dd>
         <dt>${winningTeam ? "Team Rank" : "Final Rank"}</dt><dd>#${rank}</dd>
@@ -1703,7 +1940,7 @@
         <dt>Buildings</dt><dd>${human.stats.buildingsBuilt || 0}</dd>
         <dt>Peak Income</dt><dd>+${Number(human.stats.incomePeak || human.income || 0).toFixed(1)}/s</dd>
         <dt>Defeated</dt><dd>${human.stats.playersDefeated}</dd>
-        <dt>Animal</dt><dd>${state.config.animals[human.animal].label}</dd>
+        <dt>Animal</dt><dd>${this.animalInline(human.animal, state.config.animals[human.animal].label)}</dd>
       `;
       if (sandbox) this.renderSandboxRewards();
       else this.renderRewards(human.matchRewards);
