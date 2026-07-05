@@ -75,6 +75,7 @@ class PondFrontServerGame {
       objectives: 0,
       camps: 0,
       specials: 0,
+      lastTickMs: 0,
     };
     this.wars = new Map();
     this.tileManager = new TileManager(Date.now() % 999999, this.matchSettings.map);
@@ -383,24 +384,29 @@ class PondFrontServerGame {
   }
 
   tick(dt) {
+    const tickStarted = Date.now();
     const effectiveDt = this.sandbox?.enabled ? this.sandbox.tickDelta(dt) : dt;
-    if (this.simTime != null) this.simTime += effectiveDt;
-    if (this.ended) return;
-    if (effectiveDt <= 0) return;
-    this.combat.update(this, effectiveDt);
-    this.diplomacy.update(this);
-    this.teamManager.update(this);
-    this.objectives.update(this);
-    this.eventsManager.update(this);
-    this.specials?.update(this);
-    this.core.update(this);
-    this.economy.update(this.players, effectiveDt, this.now(), this);
-    this.players.forEach((player) => {
-      player.stats.incomePeak = Math.max(player.stats.incomePeak || 0, player.income || 0);
-    });
-    this.missions.update(this);
-    this.botManager.update(effectiveDt);
-    this.checkWin();
+    try {
+      if (this.simTime != null) this.simTime += effectiveDt;
+      if (this.ended) return;
+      if (effectiveDt <= 0) return;
+      this.combat.update(this, effectiveDt);
+      this.diplomacy.update(this);
+      this.teamManager.update(this);
+      this.objectives.update(this);
+      this.eventsManager.update(this);
+      this.specials?.update(this);
+      this.core.update(this);
+      this.economy.update(this.players, effectiveDt, this.now(), this);
+      this.players.forEach((player) => {
+        player.stats.incomePeak = Math.max(player.stats.incomePeak || 0, player.income || 0);
+      });
+      this.missions.update(this);
+      this.botManager.update(effectiveDt);
+      this.checkWin();
+    } finally {
+      if (this.metrics) this.metrics.lastTickMs = Date.now() - tickStarted;
+    }
   }
 
   handleAction(body) {
@@ -755,6 +761,8 @@ class PondFrontServerGame {
       name: player.name,
       animal: player.animal,
       personality: player.personality,
+      botPersonality: player.isBot ? this.botPersonalityLabel(player.personality) : "",
+      botDifficulty: player.isBot ? player.difficulty || "normal" : "",
       role: player.role || (player.isBot ? "rival" : "commander"),
       teamId: player.teamId || null,
       teamName: player.teamName || "",
@@ -811,6 +819,7 @@ class PondFrontServerGame {
       animalsLeft: winState.alivePlayers.length,
       teamsLeft: this.teamManager?.active() ? winState.aliveTeams.length : 0,
       winDebug: winState.debug,
+      metrics: { ...this.metrics },
       regions: this.tileManager.regions,
       objectives: this.objectives.snapshot().objectives,
       camps: this.objectives.snapshot().camps,
@@ -967,6 +976,25 @@ class PondFrontServerGame {
       defender.flags.lastAttackerId = attackerId;
       defender.flags.underAttackUntil = this.now() + 28;
     }
+  }
+
+  botPersonalityLabel(personality = "fighter") {
+    const labels = {
+      aggressive: "Fighter",
+      defensive: "Defender",
+      defender: "Defender",
+      expander: "Expander",
+      objectiveHunter: "Objective Hunter",
+      leaderHunter: "Leader Hunter",
+      supporter: "Supporter",
+      loyalAlly: "Supporter",
+      peaceful: "Supporter",
+      farmer: "Expander",
+      opportunist: "Fighter",
+      betrayer: "Fighter",
+      passive: "Passive",
+    };
+    return labels[personality] || "Fighter";
   }
 
   warSnapshot() {
@@ -1188,7 +1216,31 @@ const server = http.createServer(async (req, res) => {
   if (req.method === "GET" && url.pathname === "/api/stats/me") {
     const user = requireAccount(req, res);
     if (!user) return;
-    sendJson(res, 200, { ok: true, stats: db.statsFor(user.id), animals: db.allAnimalStats(user.id) });
+    const profile = profileManager.profile(user.id);
+    sendJson(res, 200, { ok: true, stats: profile.stats, animals: profile.animals });
+    return;
+  }
+
+  if (req.method === "GET" && url.pathname === "/api/achievements/me") {
+    const user = requireAccount(req, res);
+    if (!user) return;
+    const profile = profileManager.profile(user.id);
+    sendJson(res, 200, { ok: true, achievements: profile.achievements });
+    return;
+  }
+
+  if (req.method === "GET" && url.pathname === "/api/badges/me") {
+    const user = requireAccount(req, res);
+    if (!user) return;
+    const profile = profileManager.profile(user.id);
+    sendJson(res, 200, { ok: true, badges: profile.badges, selectedBadge: profile.user.selectedBadge });
+    return;
+  }
+
+  if (req.method === "GET" && url.pathname === "/api/matches/me") {
+    const user = requireAccount(req, res);
+    if (!user) return;
+    sendJson(res, 200, { ok: true, matches: matchHistoryManager.list(user.id, url.searchParams.get("limit") || 20) });
     return;
   }
 

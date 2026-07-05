@@ -1,6 +1,6 @@
 # PondFront.io
 
-PondFront.io is an original animal-themed real-time territory strategy prototype. Players lead pond animals across a giant lake, expand tile by tile, spend Animal Energy on committed attack waves, build compact upgrades, form alliances, and fight to control the pond.
+PondFront.io is an original animal-themed real-time territory strategy prototype in development. Players lead pond animals across a giant lake, expand tile by tile, spend Animal Energy on committed attack waves, build compact upgrades, form alliances, and fight to control the pond.
 
 The game is inspired by the broad strategy-game idea of territory expansion, borders, energy economy, diplomacy, bots, and domination. It does not use or copy OpenFront.io assets, code, branding, names, sounds, or UI.
 
@@ -17,7 +17,11 @@ The game is inspired by the broad strategy-game idea of territory expansion, bor
 - Diplomacy with alliances, peace, enemy marking, warnings, support, betrayal timers, and team/co-op modes.
 - Lobby system with solo, practice, sandbox, private lobbies, map size, bot difficulty, and team settings.
 - Player accounts, profiles, XP, badges, achievements, match history, missions, and local persistence.
-- Mobile support with tap controls, compact action cards, mobile attack buttons, and safe-area UI.
+- Pond specials: Lily Barrage, Dragonfly Guard, and Reed Shield, with server-side costs, cooldowns, targeting, and counterplay.
+- Smarter bot personalities, including Expander, Defender, Fighter, Objective Hunter, Leader Hunter, and Supporter behavior.
+- First-match tutorial and compact coach hints for expansion, attacking, building, defense, objectives, and specials.
+- Mobile support with tap controls, compact action cards, mobile attack buttons, safe-area UI, and touch-friendly sheets.
+- Settings for strategic view, animal visuals, audio, effect quality, coach hints, and a debug stats overlay.
 
 ## How To Play
 
@@ -26,8 +30,9 @@ The game is inspired by the broad strategy-game idea of territory expansion, bor
 3. Build Nest, Lily Farm, Reed Guard, Mud Tunnel, or Jump Pad on owned tiles.
 4. Attack connected enemy borders by choosing Bite, Push, Wave, or Max.
 5. Reinforce important fronts and use terrain bonuses.
-6. Use animal abilities and Current Push at the right moment.
-7. Win by controlling the lake or outlasting the other animals/teams.
+6. Use animal abilities, Current Push, and pond specials at the right moment.
+7. Watch bot personalities and diplomacy before choosing enemies.
+8. Win by controlling the lake or outlasting the other animals/teams.
 
 ## Animals
 
@@ -53,18 +58,33 @@ Attack pacing is controlled by:
 
 Current Push is different: it is a special long-range water-route attack and still has cooldown.
 
+## Specials
+
+- Lily Barrage: expensive long-range pressure that weakens a small enemy cluster and can capture a few undefended tiles.
+- Dragonfly Guard: anti-strike defense that reduces Lily Barrage and Current Push impact in a protected area.
+- Reed Shield: border defense that slows normal committed waves and slightly softens strike damage.
+
+Specials are intentionally costly. Spending energy on a special can leave your borders weaker if the attack fails.
+
+## Bots
+
+Bots are server-controlled and use difficulty profiles, reaction delays, mistakes, build choices, diplomacy, abilities, specials, and personalities. Easy bots expand and attack slowly. Normal bots are meant to feel fair. Hard and Chaos are more aggressive.
+
+Selected bot info panels show animal, level, difficulty, personality, relationship, and strength estimate so rival behavior is easier to read.
+
 ## Controls
 
 - Left click or tap a tile to select it.
 - Drag or pan to move around the map.
 - Mouse wheel or zoom buttons to zoom.
-- Click Expand, Attack, Defend, Build, Ability, or Current Push after selecting a tile.
+- Click Expand, Attack, Defend, Build, Ability, Special, or Current Push after selecting a tile.
 - Right click enemy/player territory for diplomacy and signals.
 - On mobile, tap a tile and use the compact action card.
+- Open Settings to change view mode, effects, audio, coach hints, UI scale, or debug stats.
 
 ## Run Locally
 
-Install Node.js 18 or newer, then run:
+Install Node.js 22 or newer, then run:
 
 ```bash
 npm start
@@ -110,6 +130,15 @@ data/                     Local account/profile persistence
 docs/screenshots/         Screenshot placeholders and capture notes
 ```
 
+Key files:
+
+- `server/BotManager.js` - bot pacing, personalities, skirmishes, diplomacy, and surrender rules.
+- `server/CombatManager.js` - expansion, committed attacks, defense, Current Push, and ability combat.
+- `server/SpecialManager.js` - Lily Barrage, Dragonfly Guard, and Reed Shield validation/effects.
+- `public/ui.js` - lobby, panels, mobile action cards, coach hints, settings, and debug stats.
+- `public/render.js` and `public/vfx.js` - Canvas rendering, strategic map visuals, particles, and feedback.
+- `shared/balanceConfig.js`, `shared/botDifficultyConfig.js`, and `shared/specialConfig.js` - tuning values.
+
 ## Screenshots
 
 Add screenshots to `docs/screenshots/` when you want a visual README.
@@ -134,3 +163,4 @@ npm run simulate:balance
 - More readable team battle overlays.
 - Ranked/custom lobby settings.
 - More animal cosmetics, badges, and seasonal pond events.
+- More tutorial missions and post-match analytics.

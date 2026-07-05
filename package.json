@@ -10,7 +10,7 @@
     "simulate:balance": "node scripts/simulateBalance.js"
   },
   "engines": {
-    "node": ">=18"
+    "node": ">=22"
   },
   "keywords": [
     "strategy",
