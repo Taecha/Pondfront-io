@@ -246,10 +246,17 @@ class PondFrontServerGame {
     if (!lobbyHumans.length && this.matchSettings.accountUser) this.applyAccountToPlayer(players[0], this.matchSettings.accountUser);
     const botCount = this.matchSettings.botCount ?? config.BOT_COUNT ?? 9;
     const botNames = this.shuffled(config.BOT_NAMES).filter((name) => name !== "You");
+    const animalNamePools = Object.fromEntries(
+      Object.entries(config.BOT_NAME_POOLS || {}).map(([animalId, names]) => [animalId, this.shuffled(names || [])]),
+    );
+    const animalNameUse = {};
     const botAnimals = this.mixedBotAnimals(botCount);
     for (let i = 0; i < botCount; i += 1) {
       const animal = botAnimals[i];
-      const name = botNames[i] || `Rainlake ${i + 1}`;
+      const pool = animalNamePools[animal] || [];
+      const used = animalNameUse[animal] || 0;
+      animalNameUse[animal] = used + 1;
+      const name = pool[used] || botNames[i] || `Rainlake ${i + 1}`;
       const color = config.PLAYER_COLORS[(players.length + i) % config.PLAYER_COLORS.length];
       const botDifficulty = this.matchSettings.sandbox?.enabled
         ? sandboxConfig.botDifficulties[difficulty]?.serverDifficulty || difficulty
