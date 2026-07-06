@@ -76,6 +76,8 @@ class PondFrontServerGame {
       camps: 0,
       specials: 0,
       lastTickMs: 0,
+      lastBotThinkMs: 0,
+      lastBotThinkers: 0,
     };
     this.wars = new Map();
     this.tileManager = new TileManager(Date.now() % 999999, this.matchSettings.map);
@@ -160,8 +162,8 @@ class PondFrontServerGame {
     const matchSeconds =
       sandboxEnabled ? Math.max(map.matchSeconds, 7200) : settings.practice && mapSize === "small" ? Math.round(map.matchSeconds * 0.75) : Math.round(map.matchSeconds * lengthMultiplier);
     const sandboxRules = settings.sandboxRules || settings.rules || {};
-    const requestedWinCondition = String(settings.winCondition || "");
-    const winCondition = sandboxEnabled ? "sandbox" : requestedWinCondition === "territoryControl" ? "territoryControl" : "elimination";
+    const winCondition = sandboxEnabled ? "sandbox" : "elimination";
+    const surrenderMode = this.normalizeSurrenderMode(settings.surrenderMode ?? settings.allowSurrender);
     return {
       difficulty,
       botCount,
@@ -181,6 +183,7 @@ class PondFrontServerGame {
       accountUser: settings.accountUser || null,
       practice: Boolean(settings.practice),
       beginnerCombat: Boolean(settings.beginnerCombat || settings.practice || difficulty === "easy"),
+      surrenderMode,
       sandbox: sandboxEnabled
         ? {
             enabled: true,
@@ -195,6 +198,13 @@ class PondFrontServerGame {
           }
         : { enabled: false },
     };
+  }
+
+  normalizeSurrenderMode(value) {
+    const raw = String(value ?? "off").trim().toLowerCase();
+    if (["everyone", "all", "players", "players+bots", "playersbots", "true", "on"].includes(raw)) return "everyone";
+    if (["bots", "botsonly", "bots_only", "bots-only"].includes(raw)) return "bots";
+    return "off";
   }
 
   logMatchStart() {
@@ -398,6 +408,7 @@ class PondFrontServerGame {
       this.specials?.update(this);
       this.core.update(this);
       this.economy.update(this.players, effectiveDt, this.now(), this);
+      this.updateLastStandStates();
       this.players.forEach((player) => {
         player.stats.incomePeak = Math.max(player.stats.incomePeak || 0, player.income || 0);
       });
@@ -508,6 +519,7 @@ class PondFrontServerGame {
       this.sandbox?.afterAction(this, player, body, result);
       return result;
     }
+    if (body.type === "surrender") return this.surrenderPlayer(player, body.targetId || null, "player surrender");
     if (body.type === "diplomacy") return this.diplomacy.handle(this, player, body.targetId, body.command);
     if (body.type === "teamCommand") return this.teamManager.handleCommand(this, player, body);
     if (body.type === "ping") return this.handlePing(player, body);
@@ -552,17 +564,6 @@ class PondFrontServerGame {
     if (!state.canEnd) return;
 
     if (this.teamManager?.active()) {
-      if (this.matchSettings.winCondition === "territoryControl") {
-        const leadingTeam = state.teamStats[0];
-        if (leadingTeam?.territoryPct >= config.WIN_CONTROL) {
-          const leadMember = state.alivePlayers
-            .filter((player) => player.teamId === leadingTeam.id)
-            .sort((a, b) => this.ownedTileCount(b) - this.ownedTileCount(a))[0];
-          this.end(leadMember?.id || null, leadingTeam.id, "territoryControl", state);
-        }
-        return;
-      }
-
       if (state.aliveTeams.length === 1) {
         const aliveTeamId = state.aliveTeams[0].id;
         const leadMember = this.players
@@ -570,12 +571,6 @@ class PondFrontServerGame {
           .sort((a, b) => this.ownedTileCount(b) - this.ownedTileCount(a))[0];
         this.end(leadMember?.id || null, aliveTeamId, "teamElimination", state);
       }
-      return;
-    }
-
-    if (this.matchSettings.winCondition === "territoryControl") {
-      const leader = state.alivePlayers.slice().sort((a, b) => this.ownedTileCount(b) - this.ownedTileCount(a))[0];
-      if (leader && this.territoryPercent(leader) >= config.WIN_CONTROL) this.end(leader.id, null, "territoryControl", state);
       return;
     }
 
@@ -595,17 +590,11 @@ class PondFrontServerGame {
       reason = "Sandbox Mode - match ending disabled.";
       blockedReason = reason;
     } else if (this.teamManager?.active()) {
-      if (this.matchSettings.winCondition === "territoryControl") {
-        const leadingTeam = teamStats[0];
-        reason = leadingTeam?.territoryPct >= config.WIN_CONTROL ? "Territory control reached by a team." : "No team has reached territory control.";
-      } else {
-        reason = aliveTeams.length === 1 ? "One active team remains." : "More than one active team remains.";
-      }
-    } else if (this.matchSettings.winCondition === "territoryControl") {
-      const leader = alivePlayers.slice().sort((a, b) => this.ownedTileCount(b) - this.ownedTileCount(a))[0];
-      reason = leader && this.territoryPercent(leader) >= config.WIN_CONTROL ? "Territory control reached." : "No animal has reached territory control.";
+      reason = aliveTeams.length === 1 ? "One active team remains." : "More than one active team remains.";
+      canEnd = aliveTeams.length <= 1;
     } else {
       reason = alivePlayers.length <= 1 ? "One active animal remains." : "More than one active animal remains.";
+      canEnd = alivePlayers.length <= 1;
     }
 
     const aliveBots = alivePlayers.filter((player) => player.isBot);
@@ -686,13 +675,44 @@ class PondFrontServerGame {
     };
   }
 
-  surrenderPlayer(player, targetId = null, reason = "surrendered") {
+  canSurrender(player, options = {}) {
+    const mode = this.matchSettings?.surrenderMode || "off";
+    const allowed = mode === "everyone" || (mode === "bots" && player?.isBot);
+    const result = {
+      ok: Boolean(allowed),
+      mode,
+      reason: allowed
+        ? "Surrender allowed by match setting."
+        : mode === "bots" && !player?.isBot
+          ? "Surrender is only enabled for bots in this match."
+          : "Surrender is disabled in this match.",
+      blockedBySetting: !allowed,
+    };
+    if (options.log !== false && process.env.NODE_ENV === "development") {
+      console.log(
+        `[SURRENDER CHECK] player=${player?.name || "unknown"} allowed=${result.ok} reason="${result.reason}" blockedBySetting=${result.blockedBySetting}`,
+      );
+    }
+    return result;
+  }
+
+  surrenderPlayer(player, targetId = null, reason = "surrendered", options = {}) {
     if (!player || player.defeated) return { ok: false, message: "Player already defeated." };
+    const surrenderCheck = options.ignoreSurrenderRules ? { ok: true } : this.canSurrender(player);
+    if (!surrenderCheck.ok) {
+      player.flags = player.flags || {};
+      player.flags.lastSurrenderBlockedAt = this.now();
+      return { ok: false, resultType: "surrenderDisabled", message: surrenderCheck.reason || "Surrender is disabled in this match." };
+    }
     const target = targetId ? this.getPlayer(targetId) : null;
     const now = this.now();
     const owned = this.tileManager.owned(player.id);
+    const hadCoreBefore = this.hasOwnedCore(player);
+    const absorbTerritory = Boolean(target && this.matchSettings?.territoryAbsorb === true);
+    let transferred = 0;
     owned.forEach((tile, index) => {
-      const transfer = target && index % 3 !== 0;
+      const transfer = absorbTerritory && index % 3 !== 0;
+      if (transfer) transferred += 1;
       tile.owner = transfer ? target.id : null;
       tile.captureProgress = {};
       tile.defenseEnergy = transfer ? Math.min(12, tile.defenseEnergy || 2) : Math.max(0, (tile.defenseEnergy || 0) * 0.35);
@@ -707,13 +727,17 @@ class PondFrontServerGame {
       target.stats.playersDefeated = (target.stats.playersDefeated || 0) + 1;
       target.stats.surrenderedEnemies = (target.stats.surrenderedEnemies || 0) + 1;
     }
-    this.eliminatePlayer(player, target, reason, { notify: false });
+    this.eliminatePlayer(player, target, reason, { notify: false, ownedTilesBefore: owned.length, hasCoreBefore: hadCoreBefore, territoryTransferred: transferred, countKill: false });
     this.pushEvent({
       kind: "surrender",
       playerId: player.id,
       targetId: target?.id || null,
       amount: owned.length,
-      message: target ? `${player.name} surrendered to ${target.name}. Territory absorbed.` : `${player.name} surrendered. Territory returned to the pond.`,
+      territoryTransferred: transferred,
+      message:
+        target && absorbTerritory
+          ? `${player.name} surrendered to ${target.name}. Territory absorbed.`
+          : `${player.name} surrendered. Territory returned to the pond.`,
       reason,
       at: now,
     });
@@ -723,12 +747,18 @@ class PondFrontServerGame {
 
   eliminatePlayer(player, attacker = null, reason = "eliminated", options = {}) {
     if (!player || player.defeated) return false;
+    const ownedTilesBefore = Number.isFinite(options.ownedTilesBefore) ? options.ownedTilesBefore : this.ownedTileCount(player);
+    const hadCore = typeof options.hasCoreBefore === "boolean" ? options.hasCoreBefore : this.hasOwnedCore(player);
+    const territoryTransferred = Number(options.territoryTransferred || 0);
+    console.log(
+      `[ELIMINATION CHECK] player=${player.name} ownedTiles=${ownedTilesBefore} hasCore=${hadCore} lastStandUsed=${Boolean(player.flags?.lastStandUsed)} eliminated=true reason="${reason}"`,
+    );
     player.defeated = true;
     player.flags = player.flags || {};
     player.flags.eliminatedAt = this.now();
     player.flags.eliminationReason = reason;
     this.clearPlayerActivity(player.id);
-    if (attacker && attacker.id !== player.id) attacker.stats.playersDefeated = (attacker.stats.playersDefeated || 0) + 1;
+    if (attacker && attacker.id !== player.id && options.countKill !== false) attacker.stats.playersDefeated = (attacker.stats.playersDefeated || 0) + 1;
     if (options.notify !== false) {
       this.pushEvent({
         kind: "eliminated",
@@ -738,12 +768,16 @@ class PondFrontServerGame {
         message: attacker ? `${player.name} was eliminated by ${attacker.name}.` : `${player.name} was eliminated.`,
       });
     }
+    console.log(
+      `[ELIMINATION] player=${player.name} id=${player.id} reason="${reason}" ownedTilesBefore=${ownedTilesBefore} hasCore=${hadCore} killer=${attacker?.id || "none"} territoryTransferred=${territoryTransferred} matchMode=${this.matchSettings?.gameMode || this.matchSettings?.winCondition || "unknown"}`,
+    );
     return true;
   }
 
   clearPlayerActivity(playerId) {
     if (!playerId || !this.combat) return;
     this.combat.activeAttacks = this.combat.activeAttacks.filter((wave) => wave.attackerId !== playerId && wave.defenderId !== playerId);
+    this.combat.activeExpansions = this.combat.activeExpansions.filter((wave) => wave.playerId !== playerId);
     this.combat.continuousAttacks = this.combat.continuousAttacks.filter((order) => order.attackerId !== playerId && order.defenderId !== playerId);
     this.combat.currentPushes = this.combat.currentPushes.filter((push) => push.attackerId !== playerId && push.defenderId !== playerId);
     if (this.specials) {
@@ -863,6 +897,7 @@ class PondFrontServerGame {
       })),
       players,
       activeAttacks: this.combat.snapshot(this.now()),
+      activeExpansions: this.combat.expansionSnapshot(),
       specials: this.specials?.snapshot(this.now()) || { pending: [], zones: [] },
       events: this.visibleEventsFor(effectiveViewerId).slice(-config.MAX_EVENTS),
       config: {
@@ -906,6 +941,50 @@ class PondFrontServerGame {
     return playable ? player.territory / playable : 0;
   }
 
+  updateLastStandStates() {
+    const playable = this.tileManager.playable().length || 1;
+    this.players.forEach((player) => {
+      if (!player || player.defeated || player.flags?.lastStandUsed || player.territory <= 0) return;
+      const ownedTiles = this.ownedTileCount(player);
+      const territoryPct = ownedTiles / playable;
+      player.stats.territoryPeak = Math.max(player.stats.territoryPeak || 0, ownedTiles);
+      const lostGround = ownedTiles < Math.max(balance.lastStandTriggerTiles || 10, (player.stats.territoryPeak || ownedTiles) * 0.55);
+      if (player.flags?.coreUnderAttack) {
+        this.triggerLastStand(player, "core under attack");
+      } else if (lostGround && territoryPct < (balance.lastStandTriggerTerritoryPct || 0.05)) {
+        this.triggerLastStand(player, "low territory");
+      } else if (lostGround && ownedTiles <= (balance.lastStandTriggerTiles || 10)) {
+        this.triggerLastStand(player, "few tiles left");
+      }
+    });
+  }
+
+  triggerLastStand(player, trigger = "survival") {
+    if (!player || player.defeated || player.flags?.lastStandUsed || this.ownedTileCount(player) <= 0) return false;
+    const now = this.now();
+    const duration = Math.max(20, Math.min(30, Number(balance.lastStandSeconds || balance.coreLastStandSeconds || 28)));
+    player.flags = player.flags || {};
+    player.flags.lastStandUsed = true;
+    player.flags.lastStandTrigger = trigger;
+    player.flags.lastStandUntil = now + duration;
+    const core = player.coreTileId != null ? this.tileManager.getById(player.coreTileId) : null;
+    if (core?.owner === player.id) {
+      core.defenseEnergy = Math.max(core.defenseEnergy || 0, (balance.coreDefenseEnergy || 50) + (balance.lastStandCoreDefenseEnergy || 34));
+    }
+    console.log(`[LAST STAND] player=${player.name} trigger="${trigger}" duration=${duration}`);
+    this.pushEvent({
+      kind: "lastStand",
+      playerId: player.id,
+      to: core?.id || this.tileManager.owned(player.id)[0]?.id || null,
+      trigger,
+      duration,
+      until: player.flags.lastStandUntil,
+      at: now,
+      message: `Last Stand: ${player.name} is defending its final nest!`,
+    });
+    return true;
+  }
+
   ownedTileCount(playerOrId) {
     const id = typeof playerOrId === "string" ? playerOrId : playerOrId?.id;
     if (!id) return 0;
@@ -922,7 +1001,7 @@ class PondFrontServerGame {
     if (!player) return false;
     if (player.defeated || player.flags?.surrendered || player.removed || player.spectator) return false;
     if (!player.isBot && player.connected === false) return false;
-    return this.ownedTileCount(player) > 0;
+    return this.ownedTileCount(player) > 0 || this.hasOwnedCore(player);
   }
 
   isTeamAlive(teamOrId) {
@@ -1285,6 +1364,7 @@ const server = http.createServer(async (req, res) => {
       botCount: body.botCount,
       mapSize: body.mapSize,
       matchLength: body.matchLength,
+      surrenderMode: body.surrenderMode,
       practice: body.practice,
       beginnerCombat: body.beginnerCombat,
       gameMode: body.gameMode,
