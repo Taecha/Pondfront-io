@@ -169,7 +169,9 @@
       cost *= balance.goldenCurrentLilyCostMultiplier || 0.7;
     }
     if (modifiers.comebackCore) {
-      cost *= 1 - (balance.coreExpansionDiscountPct || 0.14);
+      cost *= 1 - (balance.coreExpansionDiscountPct || 0.1);
+    } else if (modifiers.comebackSmall) {
+      cost *= 1 - (balance.comebackExpansionDiscountPct || 0.1);
     }
     if (modifiers.specialCostBonus) {
       cost += Number(modifiers.specialCostBonus) || 0;

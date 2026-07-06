@@ -135,6 +135,7 @@ class SandboxManager {
     if (action === "makeBotsPassive") return this.setAllBotPersonalities(game, "passive");
     if (action === "makeBotsAggressive") return this.setAllBotPersonalities(game, "fighter");
     if (action === "forceBotWar") return this.forceBotWar(game);
+    if (action === "toggleSurrender") return this.toggleSurrender(game);
     if (action === "testBorderAttack") return this.testBorderAttack(game, player, tile, body.percent || 0.5);
     if (action === "testCurrentPush") return this.testCurrentPush(game, player, tile, body.percent || 0.5);
     if (action === "clearActiveAttacks") return this.clearActiveAttacks(game);
@@ -168,6 +169,7 @@ class SandboxManager {
     if (clean === "objective") return this.spawnObjective(game, selectedTile, parts[0] || "goldenLily");
     if (clean === "nocooldowns") return this.setRule(game, "noCooldowns", parts[0] !== "off");
     if (clean === "instantbuild") return this.setRule(game, "instantBuild", parts[0] !== "off");
+    if (clean === "surrender") return this.setSurrenderMode(game, parts[0] || "off");
     if (clean === "speed") return this.setSpeed(parts[0] || 1);
     if (clean === "reveal") return this.setReveal(true);
     if (clean === "reset") return this.resetMap(game, player);
@@ -249,6 +251,19 @@ class SandboxManager {
   setBotsPaused(paused) {
     this.botsPaused = Boolean(paused);
     return { ok: true, message: `Sandbox: bots ${this.botsPaused ? "paused" : "resumed"}.` };
+  }
+
+  toggleSurrender(game) {
+    const order = ["off", "bots", "everyone"];
+    const current = game.matchSettings?.surrenderMode || "off";
+    const next = order[(order.indexOf(current) + 1) % order.length] || "off";
+    return this.setSurrenderMode(game, next);
+  }
+
+  setSurrenderMode(game, value) {
+    const next = game.normalizeSurrenderMode ? game.normalizeSurrenderMode(value) : "off";
+    game.matchSettings.surrenderMode = next;
+    return { ok: true, message: `Sandbox: surrender ${next === "off" ? "off" : next === "bots" ? "bots only" : "everyone"}.` };
   }
 
   toggleDebug(key) {
@@ -402,6 +417,7 @@ class SandboxManager {
       tile.lastChanged = game.now();
     });
     game.combat.activeAttacks = game.combat.activeAttacks.filter((wave) => wave.attackerId !== bot.id && wave.defenderId !== bot.id);
+    game.combat.activeExpansions = game.combat.activeExpansions.filter((wave) => wave.playerId !== bot.id);
     game.combat.continuousAttacks = game.combat.continuousAttacks.filter((order) => order.attackerId !== bot.id && order.defenderId !== bot.id);
     game.combat.currentPushes = game.combat.currentPushes.filter((push) => push.attackerId !== bot.id && push.defenderId !== bot.id);
     game.players = game.players.filter((player) => player.id !== bot.id);
@@ -466,6 +482,7 @@ class SandboxManager {
 
   clearActiveAttacks(game) {
     game.combat.activeAttacks = [];
+    game.combat.activeExpansions = [];
     game.combat.continuousAttacks = [];
     game.combat.currentPushes = [];
     return { ok: true, message: "Sandbox: cleared active attacks." };

@@ -85,7 +85,7 @@ class StatsManager {
       supportSent: Math.round(stats.supportSent || 0),
       defenses: stats.defenses || 0,
       highestIncome: Number(stats.incomePeak || player.income || 0),
-      comebackWin: Boolean(won && (player.flags?.lastNestProtection || player.flags?.coreLastStandUsed || player.stats?.surrenderedEnemies)),
+      comebackWin: Boolean(won && (player.flags?.lastNestProtection || player.flags?.lastStandUsed || player.stats?.surrenderedEnemies)),
     };
     const saved = this.db.recordMatch(user.id, matchRecord, xpBase, coinsBase);
     if (!saved) return null;

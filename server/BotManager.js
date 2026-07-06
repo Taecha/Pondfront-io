@@ -12,21 +12,30 @@ class BotManager {
 
   update(dt) {
     if (this.game.sandbox?.enabled && this.game.sandbox.botsPaused) return;
+    const started = Date.now();
+    let thinkers = 0;
     this.game.players.forEach((bot) => {
       if (!bot.isBot || bot.defeated) return;
       const mode = this.sandboxMode(bot);
       if (mode === "passive") return;
-      const elapsed = (this.timers.get(bot.id) || 0) + dt;
+      const now = this.game.now();
       const paceByAnimal = balance.botAnimalTurnPace || {};
       const animalPace = paceByAnimal[bot.animal] || 1;
-      const pace = (this.difficultyProfile(bot).turnPaceMultiplier || 1) * animalPace;
-      if (elapsed < pace) {
-        this.timers.set(bot.id, elapsed);
+      if (!bot.aiNextThinkAt) {
+        bot.aiNextThinkAt = now + this.thinkDelay(bot, animalPace) * (0.45 + Math.random() * 0.9);
         return;
       }
-      this.timers.set(bot.id, 0);
+      if (now < bot.aiNextThinkAt) {
+        return;
+      }
+      thinkers += 1;
       this.takeTurn(bot);
+      bot.aiNextThinkAt = now + this.thinkDelay(bot, animalPace);
     });
+    if (this.game.metrics) {
+      this.game.metrics.lastBotThinkMs = Date.now() - started;
+      this.game.metrics.lastBotThinkers = thinkers;
+    }
   }
 
   difficultyProfile(bot) {
@@ -40,18 +49,26 @@ class BotManager {
     return min + Math.random() * Math.max(0, max - min);
   }
 
+  thinkDelay(bot, animalPace = 1) {
+    const profile = this.difficultyProfile(bot);
+    const interval = profile.thinkInterval || [profile.turnPaceMultiplier || 1, profile.turnPaceMultiplier || 1.4];
+    const base = this.randomRange(interval, [1, 1.8]);
+    return Math.max(0.25, base * animalPace);
+  }
+
   takeTurn(bot) {
     const phase = this.phase();
     const now = this.game.now();
     const profile = this.difficultyProfile(bot);
     if (bot.difficulty === "passive" || profile.label === "Passive") return;
     if (this.trySandboxLimitedTurn(bot, phase)) return;
-    if (this.trySurrender(bot, phase)) return;
     if (bot.energy < 8) return;
     const enemy = this.game.tileManager
       .capturable(bot.id)
       .filter((tile) => tile.owner && tile.owner !== bot.id && this.game.diplomacy.canAttack(bot.id, tile.owner, now).ok);
     this.updateBorderContacts(bot, enemy);
+    if (this.trySurrender(bot, phase)) return;
+    if (this.shouldSurvive(bot) && this.trySurvivalTurn(bot, enemy, phase)) return;
 
     if (this.tryEnergySupport(bot, phase)) return;
     if (this.tryTeamCommand(bot, phase)) return;
@@ -157,6 +174,20 @@ class BotManager {
   }
 
   trySurrender(bot, phase) {
+    const surrenderAllowed = this.game.canSurrender?.(bot, { log: false }) || { ok: false, reason: "Surrender is disabled in this match." };
+    if (!surrenderAllowed.ok) {
+      if (process.env.NODE_ENV === "development" && this.game.now() > (bot.flags?.nextSurrenderBlockLogAt || 0)) {
+        bot.flags.nextSurrenderBlockLogAt = this.game.now() + 20;
+        this.debugBotAction(bot, "surrender-blocked", {
+          difficulty: bot.difficulty,
+          energy: Math.round(bot.energy),
+          reason: surrenderAllowed.reason,
+          cooldown: 0,
+        });
+        console.log("Surrender blocked by match setting.");
+      }
+      return false;
+    }
     const elapsed = this.game.elapsed();
     if (phase === "early" || elapsed < Math.min(balance.surrenderEarliestTime || 330, 260)) return false;
     if (bot.personality === "betrayer" && Math.random() < 0.7) return false;
@@ -186,8 +217,95 @@ class BotManager {
     if (!hopeless || Math.random() > chance) return false;
     const attacker = bot.flags?.lastAttackerId ? this.game.getPlayer(bot.flags.lastAttackerId) : this.leader();
     if (!attacker || attacker.id === bot.id || attacker.defeated) return false;
-    this.game.surrenderPlayer(bot, attacker.id, "hopeless bot");
-    return true;
+    const result = this.game.surrenderPlayer(bot, attacker.id, "hopeless bot");
+    return result.ok;
+  }
+
+  shouldSurvive(bot) {
+    const owned = this.game.ownedTileCount(bot);
+    const territoryPct = this.game.territoryPercent(bot);
+    bot.stats.territoryPeak = Math.max(bot.stats.territoryPeak || 0, owned);
+    const lostGround = owned < Math.max(balance.lastStandTriggerTiles || 10, (bot.stats.territoryPeak || owned) * 0.55);
+    return Boolean(
+      owned > 0 &&
+        (owned <= (balance.lastStandTriggerTiles || 10) ||
+          (lostGround && territoryPct < (balance.comebackTerritoryPct || 0.08)) ||
+          this.game.now() < (bot.flags?.underAttackUntil || 0) ||
+          bot.flags?.coreUnderAttack ||
+          bot.flags?.lastNestProtection),
+    );
+  }
+
+  trySurvivalTurn(bot, enemyTiles, phase) {
+    const now = this.game.now();
+    const core = bot.coreTileId != null ? this.game.tileManager.getById(bot.coreTileId) : null;
+    if (this.tryDefendNear(bot, core || this.game.tileManager.owned(bot.id)[0])) {
+      this.debugBotAction(bot, "survival-defend", { difficulty: bot.difficulty, energy: Math.round(bot.energy), reason: "protect core", cooldown: Math.round(Math.max(0, (bot.aiDefendCooldownUntil || 0) - now)) });
+      return true;
+    }
+    if (this.trySurvivalAbility(bot, core)) return true;
+    if (this.trySurvivalSpecial(bot, core, enemyTiles)) return true;
+    if (bot.energy > bot.maxEnergy * 0.38 && this.tryBuild(bot)) {
+      this.debugBotAction(bot, "survival-build", { difficulty: bot.difficulty, energy: Math.round(bot.energy), reason: "recover defense", cooldown: 0 });
+      return true;
+    }
+    const retaliation = this.pickRetaliation(bot, enemyTiles, phase) || enemyTiles.sort((a, b) => this.roughAttackCost(a, this.game.getPlayer(a.owner)) - this.roughAttackCost(b, this.game.getPlayer(b.owner)))[0];
+    if (retaliation && bot.energy > bot.maxEnergy * 0.34 && this.launchAttack(bot, retaliation, phase)) {
+      this.debugBotAction(bot, "survival-counter", { difficulty: bot.difficulty, energy: Math.round(bot.energy), target: retaliation.id, reason: "weak nearby border", cooldown: Math.round(Math.max(0, (bot.aiAttackCooldownUntil || 0) - now)) });
+      return true;
+    }
+    const neutral = this.game.tileManager.capturable(bot.id).filter((tile) => !tile.owner);
+    const preferredNeutral = neutral.filter((tile) => this.survivalExpansionTile(bot, tile));
+    const escapeTarget = this.pickNeutralExpansion(bot, preferredNeutral.length ? preferredNeutral : neutral);
+    if (escapeTarget && this.tryExpandNeutral(bot, escapeTarget)) {
+      this.debugBotAction(bot, "survival-expand", { difficulty: bot.difficulty, energy: Math.round(bot.energy), target: escapeTarget.id, reason: "recover territory", cooldown: Math.round(Math.max(0, (bot.aiExpandCooldownUntil || 0) - now)) });
+      return true;
+    }
+    return false;
+  }
+
+  survivalExpansionTile(bot, tile) {
+    if (!tile) return false;
+    if (bot.animal === "duck") return tile.type === "water";
+    if (bot.animal === "snake") return tile.type === "reeds" || tile.type === "mud";
+    if (bot.animal === "frog") return tile.type === "lily" || tile.type === "water";
+    if (bot.animal === "carp") return tile.type === "water" || tile.type === "lily";
+    return tile.type === "mud" || tile.type === "nest" || tile.type === "reeds";
+  }
+
+  trySurvivalAbility(bot, core = null) {
+    if (!this.game.combat || this.game.now() < (bot.abilityReadyAt || 0) || bot.energy < 18) return false;
+    const useful =
+      bot.animal === "turtle" ||
+      bot.animal === "carp" ||
+      bot.animal === "frog" ||
+      (bot.animal === "snake" && this.game.now() < (bot.flags?.underAttackUntil || 0)) ||
+      (bot.animal === "duck" && this.game.tileManager.capturable(bot.id).some((tile) => !tile.owner && tile.type === "water"));
+    if (!useful) return false;
+    const result = this.game.combat.activateAbility(this.game, bot, { targetTileId: core?.id, reason: "survival" });
+    this.debugAbilityDecision(bot, { use: true, reason: "survival", targetId: core?.id }, result);
+    return result.ok;
+  }
+
+  trySurvivalSpecial(bot, core = null, enemyTiles = []) {
+    if (!this.game.specials || this.game.sandbox?.rules?.specials === false) return false;
+    if (bot.energy < 90 || this.game.now() < (bot.aiSpecialCooldownUntil || 0)) return false;
+    const border = this.game.tileManager
+      .borders(bot.id)
+      .sort((a, b) => (core ? Math.abs(a.x - core.x) + Math.abs(a.y - core.y) - (Math.abs(b.x - core.x) + Math.abs(b.y - core.y)) : 0))[0];
+    const type = enemyTiles.length ? "reedShield" : "dragonflyGuard";
+    const target = type === "reedShield" ? border : core || border;
+    if (!target) return false;
+    const result = this.game.specials.activate(this.game, bot, type, target.id, { reason: "survival" });
+    bot.aiSpecialCooldownUntil = this.game.now() + (result.ok ? 24 : 8);
+    this.debugBotAction(bot, result.ok ? "survival-special" : "survival-special-failed", {
+      difficulty: bot.difficulty,
+      energy: Math.round(bot.energy),
+      target: target.id,
+      reason: type,
+      cooldown: Math.round(Math.max(0, bot.aiSpecialCooldownUntil - this.game.now())),
+    });
+    return result.ok;
   }
 
   tryWaterRoute(bot, target, phase) {

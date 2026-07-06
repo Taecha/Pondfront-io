@@ -21,6 +21,18 @@
     { min: 0, label: "Quick Bite", notice: "Quick Bite", scale: 0.86, color: "#edf8fb" },
   ];
 
+  const EVENT_STYLE = {
+    mud: { color: "#c39a62", particles: "eventMud", shake: 4.2 },
+    flood: { color: "#8bdfff", particles: "eventFoam", shake: 3.2 },
+    lily: { color: "#86d68d", particles: "eventBloom", shake: 1.4 },
+    reed: { color: "#8ddf96", particles: "eventReed", shake: 1.8 },
+    storm: { color: "#83dced", particles: "eventRain", shake: 2.1 },
+    current: { color: "#4fd4cf", particles: "eventFoam", shake: 2.2 },
+    rock: { color: "#b8a69a", particles: "eventRock", shake: 3.8 },
+    fog: { color: "#b3c6cc", particles: "eventMist", shake: 0.8 },
+    migration: { color: "#d8ad48", particles: "eventBloom", shake: 1.6 },
+  };
+
   class PondVFX {
     constructor(renderer) {
       this.renderer = renderer;
@@ -69,6 +81,18 @@
 
       if (event.kind === "expand") {
         this.spawnCaptureBurst(event.to, color, event.amount > 1 ? `+${event.amount} Tiles` : "Expanded");
+      } else if (event.kind === "expansionWaveStart") {
+        this.spawnPulse(event.to, color, 1);
+        this.spawnRipple(event.to, color, 0.86);
+        this.spawnAttackArrow(event.from, event.to, color, `${event.amount || ""}`.trim());
+        this.spawnFloatingText(event.to, event.merged ? "Expansion +Energy" : "Expansion Wave", color);
+      } else if (event.kind === "expansionWaveCapture") {
+        this.spawnCaptureBurst(event.to, color, "Expanded");
+        this.spawnRipple(event.to, color, 0.68);
+        this.spawnAttackArrow(event.from, event.to, color, "");
+      } else if (event.kind === "expansionWaveEnd") {
+        this.spawnPulse(event.to, color, 0.72);
+        this.spawnFloatingText(event.to, event.captured > 0 ? `Expanded +${event.captured}` : "Wave Spent", color);
       } else if (event.kind === "expandProgress") {
         this.spawnPulse(event.to, color, 0.82);
         this.spawnRipple(event.to, color, 0.72);
@@ -138,6 +162,11 @@
       } else if (event.kind === "coreUnderAttack") {
         this.spawnBlockedEffect(event.to, "Core Hit");
         this.spawnScreenNotice("Core Nest Under Attack", "#e9857c");
+      } else if (event.kind === "lastStand") {
+        this.spawnDefendEffect([event.to].filter((id) => id != null), player?.animal);
+        this.spawnPulse(event.to, "#f2d87a", 1.5);
+        this.spawnFloatingText(event.to, "Last Stand!", "#f2d87a");
+        this.spawnScreenNotice(event.message || "Last Stand", "#f2d87a");
       } else if (event.kind === "coreCaptured") {
         this.spawnObjectiveEffect(event.to, color, "Core Captured!");
       } else if (event.kind === "surrender") {
@@ -169,6 +198,12 @@
         this.spawnUpgradeEffect(event.to, event.level || 2, event.buildingType);
       } else if (event.kind === "buildRemove") {
         this.spawnBlockedEffect(event.to, "Removed");
+      } else if (event.kind === "lakeEventWarning") {
+        this.playEventWarning(event.eventType, event.area, event);
+      } else if (event.kind === "lakeEventStarted") {
+        this.playEventStart(event.eventType, event.area, event);
+      } else if (event.kind === "lakeEventEnded") {
+        this.playEventEnd(event.eventType, event.area, event);
       } else if (event.kind === "objectiveAppeared") {
         this.spawnObjectiveEffect(event.to, "#f2d87a", event.message || "Objective!");
       } else if (event.kind === "objectiveCaptured") {
@@ -286,20 +321,38 @@
     spawnRipple(tileId, color = "#9ee7f4", size = 1) {
       const point = this.tileWorldPoint(tileId);
       if (!point) return;
+      if (!this.canSpawnAt(point, 90)) return;
       this.effects.push({ kind: "ripple", ...point, color, size, born: performance.now(), life: this.life(760) });
+      this.trim();
     }
 
     spawnPulse(tileId, color = "#f2d87a", size = 1) {
       const point = this.tileWorldPoint(tileId);
       if (!point) return;
+      if (!this.canSpawnAt(point, 90)) return;
       this.effects.push({ kind: "pulse", ...point, color, size, born: performance.now(), life: this.life(680) });
+      this.trim();
     }
 
     spawnFloatingText(target, text, color = "#edf8fb") {
       if (!this.settings.floatingText || !text) return;
       const point = typeof target === "number" ? this.tileWorldPoint(target) : target;
       if (!point) return;
+      if (!this.canSpawnAt(point, 120)) return;
+      const maxText = this.settings.isMobile ? 12 : this.settings.level === "low" ? 14 : 24;
+      const textCount = this.effects.reduce((sum, effect) => sum + (effect.kind === "text" ? 1 : 0), 0);
+      if (textCount >= maxText) return;
       this.effects.push({ kind: "text", ...point, text, color, born: performance.now(), life: this.life(1050) });
+      this.trim();
+    }
+
+    spawnPendingAction(tileId, type = "expand", color = "#77d99e", text = "Sending") {
+      const point = this.tileWorldPoint(tileId);
+      if (!point || !this.canSpawnAt(point, 110)) return;
+      const size = type === "attack" ? 1.05 : type === "defend" ? 0.92 : 0.82;
+      this.spawnRipple(tileId, color, size);
+      this.spawnPulse(tileId, color, size * 0.92);
+      if (this.settings.level !== "low") this.spawnFloatingText(tileId, text, color);
     }
 
     spawnAttackArrow(fromTile, toTile, color = "#d8ad48", text = "") {
@@ -414,6 +467,166 @@
       this.spawnScreenNotice(event.captured > 0 ? `Lily Barrage captured ${event.captured}` : event.reduced > 0 ? "Lily Barrage Guarded" : "Lily Barrage Weakened", color);
       this.spawnParticles(point, color, this.count(this.settings.isMobile ? 14 : 28), 96, "lilyImpact");
       this.screenShake(event.captured > 0 ? 3.4 : 2, 260);
+    }
+
+    playEventWarning(eventType, area = {}, event = {}) {
+      const definition = this.eventDefinition(eventType);
+      const visual = event.visual || definition.visual || eventType;
+      const style = this.eventStyle(visual, event.color || definition.color);
+      const tiles = this.eventTiles(area, definition, this.settings.isMobile ? 10 : 18);
+      const focus = this.eventFocus(area, tiles);
+      tiles.forEach((tileId) => {
+        this.spawnPulse(tileId, style.color, 0.92);
+        if (visual === "mud" || visual === "rock") this.spawnRipple(tileId, style.color, 0.62);
+      });
+      if (focus) {
+        this.effects.push({
+          kind: "eventField",
+          ...focus,
+          visual,
+          phase: "warning",
+          color: style.color,
+          radius: Math.max(2.2, area?.radius || 4),
+          born: performance.now(),
+          life: this.life(1500),
+        });
+        this.effects.push({
+          kind: "countdown",
+          ...focus,
+          color: style.color,
+          text: `${Math.max(1, Math.ceil(event.startsIn || definition.warningLead || 8))}s`,
+          born: performance.now(),
+          life: this.life(1450),
+        });
+        this.spawnFloatingText(focus, definition.warningText || `${definition.label || "Event"} Incoming`, style.color);
+        this.spawnParticles(focus, style.color, this.count(this.settings.isMobile ? 6 : 12), visual === "rock" ? 62 : 42, style.particles);
+      }
+      this.spawnScreenNotice(definition.warningText || event.message || "Lake Event Incoming", style.color);
+    }
+
+    playEventStart(eventType, area = {}, event = {}) {
+      const definition = this.eventDefinition(eventType);
+      const visual = event.visual || definition.visual || eventType;
+      const style = this.eventStyle(visual, event.color || definition.color);
+      const tiles = this.eventTiles(area, definition, this.settings.isMobile ? 14 : 28);
+      const focus = this.eventFocus(area, tiles);
+      tiles.forEach((tileId, index) => {
+        if (index % (this.settings.isMobile ? 2 : 1) !== 0) return;
+        this.spawnPulse(tileId, style.color, visual === "flood" || visual === "current" ? 0.8 : 0.66);
+        if (visual === "flood" || visual === "current" || visual === "storm") this.spawnRipple(tileId, style.color, 0.82);
+      });
+      if (focus) {
+        this.effects.push({
+          kind: "eventField",
+          ...focus,
+          visual,
+          phase: "start",
+          color: style.color,
+          direction: area?.direction || null,
+          radius: Math.max(2.8, area?.radius || 5),
+          born: performance.now(),
+          life: this.life(1900),
+        });
+        this.spawnParticles(focus, style.color, this.count(this.settings.isMobile ? 14 : 28), this.eventParticleSpread(visual), style.particles);
+      }
+      const routeTiles = this.eventRouteTiles(tiles, area, this.settings.isMobile ? 14 : 26);
+      if ((visual === "flood" || visual === "current") && routeTiles.length > 2) {
+        this.spawnAttackStream(routeTiles, style.color, area?.direction ? area.direction.toUpperCase() : definition.label || "Current");
+      }
+      if (visual === "mud" || visual === "flood" || visual === "rock") this.screenShake(style.shake, visual === "mud" ? 520 : 360);
+      this.spawnScreenNotice(definition.startText || event.message || definition.label || "Lake Event", style.color);
+    }
+
+    playEventLoop(eventType, area = {}) {
+      const definition = this.eventDefinition(eventType);
+      const visual = definition.visual || eventType;
+      const style = this.eventStyle(visual, definition.color);
+      this.eventTiles(area, definition, this.settings.isMobile ? 4 : 8).forEach((tileId) => this.spawnPulse(tileId, style.color, 0.48));
+    }
+
+    playEventEnd(eventType, area = {}, event = {}) {
+      const definition = this.eventDefinition(eventType);
+      const visual = event.visual || definition.visual || eventType;
+      const style = this.eventStyle(visual, event.color || definition.color);
+      const tiles = this.eventTiles(area, definition, this.settings.isMobile ? 8 : 16);
+      const focus = this.eventFocus(area, tiles);
+      if (focus) {
+        this.effects.push({
+          kind: "eventField",
+          ...focus,
+          visual,
+          phase: "end",
+          color: style.color,
+          radius: Math.max(2, area?.radius || 4),
+          born: performance.now(),
+          life: this.life(1750),
+        });
+        if (visual === "mud") {
+          this.effects.push({
+            kind: "eventStain",
+            ...focus,
+            color: style.color,
+            radius: Math.max(2.4, area?.radius || 5),
+            born: performance.now(),
+            life: this.life(3600),
+          });
+        }
+        this.spawnParticles(focus, style.color, this.count(this.settings.isMobile ? 5 : 11), 34, style.particles);
+      }
+      tiles.slice(0, this.settings.isMobile ? 6 : 12).forEach((tileId) => this.spawnRipple(tileId, style.color, 0.52));
+      this.spawnScreenNotice(definition.endText || event.message || `${definition.label || "Event"} Ended`, style.color);
+    }
+
+    clearEventEffects(eventId) {
+      if (!eventId) return;
+      this.effects = this.effects.filter((effect) => effect.eventId !== eventId);
+      this.particles = this.particles.filter((particle) => particle.eventId !== eventId);
+    }
+
+    eventDefinition(eventType) {
+      return root.PondLakeEvents?.[eventType] || { label: "Lake Event", color: "#83dced", visual: eventType, tileTypes: ["water"] };
+    }
+
+    eventStyle(visual, fallbackColor = "#83dced") {
+      const style = EVENT_STYLE[visual] || EVENT_STYLE.migration;
+      return { ...style, color: fallbackColor || style.color };
+    }
+
+    eventTiles(area = {}, definition = {}, limit = 18) {
+      const ids = Array.isArray(area?.tileIds) ? area.tileIds.filter((id) => id != null) : [];
+      if (ids.length) return ids.slice(0, limit);
+      const preferred = new Set(definition.tileTypes || ["water"]);
+      return [...(this.renderer.tileMap?.values() || [])]
+        .filter((tile) => preferred.has(tile.type))
+        .slice(0, limit)
+        .map((tile) => tile.id);
+    }
+
+    eventFocus(area = {}, tileIds = []) {
+      const focusId = area?.focusTile ?? tileIds[0];
+      return this.tileWorldPoint(focusId) || this.regionCenter(tileIds.map((id) => this.renderer.tileMap?.get(id)).filter(Boolean));
+    }
+
+    eventRouteTiles(tileIds = [], area = {}, limit = 22) {
+      if (!tileIds.length) return [];
+      const tiles = tileIds.map((id) => this.renderer.tileMap?.get(id)).filter(Boolean);
+      const direction = area?.direction || "east";
+      tiles.sort((a, b) => {
+        if (direction === "west") return b.x - a.x || a.y - b.y;
+        if (direction === "north") return a.y - b.y || a.x - b.x;
+        if (direction === "south") return b.y - a.y || a.x - b.x;
+        return a.x - b.x || a.y - b.y;
+      });
+      return tiles.slice(0, limit).map((tile) => tile.id);
+    }
+
+    eventParticleSpread(visual) {
+      if (visual === "flood") return 118;
+      if (visual === "rock") return 82;
+      if (visual === "mud") return 92;
+      if (visual === "storm") return 74;
+      if (visual === "fog") return 58;
+      return 68;
     }
 
     spawnAbilityEffect(playerId, skillType, abilityName = "", playerName = "") {
@@ -659,6 +872,81 @@
           ctx.globalAlpha = alpha * 0.14;
           ctx.beginPath();
           ctx.arc(p.x, p.y, r * 0.78, 0, Math.PI * 2);
+          ctx.fill();
+        } else if (effect.kind === "eventField") {
+          const r = tileSize * (effect.radius || 4) * (0.42 + t * (effect.phase === "warning" ? 0.22 : 0.42));
+          const pulse = 0.5 + Math.sin(now * 0.008) * 0.5;
+          ctx.lineWidth = Math.max(2, tileSize * 0.07);
+          ctx.globalAlpha = alpha * (effect.phase === "warning" ? 0.84 : 0.62);
+          if (effect.phase === "warning") ctx.setLineDash([Math.max(5, tileSize * 0.22), Math.max(4, tileSize * 0.16)]);
+          ctx.lineDashOffset = -now * 0.03;
+          ctx.beginPath();
+          ctx.ellipse(p.x, p.y, r * 1.22, r * 0.76, 0.08, 0, Math.PI * 2);
+          ctx.stroke();
+          ctx.setLineDash([]);
+          ctx.globalAlpha = alpha * (0.12 + pulse * 0.08);
+          ctx.beginPath();
+          ctx.ellipse(p.x, p.y, r, r * 0.58, 0.08, 0, Math.PI * 2);
+          ctx.fill();
+          ctx.globalAlpha = alpha * 0.58;
+          if (effect.visual === "mud") {
+            for (let i = -2; i <= 2; i += 1) {
+              ctx.beginPath();
+              ctx.moveTo(p.x - r * 0.7, p.y + i * tileSize * 0.18);
+              ctx.quadraticCurveTo(p.x - r * 0.1, p.y + i * tileSize * 0.18 + Math.sin(t * 8 + i) * tileSize * 0.28, p.x + r * 0.72, p.y + i * tileSize * 0.12);
+              ctx.stroke();
+            }
+          } else if (effect.visual === "flood" || effect.visual === "current") {
+            ctx.lineWidth = Math.max(1.4, tileSize * 0.045);
+            const angle = effect.direction === "north" ? -Math.PI / 2 : effect.direction === "south" ? Math.PI / 2 : effect.direction === "west" ? Math.PI : 0;
+            for (let i = -2; i <= 2; i += 1) {
+              const offset = i * tileSize * 0.28;
+              const sx = p.x - Math.cos(angle) * r * 0.66 - Math.sin(angle) * offset;
+              const sy = p.y - Math.sin(angle) * r * 0.66 + Math.cos(angle) * offset;
+              const ex = p.x + Math.cos(angle) * r * 0.66 - Math.sin(angle) * offset;
+              const ey = p.y + Math.sin(angle) * r * 0.66 + Math.cos(angle) * offset;
+              ctx.beginPath();
+              ctx.moveTo(sx, sy);
+              ctx.lineTo(ex, ey);
+              ctx.stroke();
+              ctx.beginPath();
+              ctx.arc(ex, ey, Math.max(2, tileSize * 0.06), 0, Math.PI * 2);
+              ctx.fill();
+            }
+          } else if (effect.visual === "lily") {
+            for (let i = 0; i < 8; i += 1) {
+              const angle = i * (Math.PI / 4) + t * 0.8;
+              ctx.beginPath();
+              ctx.ellipse(p.x + Math.cos(angle) * r * 0.38, p.y + Math.sin(angle) * r * 0.25, tileSize * 0.22, tileSize * 0.08, angle, 0, Math.PI * 2);
+              ctx.fill();
+            }
+          } else if (effect.visual === "reed") {
+            for (let i = -3; i <= 3; i += 1) {
+              const x = p.x + i * tileSize * 0.22;
+              ctx.beginPath();
+              ctx.moveTo(x, p.y + r * 0.35);
+              ctx.quadraticCurveTo(x + Math.sin(now * 0.006 + i) * tileSize * 0.22, p.y, x + tileSize * 0.12, p.y - r * 0.36);
+              ctx.stroke();
+            }
+          } else if (effect.visual === "rock") {
+            for (let i = 0; i < 7; i += 1) {
+              const angle = i * 0.9 + t;
+              ctx.strokeRect(p.x + Math.cos(angle) * r * 0.35, p.y + Math.sin(angle) * r * 0.22, tileSize * 0.16, tileSize * 0.12);
+            }
+          } else if (effect.visual === "fog") {
+            ctx.globalAlpha = alpha * 0.25;
+            for (let i = -2; i <= 2; i += 1) {
+              ctx.beginPath();
+              ctx.ellipse(p.x + Math.sin(now * 0.0018 + i) * tileSize * 0.7, p.y + i * tileSize * 0.28, r * 0.58, tileSize * 0.2, 0.05, 0, Math.PI * 2);
+              ctx.fill();
+            }
+          }
+        } else if (effect.kind === "eventStain") {
+          const r = tileSize * (effect.radius || 4) * (0.48 + t * 0.08);
+          ctx.globalAlpha = alpha * 0.14;
+          ctx.fillStyle = this.withAlpha(effect.color, 0.38);
+          ctx.beginPath();
+          ctx.ellipse(p.x, p.y, r * 1.2, r * 0.62, 0.08, 0, Math.PI * 2);
           ctx.fill();
         } else if (effect.kind === "bubble") {
           ctx.globalAlpha = alpha * 0.5;
@@ -1046,6 +1334,48 @@
           ctx.moveTo(p.x - particle.size * 2.2, p.y);
           ctx.lineTo(p.x + particle.size * 2.2, p.y + Math.sin(t * 8) * particle.size);
           ctx.stroke();
+        } else if (particle.style === "eventMud") {
+          ctx.globalAlpha = (1 - t) * 0.82;
+          ctx.beginPath();
+          ctx.ellipse(p.x, p.y, particle.size * 2.5, particle.size * 1.35, Math.sin(t * 3), 0, Math.PI * 2);
+          ctx.fill();
+        } else if (particle.style === "eventFoam") {
+          ctx.strokeStyle = "rgba(225,250,255,0.88)";
+          ctx.lineWidth = 1.1;
+          ctx.beginPath();
+          ctx.arc(p.x, p.y, particle.size * (1.7 + t * 2.2), 0, Math.PI * 2);
+          ctx.stroke();
+        } else if (particle.style === "eventBloom") {
+          ctx.globalAlpha = (1 - t) * 0.86;
+          ctx.beginPath();
+          ctx.ellipse(p.x, p.y, particle.size * 2.4, particle.size * 0.95, Math.sin(t * 5), 0, Math.PI * 2);
+          ctx.fill();
+        } else if (particle.style === "eventReed") {
+          ctx.lineWidth = 1.5;
+          ctx.beginPath();
+          ctx.moveTo(p.x, p.y + particle.size * 2);
+          ctx.quadraticCurveTo(p.x + Math.sin(t * 7) * particle.size, p.y, p.x + particle.size * 0.7, p.y - particle.size * 2.4);
+          ctx.stroke();
+        } else if (particle.style === "eventRain") {
+          ctx.strokeStyle = "rgba(210,245,255,0.72)";
+          ctx.lineWidth = 1.2;
+          ctx.beginPath();
+          ctx.moveTo(p.x - particle.size * 0.6, p.y - particle.size * 2.8);
+          ctx.lineTo(p.x + particle.size * 0.8, p.y + particle.size * 2.4);
+          ctx.stroke();
+        } else if (particle.style === "eventRock") {
+          ctx.globalAlpha = (1 - t) * 0.84;
+          ctx.beginPath();
+          ctx.moveTo(p.x, p.y - particle.size * 2);
+          ctx.lineTo(p.x + particle.size * 1.8, p.y + particle.size * 0.4);
+          ctx.lineTo(p.x - particle.size * 1.4, p.y + particle.size * 1.7);
+          ctx.closePath();
+          ctx.fill();
+        } else if (particle.style === "eventMist") {
+          ctx.globalAlpha = (1 - t) * 0.26;
+          ctx.beginPath();
+          ctx.ellipse(p.x, p.y, particle.size * 5, particle.size * 1.7, 0.15, 0, Math.PI * 2);
+          ctx.fill();
         } else if (particle.style === "bubble") {
           ctx.strokeStyle = "rgba(222,250,255,0.88)";
           ctx.lineWidth = 1.1;
@@ -1122,6 +1452,10 @@
     trim() {
       if (this.effects.length > this.maxEffects) this.effects.splice(0, this.effects.length - this.maxEffects);
       if (this.particles.length > this.maxParticles) this.particles.splice(0, this.particles.length - this.maxParticles);
+    }
+
+    canSpawnAt(point, margin = 80) {
+      return !this.offscreen(this.worldToScreen(point.wx, point.wy), margin);
     }
 
     ownedTiles(playerId) {

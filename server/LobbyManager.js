@@ -317,6 +317,7 @@ class LobbyManager {
     const maxPlayers = Math.max(2, Math.min(12, Number(settings.maxPlayers || 8)));
     const allowBots = settings.allowBots !== false;
     const botCount = allowBots ? Math.max(0, Math.min(map.maxBots, Number(settings.botCount ?? map.defaultBots ?? config.BOT_COUNT ?? 8))) : 0;
+    const surrenderMode = this.normalizeSurrenderMode(settings.surrenderMode ?? settings.allowSurrender);
     return {
       gameMode,
       mapSize,
@@ -326,12 +327,20 @@ class LobbyManager {
       teamCount,
       botsPerTeam,
       allowBots,
+      surrenderMode,
       maxPlayers,
       matchLength: ["quick", "standard", "long"].includes(settings.matchLength) ? settings.matchLength : "standard",
       coopTeammates: Math.max(0, Math.min(4, Number(settings.coopTeammates ?? 2))),
       teamBotDifficulty: ["normal", "smart", "aggressive"].includes(settings.teamBotDifficulty) ? settings.teamBotDifficulty : "normal",
       forceStart: Boolean(settings.forceStart),
     };
+  }
+
+  normalizeSurrenderMode(value) {
+    const raw = String(value ?? "off").trim().toLowerCase();
+    if (["everyone", "all", "players", "players+bots", "playersbots", "true", "on"].includes(raw)) return "everyone";
+    if (["bots", "botsonly", "bots_only", "bots-only"].includes(raw)) return "bots";
+    return "off";
   }
 
   normalizeLobbyTeams(lobby) {

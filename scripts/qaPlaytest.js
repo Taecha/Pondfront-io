@@ -282,6 +282,54 @@ function testBotAttackPacing(checks) {
   assertCheck(checks, "bot can evaluate attack after reaction delay", border && delayed.reason !== "scouting border", delayed.reason);
 }
 
+function testWinAndEliminationRules(checks) {
+  const game = newGame("duck", { botCount: 3, practice: false });
+  const human = game.getPlayer(config.HUMAN_ID);
+  const bot = game.players.find((player) => player.isBot);
+  const playable = game.tileManager.playable();
+  const botCore = game.tileManager.getById(bot.coreTileId);
+  playable.slice(0, Math.floor(playable.length * 0.75)).forEach((tile) => {
+    if (tile.id !== botCore?.id) tile.owner = human.id;
+  });
+  if (botCore) botCore.owner = bot.id;
+  game.economy.recalculate(game.players, game.now(), game);
+  game.matchSettings.winCondition = "territoryControl";
+  game.checkWin();
+  assertCheck(
+    checks,
+    "70 percent territory does not auto-end match",
+    !game.ended && game.isPlayerAlive(bot),
+    `${Math.round(game.territoryPercent(human) * 100)}% human, bot alive=${game.isPlayerAlive(bot)}`,
+  );
+
+  const blocked = game.surrenderPlayer(bot, human.id, "qa surrender blocked");
+  assertCheck(checks, "surrender defaults to off", game.matchSettings.surrenderMode === "off" && !blocked.ok && /disabled/i.test(blocked.message), blocked.message);
+  const finalBotCore = game.tileManager.getById(bot.coreTileId) || game.tileManager.owned(bot.id)[0];
+  game.tileManager.owned(bot.id).forEach((tile) => {
+    if (tile.id !== finalBotCore?.id) tile.owner = null;
+  });
+  if (finalBotCore) finalBotCore.owner = bot.id;
+  game.economy.recalculate(game.players, game.now(), game);
+  assertCheck(checks, "bot with one tile stays alive", game.isPlayerAlive(bot) && game.ownedTileCount(bot) === 1, `${game.ownedTileCount(bot)} tiles`);
+  const victimTiles = game.tileManager.owned(bot.id).map((tile) => tile.id);
+  game.matchSettings.surrenderMode = "bots";
+  const surrender = game.surrenderPlayer(bot, human.id, "qa surrender");
+  const transferred = victimTiles.filter((id) => game.tileManager.getById(id)?.owner === human.id).length;
+  assertCheck(checks, "surrender returns territory neutral by default", surrender.ok && transferred === 0, `${transferred}/${victimTiles.length} transferred`);
+
+  const lastStandGame = newGame("turtle", { botCount: 1 });
+  const weakBot = lastStandGame.players.find((player) => player.isBot);
+  const weakOwned = lastStandGame.tileManager.owned(weakBot.id).sort((a, b) => (a.id === weakBot.coreTileId ? -1 : b.id === weakBot.coreTileId ? 1 : 0));
+  weakOwned.slice(8).forEach((tile) => {
+    tile.owner = null;
+    tile.captureProgress = {};
+  });
+  weakBot.stats.territoryPeak = 24;
+  lastStandGame.economy.recalculate(lastStandGame.players, lastStandGame.now(), lastStandGame);
+  lastStandGame.updateLastStandStates();
+  assertCheck(checks, "last stand triggers after collapse", weakBot.flags.lastStandUsed && weakBot.flags.lastStandUntil > lastStandGame.now(), weakBot.flags.lastStandTrigger || "no trigger");
+}
+
 function runBotSimulation(checks) {
   const game = newGame("duck", { difficulty: "smart", mapSize: "small", botCount: 6, matchLength: "standard", practice: false });
   const personalities = ["loyalAlly", "peaceful", "opportunist", "aggressive", "defensive", "leaderHunter", "betrayer", "farmer", "expander", "objectiveHunter"];
@@ -330,6 +378,7 @@ testBuildings(checks);
 testAbilities(checks);
 testDiplomacyAndCombat(checks);
 testBotAttackPacing(checks);
+testWinAndEliminationRules(checks);
 const simulation = runBotSimulation(checks);
 const failed = checks.filter((check) => !check.pass);
 

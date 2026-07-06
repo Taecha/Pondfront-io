@@ -85,8 +85,10 @@ class CoreManager {
     if (!core || core.owner !== defender.id || !tile) return 0;
     const distance = Math.abs(core.x - tile.x) + Math.abs(core.y - tile.y);
     if (distance > (balance.coreDefenseAuraRange || 3)) return 0;
-    const lastStand = now < (defender.flags?.lastStandUntil || 0) ? balance.coreLastStandDefenseBonus || 16 : 0;
-    return (balance.coreDefenseAuraBonus || 7) + lastStand;
+    const lastStand = now < (defender.flags?.lastStandUntil || 0) ? balance.coreLastStandDefenseBonus || 18 : 0;
+    const playable = this.tileManager.playable().length || 1;
+    const comeback = defender.territory > 0 && defender.territory / playable < (balance.comebackTerritoryPct || 0.08) ? balance.comebackCoreDefenseBonus || 5 : 0;
+    return (balance.coreDefenseAuraBonus || 8) + lastStand + comeback;
   }
 
   handleCoreHit(game, wave, attacker, defender, candidate, cost) {
@@ -101,7 +103,7 @@ class CoreManager {
     defender.flags = defender.flags || {};
     defender.flags.coreUnderAttack = true;
     defender.flags.coreUnderAttackUntil = now + 12;
-    defender.flags.lastStandUntil = Math.max(defender.flags.lastStandUntil || 0, now + (balance.coreLastStandSeconds || 28));
+    game.triggerLastStand?.(defender, "core under attack");
     defender.flags.lastAttackerId = attacker.id;
     defender.flags.underAttackUntil = Math.max(defender.flags.underAttackUntil || 0, now + 24);
 

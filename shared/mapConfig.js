@@ -24,8 +24,8 @@
       maxBots: 10,
       defaultBots: 9,
       matchSeconds: 840,
-      objectiveCount: 4,
-      campCount: 8,
+      objectiveCount: 5,
+      campCount: 10,
       terrainScale: 1,
     },
     large: {
@@ -36,8 +36,8 @@
       maxBots: 16,
       defaultBots: 14,
       matchSeconds: 1080,
-      objectiveCount: 6,
-      campCount: 14,
+      objectiveCount: 8,
+      campCount: 16,
       terrainScale: 1.16,
     },
     huge: {
@@ -48,8 +48,8 @@
       maxBots: 24,
       defaultBots: 20,
       matchSeconds: 1440,
-      objectiveCount: 8,
-      campCount: 20,
+      objectiveCount: 10,
+      campCount: 22,
       terrainScale: 1.3,
     },
   };

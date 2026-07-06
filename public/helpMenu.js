@@ -128,8 +128,9 @@
       if (tab === "winning") {
         return list([
           "Normal matches use elimination: win when only one animal or team remains.",
+          "Surrender is Off by default, so animals must be fully pushed out of territory.",
           "The timer shows elapsed time and does not force a timeout ending.",
-          "Territory control is an optional server mode, not the default win condition.",
+          "Owning most of the lake gives a huge advantage, but it does not end the match by itself.",
           "A bigger lake empire gives more income and max energy, but also creates longer borders to defend.",
         ]);
       }

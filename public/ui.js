@@ -78,6 +78,7 @@
         createBotCount: document.querySelector("#createBotCount"),
         createTeamCount: document.querySelector("#createTeamCount"),
         createBotsPerTeam: document.querySelector("#createBotsPerTeam"),
+        createSurrenderMode: document.querySelector("#createSurrenderMode"),
         createAllowBots: document.querySelector("#createAllowBots"),
         createLobbySubmit: document.querySelector("#createLobbySubmit"),
         createLobbyBack: document.querySelector("#createLobbyBack"),
@@ -107,6 +108,7 @@
         lobbyBotDifficulty: document.querySelector("#lobbyBotDifficulty"),
         lobbyTeamCount: document.querySelector("#lobbyTeamCount"),
         lobbyBotsPerTeam: document.querySelector("#lobbyBotsPerTeam"),
+        lobbySurrenderMode: document.querySelector("#lobbySurrenderMode"),
         lobbyAllowBots: document.querySelector("#lobbyAllowBots"),
         lobbyForceStart: document.querySelector("#lobbyForceStart"),
         lobbyStartMatch: document.querySelector("#lobbyStartMatch"),
@@ -117,6 +119,7 @@
         mapSize: document.querySelector("#mapSize"),
         botCount: document.querySelector("#botCount"),
         matchLength: document.querySelector("#matchLength"),
+        surrenderMode: document.querySelector("#surrenderMode"),
         coopTeammates: document.querySelector("#coopTeammates"),
         teamBotDifficulty: document.querySelector("#teamBotDifficulty"),
         teamCount: document.querySelector("#teamCount"),
@@ -133,6 +136,7 @@
         settingsButton: document.querySelector("#settingsButton"),
         settingsPanel: document.querySelector("#settingsPanel"),
         settingsCloseButton: document.querySelector("#settingsCloseButton"),
+        matchRulesSummary: document.querySelector("#matchRulesSummary"),
         togglePanelsButton: document.querySelector("#togglePanelsButton"),
         difficulty: document.querySelector("#difficulty"),
         animalChoices: [...document.querySelectorAll(".animal-choice")],
@@ -682,6 +686,7 @@
         mapSize: this.nodes.mapSize?.value || "large",
         botCount: Number(this.nodes.botCount?.value || 12),
         matchLength: this.nodes.matchLength?.value || "standard",
+        surrenderMode: this.nodes.surrenderMode?.value || "off",
         coopTeammates: Number(this.nodes.coopTeammates?.value || 2),
         teamBotDifficulty: this.nodes.teamBotDifficulty?.value || "normal",
         teamCount: Number(this.nodes.teamCount?.value || 2),
@@ -702,6 +707,7 @@
         botCount: Number(this.nodes.createBotCount?.value ?? fallback.botCount),
         teamCount: Number(this.nodes.createTeamCount?.value || fallback.teamCount),
         botsPerTeam: Number(this.nodes.createBotsPerTeam?.value || fallback.botsPerTeam),
+        surrenderMode: this.nodes.createSurrenderMode?.value || fallback.surrenderMode || "off",
         allowBots: this.nodes.createAllowBots?.checked !== false,
         matchLength: fallback.matchLength,
         coopTeammates: fallback.coopTeammates,
@@ -734,6 +740,7 @@
         difficulty: this.nodes.lobbyBotDifficulty?.value || "normal",
         teamCount: Number(this.nodes.lobbyTeamCount?.value || 2),
         botsPerTeam: Number(this.nodes.lobbyBotsPerTeam?.value || 0),
+        surrenderMode: this.nodes.lobbySurrenderMode?.value || "off",
         allowBots: this.nodes.lobbyAllowBots?.checked !== false,
         forceStart: Boolean(this.nodes.lobbyForceStart?.checked),
       };
@@ -757,6 +764,7 @@
       this.setSelectValue(this.nodes.createBotCount, String(Math.min(10, payload.botCount || 8)));
       this.setSelectValue(this.nodes.createTeamCount, String(payload.teamCount || 2));
       this.setSelectValue(this.nodes.createBotsPerTeam, String(payload.botsPerTeam || 4));
+      this.setSelectValue(this.nodes.createSurrenderMode, payload.surrenderMode || "off");
       if (this.nodes.createAllowBots) this.nodes.createAllowBots.checked = true;
       this.nodes.startCard?.classList.add("hidden");
       this.nodes.createLobbyPanel?.classList.remove("hidden");
@@ -865,6 +873,7 @@
       this.setSelectValue(this.nodes.lobbyBotDifficulty, settings.botDifficulty || settings.difficulty || "normal");
       this.setSelectValue(this.nodes.lobbyTeamCount, String(settings.teamCount || 2));
       this.setSelectValue(this.nodes.lobbyBotsPerTeam, String(settings.botsPerTeam ?? 4));
+      this.setSelectValue(this.nodes.lobbySurrenderMode, settings.surrenderMode || "off");
       if (this.nodes.lobbyAllowBots) this.nodes.lobbyAllowBots.checked = settings.allowBots !== false;
       if (this.nodes.lobbyForceStart) this.nodes.lobbyForceStart.checked = Boolean(settings.forceStart);
     }
@@ -1120,6 +1129,12 @@
         this.nodes.teamStat.style.color = humanTeam?.color || "";
       }
       this.nodes.timerStat.textContent = `${this.formatTime(state.elapsed || 0)} | ${state.teamState?.active ? `${state.teamsLeft || 0} teams` : `${state.animalsLeft || 0} left`}`;
+      if (this.nodes.matchRulesSummary) {
+        const surrender = state.matchSettings?.surrenderMode || "off";
+        const label = surrender === "bots" ? "Bots Only" : surrender === "everyone" ? "Everyone" : "Off";
+        const lastStand = human.flags?.lastStandUntil > state.serverTime ? ` | Last Stand ${Math.ceil(human.flags.lastStandUntil - state.serverTime)}s` : "";
+        this.nodes.matchRulesSummary.textContent = `Surrender: ${label}${lastStand}`;
+      }
       this.nodes.controlMeter.style.transform = `scaleX(${Math.max(0, Math.min(1, human.territoryPct))})`;
       this.updateWinDebug(state);
       this.nodes.teamButton?.classList.toggle("active", Boolean(state.teamState?.active));
@@ -1228,21 +1243,24 @@
       panel.classList.toggle("hidden", !enabled);
       document.body.classList.toggle("debug-stats-open", enabled);
       if (!enabled || !state) return;
-      const now = performance.now();
-      const delta = this.lastDebugFrameAt ? now - this.lastDebugFrameAt : 0;
-      this.lastDebugFrameAt = now;
       const game = root.pondFrontGame;
       const vfx = game?.renderer?.vfx;
-      const visibleTiles = game?.renderer?.visibleTiles?.(0)?.length || 0;
-      const fps = delta > 0 ? Math.max(1, Math.min(144, Math.round(1000 / delta))) : 0;
+      const perf = game?.performanceStats || {};
+      const visibleTiles = game?.renderer?.lastVisibleTileCount || 0;
       const activeBots = (state.players || []).filter((player) => player.isBot && !player.defeated).length;
       const serverTick = state.metrics?.lastTickMs || state.serverTickMs || "live";
       panel.innerHTML = `
         <strong>Debug</strong>
-        <span>${fps || "-"} FPS</span>
+        <span>${perf.fps || "-"} FPS</span>
+        <span>${perf.frameMs || "-"}ms frame</span>
+        <span>${perf.serverPingMs || "-"}ms ping</span>
+        <span>${perf.expansionLatencyMs || "-"}ms expand</span>
+        <span>${game?.performanceAutoLow ? "auto low" : "normal"} gfx</span>
         <span>${vfx?.particles?.length || 0}/${vfx?.maxParticles || 0} particles</span>
         <span>${state.activeAttacks?.length || 0} attacks</span>
         <span>${activeBots} bots</span>
+        <span>${state.metrics?.lastBotThinkMs ?? "-"}ms bot/${state.metrics?.lastBotThinkers ?? 0}</span>
+        <span>${perf.messagesPerSecond || 0}/s msg</span>
         <span>${visibleTiles} visible tiles</span>
         <span>tick ${this.escape(String(serverTick))}</span>
       `;
@@ -1551,14 +1569,19 @@
 
     updateLakeEvent(state) {
       const active = state.lakeEvent?.active;
-      this.nodes.lakeEventBanner.classList.toggle("hidden", !active);
+      const upcoming = !active ? state.lakeEvent?.upcoming : null;
+      const event = active || upcoming;
+      this.nodes.lakeEventBanner.classList.toggle("hidden", !event);
       this.nodes.lakeEventBanner.classList.remove("danger");
       this.nodes.lakeEventBanner.dataset.focusTileId = "";
-      if (!active) return;
-      this.nodes.lakeEventBanner.style.setProperty("--event-color", active.color || "#83dced");
-      this.nodes.lakeEventTitle.textContent = active.label;
-      this.nodes.lakeEventDetails.textContent = active.description;
-      this.nodes.lakeEventTimer.textContent = `${Math.ceil(active.remaining || 0)}s`;
+      this.nodes.lakeEventBanner.classList.toggle("warning", Boolean(upcoming));
+      if (!event) return;
+      const area = event.area?.label ? ` Area: ${event.area.label}.` : "";
+      this.nodes.lakeEventBanner.style.setProperty("--event-color", event.color || "#83dced");
+      this.nodes.lakeEventTitle.textContent = upcoming ? event.label || "Incoming Event" : event.label;
+      this.nodes.lakeEventDetails.textContent = `${event.description || "Pond event active."}${area}`;
+      this.nodes.lakeEventTimer.textContent = upcoming ? `${Math.ceil(event.startsIn || state.lakeEvent?.nextIn || 0)}s` : `${Math.ceil(event.remaining || 0)}s`;
+      if (event.area?.focusTile != null) this.nodes.lakeEventBanner.dataset.focusTileId = String(event.area.focusTile);
     }
 
     updateCurrentPushWarning(state, human) {
@@ -1571,6 +1594,7 @@
       const left = Math.max(0, Math.ceil(incoming.impactTime - state.serverTime));
       this.nodes.lakeEventBanner.classList.remove("hidden");
       this.nodes.lakeEventBanner.classList.add("danger");
+      this.nodes.lakeEventBanner.classList.remove("warning");
       this.nodes.lakeEventBanner.style.setProperty("--event-color", "#fff1a8");
       this.nodes.lakeEventTitle.textContent = "Incoming Current Push";
       this.nodes.lakeEventDetails.textContent = `${attacker?.name || "Enemy"} route attack. Reinforce the target border.`;
@@ -1586,6 +1610,7 @@
       const maxWaves = combat.maxActiveAttacksPerPlayer || 3;
       const activeWaves = this.lastState?.activeAttacks?.filter((wave) => !wave.currentPush && wave.attackerId === human?.id) || [];
       const activeWaveCount = activeWaves.length;
+      const activeExpansions = this.lastState?.activeExpansions?.filter((wave) => wave.playerId === human?.id) || [];
       const selectedId = this.lastTile?.id;
       const mergingSelected =
         selectedId != null &&
@@ -1603,7 +1628,11 @@
         const left = Math.ceil(specialStatus[id]?.cooldownLeft || 0);
         return left > 0 ? Math.min(best, left) : best;
       }, Infinity);
-      this.nodes.expandButton.textContent = `Expand ${energy}`;
+      this.nodes.expandButton.textContent = `Expand Wave ${energy}`;
+      this.nodes.expandButton.classList.toggle("active", activeExpansions.length > 0);
+      this.nodes.expandButton.dataset.tip = activeExpansions.length
+        ? `Expansion waves active: ${activeExpansions.length}. Sending again adds energy to a front or starts another connected wave.`
+        : `Commit ${energy} Animal Energy to a server-controlled expansion wave.`;
       this.nodes.attackButton.textContent = `${this.attackStyleShort(this.percent)} ${energy}`;
       this.nodes.attackButton.disabled = !human || human.defeated || energy < minAttackEnergy || (activeWaveCount >= maxWaves && !mergingSelected);
       this.nodes.attackButton.classList.toggle("active", activeWaveCount > 0);

@@ -46,6 +46,24 @@
       this.lobbySession = null;
       this.fetching = false;
       this.fetchingLobby = false;
+      this.pendingActionSeq = 1;
+      this.pendingActions = new Map();
+      this.pendingActionKeys = new Set();
+      this.performanceStats = {
+        fps: 0,
+        frameMs: 0,
+        lowestFps: 60,
+        worstFrameMs: 0,
+        serverPingMs: 0,
+        expansionLatencyMs: 0,
+        actionLatencyMs: 0,
+        messagesPerSecond: 0,
+      };
+      this.frameSample = { frames: 0, totalMs: 0, worstMs: 0, since: performance.now(), lastAt: 0 };
+      this.messageSample = { count: 0, since: performance.now() };
+      this.lastPerfUiAt = 0;
+      this.performanceLowSince = 0;
+      this.performanceAutoLow = false;
       this.seenEventIds = new Set();
       this.bind();
       this.loop();
@@ -117,6 +135,7 @@
             botCount: payload.botCount,
             mapSize: payload.mapSize,
             matchLength: payload.matchLength,
+            surrenderMode: payload.surrenderMode,
             practice: Boolean(payload.practice),
             beginnerCombat: Boolean(payload.beginnerCombat),
             gameMode: payload.gameMode,
@@ -336,8 +355,10 @@
     async fetchState() {
       if (this.fetching) return;
       this.fetching = true;
+      const started = performance.now();
       try {
         const state = await this.request(this.lobbySession?.inGame ? `/api/state?${this.lobbyQuery()}` : "/api/state");
+        this.performanceStats.serverPingMs = Math.round(performance.now() - started);
         this.setState(state);
       } catch (error) {
         this.ui.toast("Server connection paused.", true);
@@ -353,6 +374,7 @@
         ...options,
       });
       const data = await response.json().catch(() => ({}));
+      this.recordMessage();
       if (!response.ok) {
         const error = new Error(data.message || "Request failed.");
         error.data = data;
@@ -477,11 +499,18 @@
             "objectiveCaptured",
             "campCaptured",
             "campMoved",
+            "lakeEventWarning",
             "lakeEventStarted",
+            "lakeEventEnded",
             "levelUp",
             "missionComplete",
           ].includes(event.kind) &&
-          (event.kind === "objectiveAppeared" || event.kind === "campMoved" || event.kind === "lakeEventStarted" || this.involvesHuman(event))
+          (event.kind === "objectiveAppeared" ||
+            event.kind === "campMoved" ||
+            event.kind === "lakeEventWarning" ||
+            event.kind === "lakeEventStarted" ||
+            event.kind === "lakeEventEnded" ||
+            this.involvesHuman(event))
         ) {
           this.ui.toast(event.message || "Pond event updated.");
         }
@@ -633,7 +662,9 @@
         buildingType: payload.buildingType,
       };
       if (type === "expand" || type === "attack" || type === "waterRoute") action.sourceIds = this.validSourceTiles().map((source) => source.id);
-      await this.postAction(action);
+      const pendingAction = this.beginPendingAction(action, tile, human);
+      if (pendingAction === false) return;
+      await this.postAction(action, { pendingAction });
     }
 
     async handleAbilityAction(payload = {}) {
@@ -759,7 +790,8 @@
       });
     }
 
-    async postAction(body) {
+    async postAction(body, options = {}) {
+      const started = performance.now();
       try {
         const payload = this.lobbySession?.inGame ? { ...body, ...this.lobbyAuth() } : body;
         const response = await fetch("/api/action", {
@@ -768,12 +800,77 @@
           body: JSON.stringify(payload),
         });
         const data = await response.json().catch(() => ({}));
+        const latency = Math.round(performance.now() - started);
+        this.recordActionLatency(payload.type, latency);
+        this.recordMessage();
         if (data.state) this.setState(data.state, { silent: true });
         if (!response.ok) this.feedbackFailedAction(payload, data.message || "Command failed.");
         else if (payload.type === "ability") this.ui.pulseAbility(false);
         this.ui.toast(data.message || (response.ok ? "Command sent." : "Command failed."), !response.ok);
+        this.finishPendingAction(options.pendingAction, response.ok, data.message || "");
       } catch (error) {
+        this.recordActionLatency(body.type, Math.round(performance.now() - started));
+        this.finishPendingAction(options.pendingAction, false, "Server did not receive the command.");
         this.ui.toast("Server did not receive the command.", true);
+      }
+    }
+
+    beginPendingAction(action, tile, human) {
+      if (!["expand", "attack", "defend", "waterRoute"].includes(action.type) || !tile || !human) return null;
+      const key = `${action.type}:${tile.id}`;
+      if (this.pendingActionKeys.has(key)) {
+        this.ui.toast("Already sending that command.", true);
+        return false;
+      }
+      const visual = root.PondAnimalVisuals?.animals?.[human.animal] || {};
+      const color =
+        action.type === "attack" || action.type === "waterRoute"
+          ? visual.badge || human.color || "#f2d87a"
+          : action.type === "defend"
+            ? "#87d7ea"
+            : "#77d99e";
+      const pendingAction = {
+        id: `pending-${this.pendingActionSeq}`,
+        key,
+        type: action.type,
+        tileId: tile.id,
+        startedAt: performance.now(),
+        color,
+      };
+      this.pendingActionSeq += 1;
+      this.pendingActions.set(pendingAction.id, pendingAction);
+      this.pendingActionKeys.add(key);
+      this.renderer.setPendingAction(pendingAction);
+      const label = action.type === "attack" ? "Sending Wave" : action.type === "defend" ? "Reinforcing" : action.type === "waterRoute" ? "Current Sent" : "Sending Energy";
+      if (action.type === "attack") {
+        const source = this.closestSource(tile);
+        if (source) this.renderer.vfx?.spawnWaveTrail(source.id, tile.id, color, Math.round((human.energy || 0) * (action.percent || 0.25)), "attack");
+      } else {
+        this.renderer.vfx?.spawnPendingAction(tile.id, action.type, color, label);
+      }
+      return pendingAction;
+    }
+
+    finishPendingAction(pendingAction, ok, message = "") {
+      if (!pendingAction) return;
+      this.pendingActions.delete(pendingAction.id);
+      this.pendingActionKeys.delete(pendingAction.key);
+      this.renderer.clearPendingAction(pendingAction.id);
+      if (!ok && pendingAction.tileId != null) this.renderer.vfx?.spawnBlockedEffect(pendingAction.tileId, message ? "Rejected" : "Invalid");
+    }
+
+    recordActionLatency(type, latency) {
+      this.performanceStats.actionLatencyMs = latency;
+      if (type === "expand") this.performanceStats.expansionLatencyMs = latency;
+    }
+
+    recordMessage() {
+      const now = performance.now();
+      this.messageSample.count += 1;
+      const elapsed = now - this.messageSample.since;
+      if (elapsed >= 1000) {
+        this.performanceStats.messagesPerSecond = Number((this.messageSample.count / (elapsed / 1000)).toFixed(1));
+        this.messageSample = { count: 0, since: now };
       }
     }
 
@@ -1001,15 +1098,24 @@
       const human = this.human();
       if (!human) return;
       if (!tile.owner && this.tileContext(tile).canExpand) {
-        await this.postAction({ type: "expand", tileId: tile.id, percent: this.ui.percent, sourceIds: this.validSourceTiles().map((source) => source.id) });
+        const action = { type: "expand", tileId: tile.id, percent: this.ui.percent, sourceIds: this.validSourceTiles().map((source) => source.id) };
+        const pendingAction = this.beginPendingAction(action, tile, human);
+        if (pendingAction === false) return;
+        await this.postAction(action, { pendingAction });
         return;
       }
       if (tile.owner && tile.owner !== human.id && this.tileContext(tile).canAttack) {
-        await this.postAction({ type: "attack", tileId: tile.id, percent: this.ui.percent, sourceIds: this.validSourceTiles().map((source) => source.id) });
+        const action = { type: "attack", tileId: tile.id, percent: this.ui.percent, sourceIds: this.validSourceTiles().map((source) => source.id) };
+        const pendingAction = this.beginPendingAction(action, tile, human);
+        if (pendingAction === false) return;
+        await this.postAction(action, { pendingAction });
         return;
       }
       if (tile.owner === human.id && this.isBorder(tile, human.id)) {
-        await this.postAction({ type: "defend", tileId: tile.id, percent: this.ui.percent });
+        const action = { type: "defend", tileId: tile.id, percent: this.ui.percent };
+        const pendingAction = this.beginPendingAction(action, tile, human);
+        if (pendingAction === false) return;
+        await this.postAction(action, { pendingAction });
         return;
       }
       this.ui.toast("Double tap a valid border target.", true);
@@ -1674,6 +1780,8 @@
 
     loop() {
       const draw = () => {
+        const now = performance.now();
+        this.recordFrame(now);
         const view = this.ui.viewOptions();
         this.renderer.draw({
           ...view,
@@ -1684,10 +1792,44 @@
           preview: this.preview,
           rallyTileId: this.rallyTileId,
           mode: this.mode,
+          performanceLow: this.performanceAutoLow,
         });
+        if (this.state && view.showDebugStats && now - this.lastPerfUiAt > 500) {
+          this.lastPerfUiAt = now;
+          this.ui.updateDebugStats(this.state);
+        }
         requestAnimationFrame(draw);
       };
       requestAnimationFrame(draw);
+    }
+
+    recordFrame(now = performance.now()) {
+      if (!this.frameSample.lastAt) {
+        this.frameSample.lastAt = now;
+        return;
+      }
+      const frameMs = Math.max(0, now - this.frameSample.lastAt);
+      this.frameSample.lastAt = now;
+      this.frameSample.frames += 1;
+      this.frameSample.totalMs += frameMs;
+      this.frameSample.worstMs = Math.max(this.frameSample.worstMs, frameMs);
+      if (now - this.frameSample.since >= 1000) {
+        const fps = Math.round((this.frameSample.frames * 1000) / Math.max(1, now - this.frameSample.since));
+        const avgFrame = this.frameSample.totalMs / Math.max(1, this.frameSample.frames);
+        this.performanceStats.fps = fps;
+        this.performanceStats.lowestFps = Math.min(this.performanceStats.lowestFps || fps, fps);
+        this.performanceStats.frameMs = Number(avgFrame.toFixed(1));
+        this.performanceStats.worstFrameMs = Number(this.frameSample.worstMs.toFixed(1));
+        if (fps < 45) {
+          this.performanceLowSince = this.performanceLowSince || now;
+          if (now - this.performanceLowSince > 3000) this.performanceAutoLow = true;
+        } else if (fps > 56 && this.performanceAutoLow) {
+          this.performanceLowSince = 0;
+        } else if (fps >= 45) {
+          this.performanceLowSince = 0;
+        }
+        this.frameSample = { frames: 0, totalMs: 0, worstMs: 0, since: now, lastAt: now };
+      }
     }
 
     selectedTile() {
@@ -1735,6 +1877,7 @@
       const core = human?.coreTileId != null ? this.tileMap.get(human.coreTileId) : null;
       const distanceFromCore = core ? this.distance(core, tile) : 0;
       const nearbyEnemyBorders = this.neighbors(tile).filter((neighbor) => neighbor.owner && neighbor.owner !== human?.id).length;
+      const comebackThreshold = this.state?.config?.balance?.comebackTerritoryPct || 0.08;
       return (
         root.PondConfig?.getNeutralTileExpansionCost?.(tile.type, human?.animal, {
           jumped,
@@ -1748,7 +1891,8 @@
           specialCostBonus: this.specialCostBonus(tile),
           rainstorm: this.state?.lakeEvent?.active?.type === "rainstorm",
           evolved: (human?.level || 1) >= 5,
-          comebackCore: core && this.distance(core, tile) <= 3 && (human?.territoryPct || 0) < 0.06,
+          comebackCore: core && this.distance(core, tile) <= 3 && (human?.territoryPct || 0) < comebackThreshold,
+          comebackSmall: this.neighbors(tile).some((neighbor) => neighbor.owner === human?.id) && (human?.territoryPct || 0) < comebackThreshold,
         }) || type.captureCost
       );
     }

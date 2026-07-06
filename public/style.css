@@ -503,6 +503,15 @@
     0 0 30px rgba(255, 241, 168, 0.12);
 }
 
+.lake-event-banner.warning {
+  cursor: pointer;
+  border-style: dashed;
+  box-shadow:
+    0 16px 36px rgba(0, 0, 0, 0.28),
+    0 0 0 1px color-mix(in srgb, var(--event-color, #83dced) 22%, transparent),
+    0 0 24px color-mix(in srgb, var(--event-color, #83dced) 26%, transparent);
+}
+
 @media (max-width: 760px) {
   .profile-modal {
     align-items: end;
@@ -4093,6 +4102,17 @@ body[data-animal] #abilityButton.active {
   width: 18px;
   min-height: 18px;
   accent-color: #83dced;
+}
+
+.settings-note {
+  margin: 0 0 8px;
+  padding: 8px 10px;
+  border: 1px solid rgba(170, 229, 238, 0.16);
+  border-radius: 8px;
+  background: rgba(5, 22, 34, 0.38);
+  color: #b9e8ef;
+  font-size: 0.82rem;
+  line-height: 1.35;
 }
 
 .lobby-flow-actions {

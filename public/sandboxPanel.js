@@ -20,6 +20,7 @@
         animal: document.querySelector("#sandboxAnimal"),
         botCount: document.querySelector("#sandboxBotCount"),
         botDifficulty: document.querySelector("#sandboxBotDifficulty"),
+        surrenderMode: document.querySelector("#sandboxSurrenderMode"),
         rules: [...document.querySelectorAll("[data-sandbox-rule]")],
         openButton: document.querySelector("#sandboxOpenButton"),
         mobileButton: document.querySelector("#mobileSandboxButton"),
@@ -116,6 +117,7 @@
         difficulty: this.nodes.botDifficulty?.value || "normal",
         sandboxRules: rules,
         sandboxBotDifficulty: this.nodes.botDifficulty?.value || "normal",
+        surrenderMode: this.nodes.surrenderMode?.value || "off",
         beginnerCombat: false,
         matchLength: "long",
         allowBots: true,
@@ -190,6 +192,7 @@
           <div><span>Rules</span><strong>${this.ruleChips(sandbox.rules || {})}</strong></div>
           <div><span>Player</span><strong>${this.escape(human?.animal || "-")} | ${Math.round(human?.energy || 0)} / ${Math.round(human?.maxEnergy || 0)}</strong></div>
           <div><span>Bots</span><strong>${sandbox.botCount || 0} | ${sandbox.botsPaused ? "paused" : sandbox.rules?.botsFight === false ? "non-combat" : "active"}</strong></div>
+          <div><span>Surrender</span><strong>${this.escape(state.matchSettings?.surrenderMode || "off")}</strong></div>
           <div><span>Speed</span><strong>${sandbox.speed || 1}x</strong></div>
         `;
       }

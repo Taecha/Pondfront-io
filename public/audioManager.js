@@ -162,6 +162,28 @@
           setTimeout(() => this.noise(0.1, 0.09, out, 680), 75);
         },
         support: () => this.chime([500, 620, 820], 0.08, out, 0.1),
+        lakeMud: () => {
+          this.noise(0.22, 0.12 * intensity, out, 260);
+          this.sweep(105, 62, 0.32, "triangle", 0.1 * intensity, out);
+        },
+        lakeFlood: () => {
+          this.noise(0.24, 0.13 * intensity, out, 980);
+          this.sweep(180, 520, 0.26, "triangle", 0.1 * intensity, out);
+        },
+        lakeBloom: () => this.chime([520, 740, 980, 1280], 0.11, out, 0.12 * intensity),
+        lakeReed: () => {
+          this.noise(0.16, 0.075 * intensity, out, 1600);
+          this.chime([330, 440, 590], 0.07, out, 0.07 * intensity);
+        },
+        lakeStorm: () => {
+          this.noise(0.22, 0.1 * intensity, out, 720);
+          this.tone(88, 0.22, "triangle", 0.06 * intensity, out, 0.64);
+        },
+        lakeRock: () => {
+          this.noise(0.18, 0.15 * intensity, out, 340);
+          this.tone(132, 0.12, "square", 0.07 * intensity, out, 0.5);
+        },
+        lakeFog: () => this.sweep(260, 180, 0.32, "sine", 0.055 * intensity, out),
         elimination: () => {
           this.noise(0.2, 0.12, out, 360);
           this.chime([260, 196, 146], 0.12, out, 0.1);
@@ -177,6 +199,8 @@
       events.forEach((event) => {
         if (event.kind === "expand") this.play("expand", { intensity: 1.05 });
         if (event.kind === "expandProgress") this.play("expandProgress", { cooldown: 80 });
+        if (event.kind === "expansionWaveStart") this.play("expandProgress", { cooldown: 100, intensity: 1.08 });
+        if (event.kind === "expansionWaveCapture") this.play("expand", { cooldown: 80, intensity: 1.02 });
         if (event.kind === "attackWave") {
           const amount = event.amount || 0;
           this.duckMusicForCombat();
@@ -191,6 +215,7 @@
         if (event.kind === "currentPushWarning") this.play("warning", { cooldown: 420, intensity: 0.82 });
         if (event.kind === "currentPushImpact") this.play("currentImpact", { intensity: event.captured > 0 ? 1.25 : 0.92, cooldown: 280 });
         if (event.kind === "currentPushBlocked") this.play("blocked", { cooldown: 180 });
+        if (event.kind === "lastStand") this.play("warning", { cooldown: 360, intensity: 0.95 });
         if (event.kind === "specialLaunch") this.play("specialLaunch", { cooldown: 260, intensity: 1.05 });
         if (event.kind === "specialDefense") this.play("specialDefense", { cooldown: 220, intensity: event.specialType === "dragonflyGuard" ? 1.08 : 0.92 });
         if (event.kind === "specialImpact") this.play("specialImpact", { cooldown: 260, intensity: event.captured > 0 ? 1.24 : 0.9 });
@@ -205,6 +230,15 @@
         if (event.kind === "buildUpgrade") this.play("upgradeComplete", { cooldown: 120 });
         if (event.kind === "objectiveAppeared") this.play("objectiveSpawn", { cooldown: 220 });
         if (event.kind === "objectiveCaptured" || event.kind === "campCaptured") this.play("objectiveCapture", { cooldown: 220 });
+        if (event.kind === "lakeEventWarning") this.play("warning", { cooldown: 420, intensity: 0.78 });
+        if (event.kind === "lakeEventStarted") {
+          const sound = this.lakeEventSound(event.eventType, event.visual);
+          this.play(sound, { cooldown: 520, intensity: 1.05 });
+        }
+        if (event.kind === "lakeEventEnded") {
+          const sound = event.visual === "lily" ? "lakeBloom" : event.visual === "fog" ? "lakeFog" : "expandProgress";
+          this.play(sound, { cooldown: 520, intensity: 0.72 });
+        }
         if (event.kind === "diplomacy" && ["alliance", "allianceAccepted"].includes(event.subtype)) this.play("alliance", { cooldown: 180 });
         if (event.kind === "diplomacy" && ["broken", "war", "enemy"].includes(event.subtype)) this.play("allianceBreak", { cooldown: 180 });
         if (event.kind === "notice" && event.ok === false) this.play("warning", { cooldown: 140 });
@@ -218,6 +252,18 @@
           this.play(humanWon ? "victory" : "defeat", { cooldown: 800 });
         }
       });
+    }
+
+    lakeEventSound(eventType = "", visual = "") {
+      const key = visual || eventType;
+      if (key === "mud" || eventType === "mudslide") return "lakeMud";
+      if (key === "flood" || eventType === "floodWave" || key === "current" || eventType === "currentShift") return "lakeFlood";
+      if (key === "lily" || eventType === "lilyBloom") return "lakeBloom";
+      if (key === "reed" || eventType === "reedSurge") return "lakeReed";
+      if (key === "storm" || eventType === "rainstorm") return "lakeStorm";
+      if (key === "rock" || eventType === "rockfall") return "lakeRock";
+      if (key === "fog" || eventType === "foggyMarsh") return "lakeFog";
+      return "objectiveSpawn";
     }
 
     startMusic() {

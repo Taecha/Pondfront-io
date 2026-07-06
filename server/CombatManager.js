@@ -14,15 +14,21 @@ const ATTACK_EFFICIENCY = combatConfig.attackEfficiency || 0.86;
 const WAVE_MAX_DURATION_SECONDS = combatConfig.waveMaxDurationSeconds || 12;
 const CONTEST_POWER_LOSS_RATIO = combatConfig.contestPowerLossRatio || 0.18;
 const CONTEST_WINNER_LOSS_RATIO = combatConfig.contestWinnerLossRatio || 0.45;
+const EXPANSION_TICK_SECONDS = balance.expansionWaveTickSeconds || 0.42;
+const EXPANSION_CAPTURE_LIMIT = balance.expansionWaveCaptureLimit || 3;
+const EXPANSION_MAX_DURATION_SECONDS = balance.expansionWaveMaxDurationSeconds || 14;
+const MAX_ACTIVE_EXPANSIONS_PER_PLAYER = balance.maxActiveExpansionsPerPlayer || 2;
 
 class CombatManager {
   constructor(tileManager, pushEvent) {
     this.tileManager = tileManager;
     this.pushEvent = pushEvent;
     this.activeAttacks = [];
+    this.activeExpansions = [];
     this.continuousAttacks = [];
     this.currentPushes = [];
     this.nextAttackId = 1;
+    this.nextExpansionId = 1;
     this.nextContinuousId = 1;
     this.nextCurrentPushId = 1;
     this.lastCombatDecayAt = 0;
@@ -32,6 +38,7 @@ class CombatManager {
     const now = game.now();
     game.players.forEach((player) => this.expireAbilityFlags(game, player, now));
     this.decayCombatState(game, now);
+    this.processExpansionWaves(game, now);
     this.processCurrentPushes(game, now);
     if (this.activeAttacks.length) this.activeAttacks = this.activeAttacks.filter((wave) => this.processWave(game, wave, now));
   }
@@ -103,6 +110,25 @@ class CombatManager {
     return waves.concat(orders, currents);
   }
 
+  expansionSnapshot() {
+    return this.activeExpansions.map((wave) => ({
+      id: wave.id,
+      playerId: wave.playerId,
+      startTileId: wave.startTileId,
+      sourceTile: wave.sourceTile,
+      targetStartTile: wave.startTileId,
+      sentEnergy: Math.round(wave.sentEnergy || wave.expansionBudget || 0),
+      expansionBudget: Math.round(wave.expansionBudget || 0),
+      remainingBudget: Math.round(wave.remainingBudget || 0),
+      frontierTiles: (wave.frontierTiles || []).slice(0, 34),
+      capturedTiles: (wave.capturedTiles || []).slice(-42),
+      weakenedTiles: (wave.weakenedTiles || []).slice(-24),
+      status: wave.status || "expanding",
+      createdAt: wave.createdAt,
+      lastTick: wave.lastTick,
+    }));
+  }
+
   expandOrAttack(game, player, tileId, percent, sourceIds = []) {
     const target = this.tileManager.getById(tileId);
     if (!player || player.defeated) return { ok: false, message: "You are defeated." };
@@ -120,77 +146,336 @@ class CombatManager {
     const reach = this.tileManager.reachInfo(player, target, sourceIds);
     if (!reach.reachable) return { ok: false, resultType: "tooFar", message: "Too far from border." };
 
-    const cost = this.neutralCaptureCost(game, player, target, reach);
-    const progress = target.captureProgress?.[player.id] || 0;
-    const remaining = Math.max(0, cost - progress);
-    const available = this.spendEnergy(player, percent);
-    if (available < 1 || player.energy < 1) {
+    const spend = this.spendEnergy(player, percent);
+    if (spend < 1 || player.energy < 1) {
       return { ok: false, resultType: "notEnoughEnergy", message: "Not enough Animal Energy. Send a higher percent or wait for income." };
     }
 
-    const spend = Math.min(available, remaining);
     player.energy -= spend;
     player.stats.energyUsed += spend;
-    target.captureProgress = target.captureProgress || {};
-    target.captureProgress[player.id] = Math.min(cost, progress + spend);
-    const currentProgress = target.captureProgress[player.id];
 
-    if (currentProgress >= cost) {
-      target.owner = player.id;
-      target.building = null;
-      target.buildingLevel = 0;
-      target.buildingActiveAt = 0;
-      target.captureProgress = {};
-      target.defenseEnergy = Math.min(14, Math.max(2, spend * 0.16));
-      target.lastChanged = now;
-      player.stats.tilesCaptured += 1;
-      this.pushEvent({
-        kind: "expand",
-        resultType: "expanded",
-        from: reach.source.id,
-        to: target.id,
-        amount: Math.round(spend),
-        cost,
-        progress: cost,
-        playerId: player.id,
-        at: now,
-      });
+    const mergeWave = this.activeExpansionForTarget(player.id, target.id);
+    const activeCount = this.activeExpansions.filter((wave) => wave.playerId === player.id && !wave.finished).length;
+    if (!mergeWave && activeCount >= MAX_ACTIVE_EXPANSIONS_PER_PLAYER) {
+      player.energy += spend;
+      player.stats.energyUsed = Math.max(0, player.stats.energyUsed - spend);
       return {
-        ok: true,
-        resultType: "expanded",
-        captured: true,
-        spentEnergy: Math.round(spend),
-        unusedEnergy: Math.round(Math.max(0, available - spend)),
-        cost,
-        progress: cost,
-        message: `Expanded: captured ${config.TILE_TYPES[target.type]?.label || "tile"} for ${Math.round(spend)} energy.`,
+        ok: false,
+        resultType: "tooManyExpansions",
+        message: `Too many active expansion waves (${activeCount}/${MAX_ACTIVE_EXPANSIONS_PER_PLAYER}). Wait for one to finish or send energy to the same front.`,
       };
     }
 
-    target.lastChanged = now;
+    const wave = mergeWave || {
+      id: `expand-${this.nextExpansionId}`,
+      playerId: player.id,
+      startTileId: target.id,
+      sourceTile: reach.source.id,
+      sentEnergy: 0,
+      expansionBudget: 0,
+      remainingBudget: 0,
+      frontierTiles: [target.id],
+      capturedTiles: [],
+      weakenedTiles: [],
+      distanceByTile: { [target.id]: 0 },
+      fromByTile: { [target.id]: reach.source.id },
+      status: "expanding",
+      createdAt: now,
+      lastTick: now - EXPANSION_TICK_SECONDS,
+      tickRate: EXPANSION_TICK_SECONDS,
+      maxDuration: EXPANSION_MAX_DURATION_SECONDS,
+    };
+    if (!mergeWave) {
+      this.nextExpansionId += 1;
+      this.activeExpansions.push(wave);
+    }
+    if (!wave.frontierTiles.includes(target.id)) wave.frontierTiles.push(target.id);
+    wave.distanceByTile[target.id] = Math.min(wave.distanceByTile[target.id] ?? Infinity, 0);
+    wave.fromByTile[target.id] = reach.source.id;
+    wave.sentEnergy += spend;
+    wave.expansionBudget += spend;
+    wave.remainingBudget += spend;
+    wave.status = mergeWave ? "reinforced" : "expanding";
+
     this.pushEvent({
-      kind: "expandProgress",
-      resultType: "partial",
+      kind: "expansionWaveStart",
+      waveId: wave.id,
+      merged: Boolean(mergeWave),
       from: reach.source.id,
       to: target.id,
       amount: Math.round(spend),
-      cost,
-      progress: Math.round(currentProgress),
+      sentEnergy: Math.round(spend),
+      expansionBudget: Math.round(wave.expansionBudget),
+      remainingBudget: Math.round(wave.remainingBudget),
       playerId: player.id,
+      status: wave.status,
       at: now,
+      message: `${mergeWave ? "Added" : "Committed"} ${Math.round(spend)} Animal Energy to expansion.`,
     });
+
+    const beforeCaptures = wave.capturedTiles.length;
+    const keepActive = this.processExpansionWave(game, wave, now, true);
+    if (!keepActive) this.activeExpansions = this.activeExpansions.filter((entry) => entry !== wave);
+    const capturedNow = wave.capturedTiles.length - beforeCaptures;
+    const targetCost = this.neutralCaptureCost(game, player, target, reach);
+    const targetProgress = target.captureProgress?.[player.id] || 0;
 
     return {
       ok: true,
-      resultType: "partial",
-      captured: false,
+      resultType: capturedNow > 0 ? "expansionWave" : "partial",
+      captured: capturedNow > 0,
+      waveId: wave.id,
+      active: keepActive,
+      capturedTiles: wave.capturedTiles.slice(),
       spentEnergy: Math.round(spend),
-      unusedEnergy: Math.round(Math.max(0, available - spend)),
-      cost,
-      progress: Math.round(currentProgress),
-      remaining: Math.round(Math.max(0, cost - currentProgress)),
-      message: `Expansion progress ${Math.round(currentProgress)}/${cost}. Send more energy to finish capture.`,
+      cost: targetCost,
+      progress: Math.round(targetProgress),
+      remaining: Math.round(Math.max(0, targetCost - targetProgress)),
+      message:
+        capturedNow > 0
+          ? `Expansion wave captured ${capturedNow} tile${capturedNow === 1 ? "" : "s"} and will keep moving while energy remains.`
+          : `Expansion wave started: ${Math.round(targetProgress)}/${targetCost} progress. Send more energy or wait for income.`,
     };
+  }
+
+  activeExpansionForTarget(playerId, tileId) {
+    return this.activeExpansions.find(
+      (wave) =>
+        !wave.finished &&
+        wave.playerId === playerId &&
+        (wave.startTileId === tileId || (wave.frontierTiles || []).includes(tileId) || (wave.capturedTiles || []).includes(tileId)),
+    );
+  }
+
+  processExpansionWaves(game, now) {
+    if (!this.activeExpansions.length) return;
+    this.activeExpansions = this.activeExpansions.filter((wave) => this.processExpansionWave(game, wave, now, false));
+  }
+
+  processExpansionWave(game, wave, now, force = false) {
+    if (wave.finished) return false;
+    if (!force && now - wave.lastTick < (wave.tickRate || EXPANSION_TICK_SECONDS)) return true;
+
+    const player = game.getPlayer(wave.playerId);
+    if (!player || player.defeated) {
+      this.finishExpansionWave(game, wave, "Expansion stopped: animal is gone.");
+      return false;
+    }
+    if (now - wave.createdAt >= (wave.maxDuration || EXPANSION_MAX_DURATION_SECONDS)) {
+      this.finishExpansionWave(game, wave, wave.capturedTiles.length ? "Expansion wave reached its limit." : "Expansion wave faded before capturing.");
+      return false;
+    }
+
+    let captured = 0;
+    let progressed = 0;
+    let changed = false;
+    const captureLimit = force ? 1 : EXPANSION_CAPTURE_LIMIT;
+
+    while (wave.remainingBudget > 0.5 && captured < captureLimit) {
+      const candidates = this.expansionWaveCandidates(game, wave, player);
+      if (!candidates.length) {
+        if (changed) break;
+        this.finishExpansionWave(game, wave, "Expansion wave has no connected neutral tiles.");
+        return false;
+      }
+
+      const candidate = candidates[0];
+      const tile = candidate.tile;
+      const reach = { source: candidate.source, jumped: Boolean(candidate.jumped) };
+      const cost = this.neutralCaptureCost(game, player, tile, reach);
+      const currentProgress = Number(tile.captureProgress?.[player.id] || 0);
+      const needed = Math.max(0, cost - currentProgress);
+      const spend = Math.min(wave.remainingBudget, needed);
+      if (spend <= 0.25 && needed > 0.25) break;
+
+      wave.remainingBudget = Math.max(0, wave.remainingBudget - spend);
+      if (currentProgress + spend >= cost - 0.01) {
+        this.captureExpansionTile(game, wave, player, candidate, spend, cost, now);
+        captured += 1;
+        changed = true;
+        continue;
+      }
+
+      const progress = currentProgress + spend;
+      tile.captureProgress = tile.captureProgress || {};
+      tile.captureProgress[player.id] = progress;
+      tile.lastChanged = now;
+      if (!wave.weakenedTiles.includes(tile.id)) wave.weakenedTiles.push(tile.id);
+      wave.status = "building";
+      changed = true;
+      progressed += 1;
+      this.pushEvent({
+        kind: "expandProgress",
+        resultType: "partial",
+        waveId: wave.id,
+        from: candidate.from,
+        to: tile.id,
+        amount: Math.round(spend),
+        cost,
+        progress: Math.round(progress),
+        playerId: player.id,
+        remainingBudget: Math.round(wave.remainingBudget),
+        at: now,
+      });
+      break;
+    }
+
+    wave.lastTick = now;
+    wave.frontierTiles = this.trimExpansionFrontier(wave, player.id);
+    if (captured > 0) {
+      wave.status = "expanding";
+      game.economy.recalculate(game.players, now, game);
+    } else if (progressed > 0) {
+      wave.status = "building";
+    }
+
+    if (wave.remainingBudget <= 0.5) {
+      this.finishExpansionWave(game, wave, captured > 0 ? `Expansion wave captured ${captured} tile${captured === 1 ? "" : "s"}.` : "Expansion wave spent.");
+      return false;
+    }
+    if (!this.expansionWaveCandidates(game, wave, player).length) {
+      this.finishExpansionWave(game, wave, "Expansion wave reached the edge of connected neutral water.");
+      return false;
+    }
+    if (!changed) {
+      this.finishExpansionWave(game, wave, "Expansion wave stalled.");
+      return false;
+    }
+    return true;
+  }
+
+  expansionWaveCandidates(game, wave, player) {
+    const seen = new Set();
+    const candidates = [];
+    const anchors = (wave.frontierTiles?.length ? wave.frontierTiles : [wave.startTileId])
+      .map((id) => this.tileManager.getById(id))
+      .filter(Boolean);
+
+    anchors.forEach((anchor) => {
+      if (!anchor.owner && anchor.id === wave.startTileId) {
+        this.addExpansionCandidate(game, wave, player, candidates, seen, anchor, wave.fromByTile?.[anchor.id] || wave.sourceTile, 0);
+        return;
+      }
+      if (anchor.owner !== player.id) return;
+      const nextDistance = (wave.distanceByTile?.[anchor.id] || 0) + 1;
+      anchor.neighbors.forEach((neighbor) => {
+        if (neighbor.owner || config.TILE_TYPES[neighbor.type].blocks) return;
+        this.addExpansionCandidate(game, wave, player, candidates, seen, neighbor, anchor.id, nextDistance);
+      });
+    });
+
+    return candidates.sort((a, b) => a.score - b.score);
+  }
+
+  addExpansionCandidate(game, wave, player, candidates, seen, tile, from, distance) {
+    if (!tile || tile.owner || config.TILE_TYPES[tile.type].blocks || seen.has(tile.id)) return;
+    const source = this.tileManager.getById(from) || this.tileManager.getById(wave.sourceTile);
+    if (!source) return;
+    seen.add(tile.id);
+    const playerEdges = tile.neighbors.filter((neighbor) => neighbor.owner === player.id).length;
+    const reach = { source, jumped: false };
+    const cost = this.neutralCaptureCost(game, player, tile, reach);
+    candidates.push({
+      tile,
+      source,
+      from: source.id,
+      distance,
+      playerEdges,
+      cost,
+      score: this.expansionTileScore(game, wave, player, tile, cost, distance, playerEdges),
+    });
+  }
+
+  expansionTileScore(game, wave, player, tile, cost, distance, playerEdges) {
+    const start = this.tileManager.getById(wave.startTileId);
+    const startDistance = start ? Math.abs(start.x - tile.x) + Math.abs(start.y - tile.y) : distance;
+    const progress = tile.captureProgress?.[player.id] ? -5 : 0;
+    const startBias = tile.id === wave.startTileId ? -12 : 0;
+    const edgeBonus = -playerEdges * 1.7;
+    const rangePenalty = startDistance * 0.55 + distance * 0.35;
+    let animalBias = 0;
+    if (player.animal === "duck" && tile.type === "water") animalBias -= 2.4;
+    if (player.animal === "duck" && tile.type === "reeds") animalBias += 2.2;
+    if (player.animal === "snake" && tile.type === "water") animalBias += 2.6;
+    if (player.animal === "snake" && (tile.type === "reeds" || tile.type === "mud")) animalBias -= 2.5;
+    if (player.animal === "frog" && tile.type === "lily") animalBias -= 2.1;
+    return cost + rangePenalty + animalBias + edgeBonus + progress + startBias + Math.random() * 0.08;
+  }
+
+  trimExpansionFrontier(wave, playerId) {
+    const ids = new Set([...(wave.frontierTiles || []), ...(wave.capturedTiles || []).slice(-28)]);
+    const frontier = [];
+    ids.forEach((id) => {
+      const tile = this.tileManager.getById(id);
+      if (!tile) return;
+      if (!tile.owner && id === wave.startTileId) {
+        frontier.push(id);
+        return;
+      }
+      if (tile.owner !== playerId) return;
+      if (tile.neighbors.some((neighbor) => !neighbor.owner && !config.TILE_TYPES[neighbor.type].blocks)) frontier.push(id);
+    });
+    return frontier.slice(-80);
+  }
+
+  captureExpansionTile(game, wave, player, candidate, spend, cost, now) {
+    const tile = candidate.tile;
+    wave.remainingBudget = Math.max(0, wave.remainingBudget);
+    tile.owner = player.id;
+    tile.building = null;
+    tile.buildingLevel = 0;
+    tile.buildingActiveAt = 0;
+    tile.captureProgress = {};
+    tile.defenseEnergy = Math.min(14, Math.max(2, spend * 0.14));
+    tile.lastChanged = now;
+    player.stats.tilesCaptured += 1;
+    player.stats.bestExpansionWave = Math.max(player.stats.bestExpansionWave || 0, wave.capturedTiles.length + 1);
+    wave.capturedTiles.push(tile.id);
+    wave.distanceByTile[tile.id] = candidate.distance;
+    wave.fromByTile[tile.id] = candidate.from;
+    if (!wave.frontierTiles.includes(tile.id)) wave.frontierTiles.push(tile.id);
+
+    this.pushEvent({
+      kind: "expand",
+      resultType: "expanded",
+      waveId: wave.id,
+      from: candidate.from,
+      to: tile.id,
+      amount: Math.round(spend),
+      cost,
+      progress: cost,
+      playerId: player.id,
+      remainingBudget: Math.round(wave.remainingBudget),
+      at: now,
+    });
+    this.pushEvent({
+      kind: "expansionWaveCapture",
+      waveId: wave.id,
+      from: candidate.from,
+      to: tile.id,
+      amount: Math.round(spend),
+      cost,
+      playerId: player.id,
+      captured: wave.capturedTiles.length,
+      remainingBudget: Math.round(wave.remainingBudget),
+      at: now,
+    });
+  }
+
+  finishExpansionWave(game, wave, message = "Expansion wave spent.") {
+    if (wave.finished) return;
+    wave.finished = true;
+    wave.status = "finished";
+    this.pushEvent({
+      kind: "expansionWaveEnd",
+      waveId: wave.id,
+      playerId: wave.playerId,
+      to: wave.capturedTiles.slice(-1)[0] || wave.startTileId,
+      captured: wave.capturedTiles.length,
+      remainingBudget: Math.round(wave.remainingBudget || 0),
+      message,
+      at: game.now(),
+    });
   }
 
   startWaveAttack(game, player, defender, target, percent, sourceIds = [], options = {}) {
@@ -1121,6 +1406,11 @@ class CombatManager {
       if (game.now() < (defender.flags?.campDefenseUntil || 0)) cost += balance.campDefenseBonus || 4;
       if (defender.flags?.lastNestProtection && this.nearCore(defender, tile)) cost += balance.lastNestProtectionDefense || 18;
       cost += game.core?.defenseBonus(defender, tile, game.now()) || 0;
+      const defenderTerritoryPct = this.territoryPct(game, defender);
+      if (defenderTerritoryPct > (balance.empireDefenseSoftTerritoryPct || 0.22)) {
+        const over = defenderTerritoryPct - (balance.empireDefenseSoftTerritoryPct || 0.22);
+        cost *= 1 - Math.min(balance.empireDefenseMaxPenalty || 0.1, over * 0.32);
+      }
     }
 
     if (attacker.animal === "duck" && tile.type === "water") cost *= 0.86;
@@ -1522,6 +1812,8 @@ class CombatManager {
     const core = player.coreTileId != null ? this.tileManager.getById(player.coreTileId) : null;
     const distanceFromCore = core ? Math.abs(core.x - target.x) + Math.abs(core.y - target.y) : 0;
     const nearbyEnemyBorders = target.neighbors.filter((neighbor) => neighbor.owner && neighbor.owner !== player.id).length;
+    const territoryPct = this.territoryPct(game, player);
+    const comebackThreshold = balance.comebackTerritoryPct || 0.08;
     return config.getNeutralTileExpansionCost(target.type, player.animal, {
       jumped: Boolean(reach.jumped),
       flockRush: player.animal === "duck" && game.now() < player.abilityActiveUntil,
@@ -1534,7 +1826,8 @@ class CombatManager {
       specialCostBonus: game.objectives?.tileCostBonus(target) || 0,
       rainstorm: game.eventsManager?.isActive("rainstorm"),
       evolved: (player.level || 1) >= 5,
-      comebackCore: this.nearCore(player, target) && this.territoryPct(game, player) < (balance.recoveryTerritoryPct || 0.06),
+      comebackCore: this.nearCore(player, target) && territoryPct < comebackThreshold,
+      comebackSmall: target.neighbors.some((neighbor) => neighbor.owner === player.id) && territoryPct < comebackThreshold,
     });
   }
 

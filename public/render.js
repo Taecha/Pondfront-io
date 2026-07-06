@@ -11,6 +11,10 @@
       this.camera = { x: 0, y: 0, zoom: 1 };
       this.eventAnims = [];
       this.ownerTransitions = new Map();
+      this.pendingActions = new Map();
+      this.lastMiniMapDrawAt = 0;
+      this.miniMapDirty = true;
+      this.lastVisibleTileCount = 0;
       this.vfx = root.PondVFX ? new root.PondVFX(this) : null;
       this.fitted = false;
       this.resize();
@@ -27,6 +31,7 @@
       this.miniMap.width = Math.max(1, Math.floor(mini.width * this.dpr));
       this.miniMap.height = Math.max(1, Math.floor(mini.height * this.dpr));
       this.miniCtx.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
+      this.miniMapDirty = true;
       if (this.state) this.fit(false);
     }
 
@@ -36,6 +41,7 @@
       this.state = state;
       this.tileMap = new Map(state.tiles.map((tile) => [tile.id, tile]));
       this.playerMap = new Map(state.players.map((player) => [player.id, player]));
+      this.miniMapDirty = true;
       if (!this.fitted) this.fit(true);
       if (oldOwners) {
         state.tiles.forEach((tile) => {
@@ -48,6 +54,16 @@
           }
         });
       }
+    }
+
+    setPendingAction(action) {
+      if (!action?.id || action.tileId == null) return;
+      this.pendingActions.set(action.id, { ...action, atMs: performance.now() });
+    }
+
+    clearPendingAction(actionId) {
+      if (actionId == null) return;
+      this.pendingActions.delete(actionId);
     }
 
     fit(force = false) {
@@ -74,9 +90,13 @@
             "waveContested",
             "expand",
             "expandProgress",
+            "expansionWaveStart",
+            "expansionWaveCapture",
+            "expansionWaveEnd",
             "defend",
             "ability",
             "abilityUsed",
+            "lastStand",
             "objectiveAppeared",
             "objectiveCaptured",
             "campCaptured",
@@ -90,6 +110,9 @@
             "specialLaunch",
             "specialDefense",
             "specialImpact",
+            "lakeEventWarning",
+            "lakeEventStarted",
+            "lakeEventEnded",
           ].includes(event.kind)
         ) {
           this.eventAnims.push({ ...event, atMs: now });
@@ -207,7 +230,7 @@
       const shake = this.vfx?.shakeOffset?.(performance.now()) || { x: 0, y: 0 };
       ctx.save();
       ctx.translate(shake.x, shake.y);
-      this.drawWater(ctx, rect);
+      this.drawWater(ctx, rect, drawOptions);
       if (this.state) {
         this.drawMap(ctx, drawOptions);
         this.drawEvents(ctx, drawOptions);
@@ -221,7 +244,7 @@
       const effects = { ...(options.effects || {}) };
       const mobile = Boolean(options.isMobile);
       const autoStrategic = Boolean(options.autoStrategicView) && this.camera.zoom < (mobile ? 0.78 : 0.48);
-      const lowPower = Boolean(effects.autoLowPerformance) && (mobile || this.camera.zoom < 0.5);
+      const lowPower = Boolean(effects.autoLowPerformance) && (options.performanceLow || mobile || this.camera.zoom < 0.5);
       let visualQuality = options.visualQuality || "high";
       const next = {
         ...options,
@@ -254,7 +277,7 @@
       return next;
     }
 
-    drawWater(ctx, rect) {
+    drawWater(ctx, rect, options = {}) {
       const gradient = ctx.createLinearGradient(0, 0, rect.width, rect.height);
       gradient.addColorStop(0, "#061724");
       gradient.addColorStop(0.42, "#123f52");
@@ -263,13 +286,14 @@
       ctx.fillStyle = gradient;
       ctx.fillRect(0, 0, rect.width, rect.height);
       const now = performance.now();
+      const lowPower = options.visualQuality === "low" || options.effects?.level === "low" || options.effects?.reducedMotion;
       ctx.save();
       ctx.globalAlpha = 0.08;
       ctx.strokeStyle = "#b8edf5";
       ctx.lineWidth = 1;
-      for (let y = -24; y < rect.height + 42; y += 34) {
+      for (let y = -24; y < rect.height + 42; y += lowPower ? 58 : 34) {
         ctx.beginPath();
-        for (let x = -34; x <= rect.width + 34; x += 22) {
+        for (let x = -34; x <= rect.width + 34; x += lowPower ? 40 : 22) {
           const drift = now * 0.018 + y * 0.7;
           ctx.lineTo(x, y + Math.sin((x + drift) * 0.026) * 2.2);
         }
@@ -278,7 +302,7 @@
       ctx.globalAlpha = 0.05;
       ctx.strokeStyle = "#5ec9dc";
       ctx.lineWidth = 1.4;
-      for (let i = 0; i < 16; i += 1) {
+      for (let i = 0; i < (lowPower ? 5 : 16); i += 1) {
         const y = (i * 71 + now * 0.009) % (rect.height + 90) - 45;
         const xOffset = ((i * 113 + now * 0.014) % 180) - 90;
         ctx.beginPath();
@@ -299,13 +323,40 @@
     }
 
     drawLakeEventOverlay(ctx, rect) {
-      const event = this.state?.lakeEvent?.active;
+      const event = this.state?.lakeEvent?.active || this.state?.lakeEvent?.upcoming;
       if (!event) return;
       ctx.save();
-      const pulse = 0.5 + Math.sin(performance.now() * 0.004) * 0.5;
-      ctx.globalAlpha = 0.05 + pulse * 0.025;
+      const now = performance.now();
+      const pulse = 0.5 + Math.sin(now * 0.004) * 0.5;
+      const warning = Boolean(!this.state?.lakeEvent?.active && this.state?.lakeEvent?.upcoming);
+      const visual = event.visual || event.type;
+      ctx.globalAlpha = warning ? 0.035 + pulse * 0.02 : 0.05 + pulse * 0.025;
       ctx.fillStyle = event.color || "#83dced";
       ctx.fillRect(0, 0, rect.width, rect.height);
+      if (visual === "storm") {
+        const lines = warning ? 10 : 18;
+        ctx.globalAlpha = warning ? 0.12 : 0.18;
+        ctx.strokeStyle = "rgba(210,245,255,0.62)";
+        ctx.lineWidth = 1;
+        for (let i = 0; i < lines; i += 1) {
+          const x = (i * 91 + now * 0.025) % (rect.width + 120) - 60;
+          const y = (i * 57 + now * 0.08) % (rect.height + 90) - 45;
+          ctx.beginPath();
+          ctx.moveTo(x, y);
+          ctx.lineTo(x + 9, y + 24);
+          ctx.stroke();
+        }
+      } else if (visual === "fog") {
+        ctx.globalAlpha = warning ? 0.09 : 0.16;
+        ctx.fillStyle = "rgba(218,240,245,0.56)";
+        for (let i = 0; i < 6; i += 1) {
+          const x = ((i * 211 + now * 0.014) % (rect.width + 220)) - 110;
+          const y = rect.height * (0.18 + i * 0.12);
+          ctx.beginPath();
+          ctx.ellipse(x, y + Math.sin(now * 0.001 + i) * 12, 160, 18, 0.04, 0, Math.PI * 2);
+          ctx.fill();
+        }
+      }
       ctx.restore();
     }
 
@@ -339,6 +390,7 @@
       this.drawRegionUnderlays(ctx);
       const visibleTiles = this.visibleTiles(1);
       visibleTiles.forEach((tile) => this.drawTile(ctx, tile, options));
+      this.drawLakeEventArea(ctx, visibleTiles, options);
       this.drawMapDecorations(ctx, visibleTiles, options);
       visibleTiles.forEach((tile) => this.drawBorders(ctx, tile));
       this.drawLocalGlow(ctx);
@@ -347,8 +399,10 @@
       this.drawBorderStatus(ctx, visibleTiles, options);
       this.drawSpecialMarkers(ctx);
       this.drawLegalHints(ctx, options);
+      this.drawPendingActions(ctx);
       this.drawPreview(ctx, options);
       this.drawSelection(ctx, options);
+      this.drawActiveExpansions(ctx);
       this.drawActiveAttacks(ctx);
       this.drawSpecialOverlays(ctx);
       this.vfx?.draw(ctx);
@@ -378,7 +432,141 @@
           if (tile) tiles.push(tile);
         }
       }
+      this.lastVisibleTileCount = tiles.length;
       return tiles;
+    }
+
+    drawLakeEventArea(ctx, visibleTiles, options = {}) {
+      const lakeEvent = this.state?.lakeEvent;
+      const active = lakeEvent?.active;
+      const upcoming = !active ? lakeEvent?.upcoming : null;
+      const event = active || upcoming;
+      if (!event) return;
+      const definition = this.state.config?.lakeEvents?.[event.type] || {};
+      const visual = event.visual || definition.visual || event.type;
+      const color = event.color || definition.color || "#83dced";
+      const warning = Boolean(upcoming);
+      const tileSet = new Set(event.area?.tileIds || []);
+      const preferred = new Set(definition.tileTypes || []);
+      const now = performance.now();
+      const pulse = 0.5 + Math.sin(now * 0.006) * 0.5;
+      const maxTiles = options.isMobile ? 130 : options.visualQuality === "low" ? 150 : 260;
+      const affected = visibleTiles.filter((tile) => this.lakeEventAffectsTile(tile, tileSet, preferred)).slice(0, maxTiles);
+      if (!affected.length) return;
+      const s = this.baseTile * this.camera.zoom;
+      if (s < 3.2) return;
+      ctx.save();
+      affected.forEach((tile, index) => {
+        const p = this.tileCenter(tile);
+        const seed = tile.id * 0.618;
+        const localPulse = 0.5 + Math.sin(now * 0.005 + seed) * 0.5;
+        const inset = Math.max(0.6, s * 0.08);
+        ctx.save();
+        ctx.globalAlpha = warning ? 0.14 + localPulse * 0.06 : 0.16 + localPulse * 0.12;
+        ctx.fillStyle = this.withAlpha(color, visual === "fog" ? 0.22 : 0.34);
+        if (warning) {
+          ctx.strokeStyle = this.withAlpha(color, 0.82);
+          ctx.lineWidth = Math.max(1, s * 0.045);
+          ctx.setLineDash([Math.max(3, s * 0.18), Math.max(2, s * 0.12)]);
+          this.roundRect(ctx, p.x - s * 0.5 + inset, p.y - s * 0.5 + inset, s - inset * 2, s - inset * 2, Math.max(2, s * 0.14));
+          ctx.stroke();
+          ctx.setLineDash([]);
+        } else {
+          this.roundRect(ctx, p.x - s * 0.5 + inset, p.y - s * 0.5 + inset, s - inset * 2, s - inset * 2, Math.max(2, s * 0.12));
+          ctx.fill();
+        }
+        ctx.globalAlpha = warning ? 0.42 : 0.56;
+        ctx.strokeStyle = this.withAlpha(color, 0.9);
+        ctx.fillStyle = this.withAlpha(color, 0.58);
+        ctx.lineWidth = Math.max(1, s * 0.035);
+        if (visual === "mud") {
+          for (let i = 0; i < 2; i += 1) {
+            const y = p.y - s * 0.16 + i * s * 0.28;
+            ctx.beginPath();
+            ctx.moveTo(p.x - s * 0.38, y);
+            ctx.quadraticCurveTo(p.x, y + Math.sin(now * 0.008 + seed + i) * s * 0.12, p.x + s * 0.38, y + s * 0.04);
+            ctx.stroke();
+          }
+        } else if (visual === "flood" || visual === "current" || visual === "storm") {
+          const dir = event.area?.direction || "east";
+          const angle = dir === "north" ? -Math.PI / 2 : dir === "south" ? Math.PI / 2 : dir === "west" ? Math.PI : 0;
+          const drift = ((now * 0.006 + index * 0.23) % 1 - 0.5) * s * 0.44;
+          ctx.beginPath();
+          ctx.moveTo(p.x - Math.cos(angle) * s * 0.32 - Math.sin(angle) * drift, p.y - Math.sin(angle) * s * 0.32 + Math.cos(angle) * drift);
+          ctx.lineTo(p.x + Math.cos(angle) * s * 0.32 - Math.sin(angle) * drift, p.y + Math.sin(angle) * s * 0.32 + Math.cos(angle) * drift);
+          ctx.stroke();
+          ctx.beginPath();
+          ctx.arc(p.x + Math.cos(angle) * s * 0.34 - Math.sin(angle) * drift, p.y + Math.sin(angle) * s * 0.34 + Math.cos(angle) * drift, Math.max(1.4, s * 0.045), 0, Math.PI * 2);
+          ctx.fill();
+        } else if (visual === "lily") {
+          ctx.beginPath();
+          ctx.ellipse(p.x, p.y, s * (0.22 + pulse * 0.04), s * 0.1, seed, 0, Math.PI * 2);
+          ctx.fill();
+          ctx.beginPath();
+          ctx.arc(p.x + s * 0.18, p.y - s * 0.12, Math.max(1.4, s * 0.035), 0, Math.PI * 2);
+          ctx.fill();
+        } else if (visual === "reed") {
+          for (let i = -1; i <= 1; i += 1) {
+            const x = p.x + i * s * 0.18;
+            ctx.beginPath();
+            ctx.moveTo(x, p.y + s * 0.35);
+            ctx.quadraticCurveTo(x + Math.sin(now * 0.006 + seed + i) * s * 0.14, p.y, x + s * 0.08, p.y - s * 0.36);
+            ctx.stroke();
+          }
+        } else if (visual === "rock") {
+          ctx.beginPath();
+          ctx.moveTo(p.x - s * 0.28, p.y - s * 0.08);
+          ctx.lineTo(p.x - s * 0.04, p.y + s * 0.05);
+          ctx.lineTo(p.x + s * 0.12, p.y - s * 0.18);
+          ctx.lineTo(p.x + s * 0.32, p.y + s * 0.12);
+          ctx.stroke();
+        } else if (visual === "fog") {
+          ctx.globalAlpha = warning ? 0.2 : 0.3;
+          ctx.beginPath();
+          ctx.ellipse(p.x + Math.sin(now * 0.002 + seed) * s * 0.12, p.y, s * 0.42, s * 0.16, 0.08, 0, Math.PI * 2);
+          ctx.fill();
+        } else if (visual === "migration") {
+          ctx.beginPath();
+          ctx.arc(p.x, p.y, s * (0.16 + localPulse * 0.08), 0, Math.PI * 2);
+          ctx.fill();
+        }
+        ctx.restore();
+      });
+      ctx.restore();
+    }
+
+    lakeEventAffectsTile(tile, tileSet, preferred) {
+      if (!tile) return false;
+      if (tileSet.size) return tileSet.has(tile.id);
+      if (preferred.size) return preferred.has(tile.type);
+      return false;
+    }
+
+    drawPendingActions(ctx) {
+      if (!this.pendingActions.size) return;
+      const now = performance.now();
+      const s = this.baseTile * this.camera.zoom;
+      ctx.save();
+      this.pendingActions.forEach((action) => {
+        const tile = this.tileMap.get(action.tileId);
+        if (!tile) return;
+        const p = this.tileCenter(tile);
+        const age = now - action.atMs;
+        const pulse = 0.5 + Math.sin(age * 0.012) * 0.5;
+        const color = action.color || (action.type === "attack" ? "#f2d87a" : action.type === "defend" ? "#87d7ea" : "#77d99e");
+        ctx.globalAlpha = 0.22 + pulse * 0.16;
+        ctx.fillStyle = color;
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, Math.max(5, s * (0.34 + pulse * 0.06)), 0, Math.PI * 2);
+        ctx.fill();
+        ctx.globalAlpha = 0.78;
+        ctx.strokeStyle = color;
+        ctx.lineWidth = Math.max(1.4, 2.2 * this.camera.zoom);
+        ctx.setLineDash([Math.max(4, s * 0.18), Math.max(3, s * 0.1)]);
+        ctx.strokeRect(p.x - s * 0.43, p.y - s * 0.43, s * 0.86, s * 0.86);
+        ctx.setLineDash([]);
+      });
+      ctx.restore();
     }
 
     drawRegionUnderlays(ctx) {
@@ -1188,6 +1376,64 @@
       if (options.selectedTileId != null) draw(options.selectedTileId, "#f2d87a", 0.1);
       if (options.hoverTileId != null) draw(options.hoverTileId, "#9ee7f4", 0.065);
       ctx.restore();
+    }
+
+    drawActiveExpansions(ctx) {
+      const expansions = this.state.activeExpansions || [];
+      if (!expansions.length) return;
+      const now = performance.now();
+      const pulse = 0.5 + Math.sin(now * 0.011) * 0.5;
+      const size = this.baseTile * this.camera.zoom;
+
+      expansions.forEach((wave) => {
+        const player = this.playerMap.get(wave.playerId);
+        if (!player) return;
+        const color = player.color || "#77d99e";
+        const source = this.tileMap.get(wave.sourceTile);
+        const target = this.tileMap.get(wave.targetStartTile || wave.startTileId);
+        if (source && target) {
+          const from = this.tileCenter(source);
+          const to = this.tileCenter(target);
+          const label =
+            wave.status === "building"
+              ? "Growing"
+              : wave.status === "reinforced"
+                ? "More"
+                : `${Math.max(0, Math.round(wave.remainingBudget || 0))}`;
+          this.drawStrategicFlow(ctx, from, to, color, now, 0.45 + pulse * 0.22, label);
+        }
+
+        (wave.capturedTiles || []).slice(-16).forEach((id, index) => {
+          const tile = this.tileMap.get(id);
+          if (!tile) return;
+          const p = this.worldToScreen(tile.x * this.baseTile, tile.y * this.baseTile);
+          ctx.save();
+          ctx.globalAlpha = Math.max(0.04, 0.15 - index * 0.006);
+          ctx.fillStyle = color;
+          this.roundRect(ctx, p.x + 2, p.y + 2, size - 4, size - 4, Math.max(3, size * 0.12));
+          ctx.fill();
+          ctx.restore();
+        });
+
+        (wave.frontierTiles || []).slice(-22).forEach((id) => {
+          const tile = this.tileMap.get(id);
+          if (!tile) return;
+          const center = this.tileCenter(tile);
+          ctx.save();
+          ctx.globalAlpha = 0.32 + pulse * 0.28;
+          ctx.strokeStyle = color;
+          ctx.lineWidth = Math.max(2, size * 0.055);
+          ctx.beginPath();
+          ctx.arc(center.x, center.y, size * (0.28 + pulse * 0.12), 0, Math.PI * 2);
+          ctx.stroke();
+          ctx.globalAlpha = 0.12 + pulse * 0.08;
+          ctx.fillStyle = color;
+          ctx.beginPath();
+          ctx.arc(center.x, center.y, size * (0.18 + pulse * 0.08), 0, Math.PI * 2);
+          ctx.fill();
+          ctx.restore();
+        });
+      });
     }
 
     drawActiveAttacks(ctx) {
@@ -2020,6 +2266,11 @@
 
     drawMiniMap(options) {
       if (!this.state) return;
+      const now = performance.now();
+      const interval = options.isMobile ? 360 : 240;
+      if (!this.miniMapDirty && now - this.lastMiniMapDrawAt < interval) return;
+      this.lastMiniMapDrawAt = now;
+      this.miniMapDirty = false;
       const ctx = this.miniCtx;
       const rect = this.miniMap.getBoundingClientRect();
       const cellW = rect.width / this.state.cols;
@@ -2039,6 +2290,7 @@
       });
       ctx.globalAlpha = 1;
       this.drawMiniObjectives(ctx, cellW, cellH);
+      this.drawMiniLakeEvent(ctx, cellW, cellH, options);
       this.drawMiniAnimalMarkers(ctx, cellW, cellH, options);
       this.drawMiniPings(ctx, cellW, cellH);
       const humanTiles = this.state.tiles.filter((tile) => tile.owner === this.state.humanId);
@@ -2102,19 +2354,76 @@
       ctx.restore();
     }
 
+    drawMiniLakeEvent(ctx, cellW, cellH, options = {}) {
+      const active = this.state.lakeEvent?.active;
+      const upcoming = !active ? this.state.lakeEvent?.upcoming : null;
+      const event = active || upcoming;
+      if (!event) return;
+      const definition = this.state.config?.lakeEvents?.[event.type] || {};
+      const color = event.color || definition.color || "#83dced";
+      const visual = event.visual || definition.visual || event.type;
+      const warning = Boolean(upcoming);
+      const now = performance.now();
+      const t = 0.5 + Math.sin(now * 0.006) * 0.5;
+      const tileIds = new Set(event.area?.tileIds || []);
+      const preferred = new Set(definition.tileTypes || []);
+      const maxTiles = options.isMobile ? 70 : 120;
+      const tiles = this.state.tiles.filter((tile) => this.lakeEventAffectsTile(tile, tileIds, preferred)).slice(0, maxTiles);
+      if (!tiles.length) return;
+      ctx.save();
+      ctx.fillStyle = color;
+      ctx.strokeStyle = color;
+      ctx.globalAlpha = warning ? 0.26 + t * 0.14 : 0.34 + t * 0.16;
+      tiles.forEach((tile) => {
+        ctx.fillRect(tile.x * cellW, tile.y * cellH, Math.max(1, cellW), Math.max(1, cellH));
+      });
+      const focus = this.tileMap.get(event.area?.focusTile) || tiles[Math.floor(tiles.length / 2)];
+      if (focus) {
+        const x = (focus.x + 0.5) * cellW;
+        const y = (focus.y + 0.5) * cellH;
+        ctx.globalAlpha = 0.95;
+        ctx.lineWidth = warning ? 1.8 : 1.35;
+        if (warning) ctx.setLineDash([4, 3]);
+        ctx.beginPath();
+        ctx.arc(x, y, 5 + t * (warning ? 9 : 6), 0, Math.PI * 2);
+        ctx.stroke();
+        ctx.setLineDash([]);
+        if (visual === "flood" || visual === "current") {
+          const dir = event.area?.direction || "east";
+          const dx = dir === "west" ? -1 : dir === "east" ? 1 : 0;
+          const dy = dir === "north" ? -1 : dir === "south" ? 1 : 0;
+          ctx.beginPath();
+          ctx.moveTo(x - dx * 10, y - dy * 10);
+          ctx.lineTo(x + dx * 10, y + dy * 10);
+          ctx.stroke();
+          ctx.beginPath();
+          ctx.arc(x + dx * 10, y + dy * 10, 2.2, 0, Math.PI * 2);
+          ctx.fill();
+        }
+      }
+      ctx.restore();
+    }
+
     drawMiniAttacks(ctx, cellW, cellH, options) {
       if (!options.effects?.attackArrows) return;
       const attacks = this.state.activeAttacks || [];
-      if (!attacks.length) return;
+      const expansions = (this.state.activeExpansions || []).map((wave) => ({
+        sourceTile: wave.sourceTile,
+        targetStartTile: wave.targetStartTile || wave.startTileId,
+        attackerId: wave.playerId,
+        expansion: true,
+      }));
+      const flows = attacks.concat(expansions);
+      if (!flows.length) return;
       ctx.save();
       ctx.lineWidth = 1.4;
-      attacks.slice(-8).forEach((wave) => {
+      flows.slice(-10).forEach((wave) => {
         const from = this.tileMap.get(wave.sourceTile);
         const to = this.tileMap.get(wave.targetStartTile);
         const player = this.playerMap.get(wave.attackerId);
         if (!from || !to || !player) return;
         ctx.strokeStyle = player.color;
-        ctx.globalAlpha = 0.76;
+        ctx.globalAlpha = wave.expansion ? 0.48 : 0.76;
         ctx.beginPath();
         ctx.moveTo((from.x + 0.5) * cellW, (from.y + 0.5) * cellH);
         ctx.lineTo((to.x + 0.5) * cellW, (to.y + 0.5) * cellH);

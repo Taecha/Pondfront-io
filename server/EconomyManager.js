@@ -104,6 +104,13 @@ class EconomyManager {
       if (territoryPct < balance.recoveryTerritoryPct && player.territory > 0) {
         player.incomeBreakdown.recovery += balance.recoveryIncomeMax * (1 - territoryPct / balance.recoveryTerritoryPct);
       }
+      const comebackActive = territoryPct < (balance.comebackTerritoryPct || 0.08) && player.territory > 0;
+      player.flags.comebackActive = comebackActive;
+      if (comebackActive) {
+        player.incomeBreakdown.recovery += balance.comebackIncomeBonus || 0.22;
+        const core = player.coreTileId != null ? this.tileManager.getById(player.coreTileId) : null;
+        if (core?.owner === player.id) core.defenseEnergy = Math.max(core.defenseEnergy || 0, balance.coreDefenseEnergy || 50);
+      }
       game?.core?.applyEconomy(player);
       if (player.animal === "duck" && player.abilityActiveUntil > now) player.incomeBreakdown.temporary += 0.25;
       if (player.animal === "carp" && player.abilityActiveUntil > now) {
@@ -111,6 +118,9 @@ class EconomyManager {
         player.incomeBreakdown.temporary += current * (balance.goldenCurrentIncomeMultiplier || 0.3);
       }
       if (now < (player.flags?.campIncomeUntil || 0)) player.incomeBreakdown.temporary += balance.campIncomeBonus || 1.25;
+      if (now < (player.flags?.lastStandUntil || 0)) {
+        player.incomeBreakdown.recovery += balance.lastStandIncomeBonus || 0.55;
+      }
       if (territoryPct < (balance.lastNestProtectionTerritoryPct || 0.035) && player.territory > 0) {
         player.flags.lastNestProtection = true;
         player.incomeBreakdown.recovery += 0.35;
@@ -120,6 +130,7 @@ class EconomyManager {
         player.flags.lastNestProtection = false;
       }
       player.income = Object.values(player.incomeBreakdown).reduce((sum, value) => sum + value, 0);
+      if (comebackActive) player.income = Math.max(player.income, balance.comebackIncomeFloor || 1.55);
       if (player.income > balance.empireIncomeSoftCap) {
         player.income =
           balance.empireIncomeSoftCap + (player.income - balance.empireIncomeSoftCap) * (1 - balance.empireIncomeDamping);
