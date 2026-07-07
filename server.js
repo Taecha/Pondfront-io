@@ -1223,13 +1223,168 @@ function createLobbyMatch({ animal, difficulty, settings }) {
 }
 
 function actionResponse(match, body, viewerId) {
+  const serverReceivedTime = Date.now();
+  const beforeEventId = match.eventId;
   const result = match.handleAction(body);
   match.objectives.update(match);
   match.economy.completeBuildings(match.now(), match);
   match.economy.recalculate(match.players, match.now(), match);
   match.missions.update(match);
   if (result.message) match.pushEvent({ kind: "notice", message: result.message, ok: result.ok, at: match.now() });
+  const processedAt = Date.now();
+  const events = match.events.filter((event) => event.id >= beforeEventId);
+  const serverProcessMs = processedAt - serverReceivedTime;
+  if (body.latencyDebug || process.env.NODE_ENV === "development") {
+    console.log(
+      `[EXPAND SERVER] actionId=${body.clientActionId || "-"} playerId=${body.playerId || viewerId || "-"} receivedAt=${serverReceivedTime} processedAt=${processedAt} processMs=${serverProcessMs} changedTiles=${collectChangedTileIds(match, body, result, events).size}`,
+    );
+  }
+  if (body.responseMode === "delta") {
+    return {
+      result,
+      delta: actionDelta(match, body, result, events, {
+        serverReceivedTime,
+        processedAt,
+        serverProcessMs,
+      }),
+    };
+  }
   return { result, state: match.snapshot(viewerId) };
+}
+
+function actionPayload(response) {
+  const delta = response.delta || null;
+  return {
+    ...response.result,
+    clientActionId: delta?.actionId || null,
+    serverReceivedTime: delta?.serverReceivedTime || null,
+    serverProcessMs: delta?.serverProcessMs || 0,
+    changedTiles: delta?.changedTiles || undefined,
+    delta,
+    state: response.state,
+  };
+}
+
+function actionDelta(match, body, result, events, timing) {
+  const changedTileIds = collectChangedTileIds(match, body, result, events);
+  const playerIds = collectChangedPlayerIds(body, result, events);
+  return {
+    actionId: body.clientActionId || null,
+    type: body.type || "",
+    ok: Boolean(result.ok),
+    message: result.message || "",
+    serverReceivedTime: timing.serverReceivedTime,
+    processedAt: timing.processedAt,
+    serverProcessMs: timing.serverProcessMs,
+    serverTime: match.now(),
+    changedTiles: [...changedTileIds].map((id) => tileDelta(match, id)).filter(Boolean),
+    players: [...playerIds].map((id) => playerDelta(match.getPlayer(id))).filter(Boolean),
+    activeAttacks: match.combat.snapshot(match.now()),
+    activeExpansions: match.combat.expansionSnapshot(),
+    specials: match.specials?.snapshot(match.now()) || { pending: [], zones: [] },
+    metrics: {
+      lastTickMs: match.metrics?.lastTickMs || 0,
+      lastBotThinkMs: match.metrics?.lastBotThinkMs || 0,
+      lastBotThinkers: match.metrics?.lastBotThinkers || 0,
+    },
+    events,
+  };
+}
+
+function collectChangedTileIds(match, body, result, events = []) {
+  const ids = new Set();
+  const add = (value) => {
+    if (value == null) return;
+    const number = Number(value);
+    if (Number.isFinite(number)) ids.add(number);
+  };
+  const addMany = (values) => {
+    if (Array.isArray(values)) values.forEach(add);
+  };
+  add(body.tileId);
+  addMany(body.sourceIds);
+  addMany(result.capturedTiles);
+  addMany(result.weakenedTiles);
+  addMany(result.affectedTiles);
+  events.forEach((event) => {
+    add(event.to);
+    add(event.from);
+    add(event.targetStartTile);
+    add(event.sourceTile);
+    addMany(event.capturedTiles);
+    addMany(event.weakenedTiles);
+    addMany(event.affectedTiles);
+  });
+  return new Set([...ids].filter((id) => match.tileManager.getById(id)));
+}
+
+function collectChangedPlayerIds(body, result, events = []) {
+  const ids = new Set();
+  const add = (value) => {
+    if (value) ids.add(value);
+  };
+  add(body.playerId);
+  add(body.targetId);
+  add(result.playerId);
+  add(result.targetId);
+  add(result.targetOwner);
+  events.forEach((event) => {
+    add(event.playerId);
+    add(event.targetId);
+    add(event.targetOwner);
+    add(event.attackerId);
+    add(event.defenderId);
+  });
+  return ids;
+}
+
+function tileDelta(match, id) {
+  const tile = match.tileManager.getById(Number(id));
+  if (!tile) return null;
+  return {
+    id: tile.id,
+    owner: tile.owner,
+    building: tile.building,
+    buildingLevel: tile.buildingLevel || 0,
+    buildingActiveAt: tile.buildingActiveAt || 0,
+    buildingPendingEvent: tile.buildingPendingEvent || null,
+    captureProgress: match.roundCaptureProgress(tile.captureProgress),
+    defenseEnergy: Math.round(tile.defenseEnergy),
+    objectiveId: tile.objectiveId || null,
+    objectiveType: tile.objectiveType || null,
+    campId: tile.campId || null,
+    campType: tile.campType || null,
+    specialActive: Boolean(tile.specialActive),
+    isCore: Boolean(tile.isCore),
+    coreOwnerId: tile.coreOwnerId || null,
+    coreHealth: Math.round(tile.coreHealth || 0),
+    coreMaxHealth: Math.round(tile.coreMaxHealth || 0),
+    lastChanged: tile.lastChanged,
+  };
+}
+
+function playerDelta(player) {
+  if (!player) return null;
+  return {
+    id: player.id,
+    energy: Math.round(player.energy),
+    maxEnergy: Math.round(player.maxEnergy),
+    income: Number(player.income.toFixed(1)),
+    territory: player.territory,
+    coreHealth: Math.round(player.coreHealth || 0),
+    coreMaxHealth: Math.round(player.coreMaxHealth || 0),
+    ownedTiles: player.territory,
+    defeated: player.defeated,
+    abilityReadyAt: player.abilityReadyAt,
+    abilityActiveUntil: player.abilityActiveUntil,
+    specialCooldowns: player.specialCooldowns || {},
+    attackCooldownUntil: player.attackCooldownUntil || 0,
+    currentPushCooldownUntil: player.currentPushCooldownUntil || 0,
+    supportReadyAt: player.supportReadyAt || 0,
+    buildings: player.buildings,
+    flags: player.flags,
+    stats: player.stats,
+  };
 }
 
 function lobbyQuery(url) {
@@ -1456,12 +1611,12 @@ const server = http.createServer(async (req, res) => {
         sendJson(res, 400, { ok: false, message: "Lobby match has not started." });
         return;
       }
-      const { result, state } = actionResponse(session.lobby.match, { ...body, playerId: session.player.id }, session.player.id);
-      sendJson(res, result.ok ? 200 : 400, { ...result, state });
+      const response = actionResponse(session.lobby.match, { ...body, playerId: session.player.id }, session.player.id);
+      sendJson(res, response.result.ok ? 200 : 400, actionPayload(response));
       return;
     }
-    const { result, state } = actionResponse(game, { ...body, playerId: config.HUMAN_ID }, config.HUMAN_ID);
-    sendJson(res, result.ok ? 200 : 400, { ...result, state });
+    const response = actionResponse(game, { ...body, playerId: config.HUMAN_ID }, config.HUMAN_ID);
+    sendJson(res, response.result.ok ? 200 : 400, actionPayload(response));
     return;
   }
 
