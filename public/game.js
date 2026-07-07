@@ -359,14 +359,33 @@
       this.fetching = true;
       const started = performance.now();
       try {
-        const state = await this.request(this.lobbySession?.inGame ? `/api/state?${this.lobbyQuery()}` : "/api/state");
+        const statePath = this.state?.serverTime ? this.stateDeltaPath() : this.lobbySession?.inGame ? `/api/state?${this.lobbyQuery()}` : "/api/state";
+        const state = await this.request(statePath);
         this.performanceStats.serverPingMs = Math.round(performance.now() - started);
-        this.setState(state);
+        if (state.delta) this.applyActionDelta(state.delta);
+        else this.setState(state);
       } catch (error) {
         this.ui.toast("Server connection paused.", true);
       } finally {
         this.fetching = false;
       }
+    }
+
+    stateDeltaPath() {
+      const params = new URLSearchParams(this.lobbySession?.inGame ? this.lobbyAuth() : {});
+      params.set("mode", "delta");
+      params.set("since", String(this.state?.serverTime || 0));
+      params.set("afterEventId", String(this.lastSeenEventId()));
+      return `/api/state?${params.toString()}`;
+    }
+
+    lastSeenEventId() {
+      let max = -1;
+      this.seenEventIds.forEach((id) => {
+        const value = Number(id);
+        if (Number.isFinite(value)) max = Math.max(max, value);
+      });
+      return max;
     }
 
     async request(path, options = {}) {
@@ -846,8 +865,24 @@
       const nextState = {
         ...this.state,
         serverTime: delta.serverTime ?? this.state.serverTime,
+        timeLeft: delta.timeLeft ?? this.state.timeLeft,
+        elapsed: delta.elapsed ?? this.state.elapsed,
+        animalsLeft: delta.animalsLeft ?? this.state.animalsLeft,
+        teamsLeft: delta.teamsLeft ?? this.state.teamsLeft,
+        winDebug: delta.winDebug ?? this.state.winDebug,
         tiles: nextTiles,
         players: nextPlayers,
+        objectives: delta.objectives || this.state.objectives,
+        camps: delta.camps || this.state.camps,
+        lakeEvent: delta.lakeEvent || this.state.lakeEvent,
+        missions: delta.missions || this.state.missions,
+        relationships: delta.relationships || this.state.relationships,
+        matchSettings: delta.matchSettings || this.state.matchSettings,
+        sandbox: delta.sandbox || this.state.sandbox,
+        teamState: delta.teamState || this.state.teamState,
+        ended: delta.ended ?? this.state.ended,
+        winnerId: delta.winnerId ?? this.state.winnerId,
+        winnerTeamId: delta.winnerTeamId ?? this.state.winnerTeamId,
         activeAttacks: delta.activeAttacks || this.state.activeAttacks,
         activeExpansions: delta.activeExpansions || this.state.activeExpansions,
         specials: delta.specials || this.state.specials,
@@ -889,12 +924,15 @@
           : action.type === "defend"
             ? "#87d7ea"
             : "#77d99e";
+      const sourceIds = action.type === "expand" || action.type === "attack" || action.type === "waterRoute" ? action.sourceIds?.length ? action.sourceIds : this.fastSourceIds(tile) : [];
+      if (sourceIds.length && !action.sourceIds?.length) action.sourceIds = sourceIds;
       const pendingAction = {
         id: `pending-${this.pendingActionSeq}`,
         key,
         type: action.type,
         state: action.type === "attack" || action.type === "waterRoute" ? "pendingAttack" : action.type === "defend" ? "pendingDefend" : "pendingExpand",
         tileId: tile.id,
+        sourceTileId: sourceIds[0] || null,
         startedAt: performance.now(),
         color,
       };

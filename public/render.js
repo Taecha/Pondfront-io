@@ -554,17 +554,30 @@
         const age = now - action.atMs;
         const pulse = 0.5 + Math.sin(age * 0.012) * 0.5;
         const color = action.color || (action.type === "attack" ? "#f2d87a" : action.type === "defend" ? "#87d7ea" : "#77d99e");
-        ctx.globalAlpha = 0.22 + pulse * 0.16;
+        const source = action.sourceTileId != null ? this.tileMap.get(action.sourceTileId) : null;
+        if (source) {
+          const from = this.tileCenter(source);
+          this.drawStrategicFlow(ctx, from, p, color, now, 0.42 + pulse * 0.22, action.type === "expand" ? "Energy" : "");
+        }
+        ctx.globalAlpha = 0.32 + pulse * 0.2;
         ctx.fillStyle = color;
-        ctx.beginPath();
-        ctx.arc(p.x, p.y, Math.max(5, s * (0.34 + pulse * 0.06)), 0, Math.PI * 2);
+        this.roundRect(ctx, p.x - s * 0.45, p.y - s * 0.45, s * 0.9, s * 0.9, Math.max(3, s * 0.16));
         ctx.fill();
-        ctx.globalAlpha = 0.78;
+        ctx.globalAlpha = 0.18 + pulse * 0.12;
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, Math.max(8, s * (0.62 + pulse * 0.12)), 0, Math.PI * 2);
+        ctx.fill();
+        ctx.globalAlpha = 0.9;
         ctx.strokeStyle = color;
-        ctx.lineWidth = Math.max(1.4, 2.2 * this.camera.zoom);
+        ctx.lineWidth = Math.max(2, 3.2 * this.camera.zoom);
         ctx.setLineDash([Math.max(4, s * 0.18), Math.max(3, s * 0.1)]);
+        ctx.lineDashOffset = -age * 0.035;
         ctx.strokeRect(p.x - s * 0.43, p.y - s * 0.43, s * 0.86, s * 0.86);
         ctx.setLineDash([]);
+        if (s > 10) {
+          const label = action.type === "attack" ? "Sending" : action.type === "defend" ? "Defend" : action.type === "waterRoute" ? "Current" : "Expanding";
+          this.drawPillText(ctx, label, p.x, p.y - s * 0.62, color);
+        }
       });
       ctx.restore();
     }
