@@ -1255,6 +1255,7 @@
         <span>${perf.frameMs || "-"}ms frame</span>
         <span>${perf.serverPingMs || "-"}ms ping</span>
         <span>${perf.expansionLatencyMs || "-"}ms expand</span>
+        <span>${perf.expandServerProcessMs || perf.serverProcessMs || "-"}ms server</span>
         <span>${game?.performanceAutoLow ? "auto low" : "normal"} gfx</span>
         <span>${vfx?.particles?.length || 0}/${vfx?.maxParticles || 0} particles</span>
         <span>${state.activeAttacks?.length || 0} attacks</span>

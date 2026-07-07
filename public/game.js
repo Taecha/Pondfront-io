@@ -56,6 +56,8 @@
         worstFrameMs: 0,
         serverPingMs: 0,
         expansionLatencyMs: 0,
+        serverProcessMs: 0,
+        expandServerProcessMs: 0,
         actionLatencyMs: 0,
         messagesPerSecond: 0,
       };
@@ -661,9 +663,9 @@
         percent: sendPercent,
         buildingType: payload.buildingType,
       };
-      if (type === "expand" || type === "attack" || type === "waterRoute") action.sourceIds = this.validSourceTiles().map((source) => source.id);
       const pendingAction = this.beginPendingAction(action, tile, human);
       if (pendingAction === false) return;
+      if (type === "expand" || type === "attack" || type === "waterRoute") action.sourceIds = this.fastSourceIds(tile);
       await this.postAction(action, { pendingAction });
     }
 
@@ -791,28 +793,86 @@
     }
 
     async postAction(body, options = {}) {
-      const started = performance.now();
+      const started = options.pendingAction?.startedAt || performance.now();
+      const clientActionId = options.pendingAction?.id || `action-${Date.now()}-${this.pendingActionSeq++}`;
+      const wantsDelta = Boolean(options.pendingAction && ["expand", "attack", "defend", "waterRoute"].includes(body.type));
       try {
-        const payload = this.lobbySession?.inGame ? { ...body, ...this.lobbyAuth() } : body;
+        const basePayload = {
+          ...body,
+          clientActionId,
+          clientSendTime: started,
+          responseMode: wantsDelta ? "delta" : "full",
+          latencyDebug: this.latencyDebugEnabled(),
+        };
+        const payload = this.lobbySession?.inGame ? { ...basePayload, ...this.lobbyAuth() } : basePayload;
         const response = await fetch("/api/action", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(payload),
         });
         const data = await response.json().catch(() => ({}));
-        const latency = Math.round(performance.now() - started);
-        this.recordActionLatency(payload.type, latency);
+        const serverAck = performance.now();
+        const latency = Math.round(serverAck - started);
+        const serverProcessMs = Math.round(data.delta?.serverProcessMs ?? data.serverProcessMs ?? 0);
+        this.recordActionLatency(payload.type, latency, serverProcessMs);
         this.recordMessage();
-        if (data.state) this.setState(data.state, { silent: true });
+        if (data.delta) this.applyActionDelta(data.delta);
+        else if (data.state) this.setState(data.state, { silent: true });
+        this.logActionLatency(payload, data, started, serverAck, latency, serverProcessMs);
         if (!response.ok) this.feedbackFailedAction(payload, data.message || "Command failed.");
         else if (payload.type === "ability") this.ui.pulseAbility(false);
-        this.ui.toast(data.message || (response.ok ? "Command sent." : "Command failed."), !response.ok);
+        if (!response.ok || !wantsDelta) this.ui.toast(data.message || (response.ok ? "Command sent." : "Command failed."), !response.ok);
         this.finishPendingAction(options.pendingAction, response.ok, data.message || "");
       } catch (error) {
-        this.recordActionLatency(body.type, Math.round(performance.now() - started));
+        this.recordActionLatency(body.type, Math.round(performance.now() - started), 0);
         this.finishPendingAction(options.pendingAction, false, "Server did not receive the command.");
         this.ui.toast("Server did not receive the command.", true);
       }
+    }
+
+    applyActionDelta(delta = {}) {
+      if (!this.state || !delta) return;
+      const tileUpdates = new Map((delta.changedTiles || []).map((tile) => [tile.id, tile]));
+      const nextTiles = tileUpdates.size
+        ? this.state.tiles.map((tile) => (tileUpdates.has(tile.id) ? { ...tile, ...tileUpdates.get(tile.id) } : tile))
+        : this.state.tiles;
+      const playerUpdates = new Map((delta.players || []).map((player) => [player.id, player]));
+      const nextPlayers = playerUpdates.size
+        ? this.state.players.map((player) => (playerUpdates.has(player.id) ? { ...player, ...playerUpdates.get(player.id) } : player))
+        : this.state.players;
+      const currentEvents = this.state.events || [];
+      const eventIds = new Set(currentEvents.map((event) => event.id));
+      const mergedEvents = currentEvents.concat((delta.events || []).filter((event) => !eventIds.has(event.id))).slice(-((this.state.config?.maxEvents || 80) + 20));
+      const nextState = {
+        ...this.state,
+        serverTime: delta.serverTime ?? this.state.serverTime,
+        tiles: nextTiles,
+        players: nextPlayers,
+        activeAttacks: delta.activeAttacks || this.state.activeAttacks,
+        activeExpansions: delta.activeExpansions || this.state.activeExpansions,
+        specials: delta.specials || this.state.specials,
+        metrics: { ...(this.state.metrics || {}), ...(delta.metrics || {}) },
+        events: mergedEvents,
+      };
+      this.setState(nextState, { silent: true, delta: true });
+    }
+
+    latencyDebugEnabled() {
+      return new URLSearchParams(window.location.search).has("latency") || localStorage.getItem("pondfront:latency-debug") === "1";
+    }
+
+    logActionLatency(payload, data, clientSend, serverAck, roundTripMs, serverProcessMs) {
+      if (payload.type !== "expand" && !this.latencyDebugEnabled()) return;
+      if (!this.latencyDebugEnabled() && payload.type !== "expand") return;
+      const delta = data.delta || {};
+      console.debug("[EXPAND LATENCY]", {
+        actionId: payload.clientActionId,
+        clientSend: Math.round(clientSend),
+        serverAck: Math.round(serverAck),
+        roundTripMs,
+        serverProcessMs,
+        changedTiles: delta.changedTiles?.length || 0,
+      });
     }
 
     beginPendingAction(action, tile, human) {
@@ -833,6 +893,7 @@
         id: `pending-${this.pendingActionSeq}`,
         key,
         type: action.type,
+        state: action.type === "attack" || action.type === "waterRoute" ? "pendingAttack" : action.type === "defend" ? "pendingDefend" : "pendingExpand",
         tileId: tile.id,
         startedAt: performance.now(),
         color,
@@ -841,7 +902,7 @@
       this.pendingActions.set(pendingAction.id, pendingAction);
       this.pendingActionKeys.add(key);
       this.renderer.setPendingAction(pendingAction);
-      const label = action.type === "attack" ? "Sending Wave" : action.type === "defend" ? "Reinforcing" : action.type === "waterRoute" ? "Current Sent" : "Sending Energy";
+      const label = action.type === "attack" ? "Sending Wave" : action.type === "defend" ? "Reinforcing" : action.type === "waterRoute" ? "Current Sent" : "Expanding...";
       if (action.type === "attack") {
         const source = this.closestSource(tile);
         if (source) this.renderer.vfx?.spawnWaveTrail(source.id, tile.id, color, Math.round((human.energy || 0) * (action.percent || 0.25)), "attack");
@@ -859,9 +920,13 @@
       if (!ok && pendingAction.tileId != null) this.renderer.vfx?.spawnBlockedEffect(pendingAction.tileId, message ? "Rejected" : "Invalid");
     }
 
-    recordActionLatency(type, latency) {
+    recordActionLatency(type, latency, serverProcessMs = 0) {
       this.performanceStats.actionLatencyMs = latency;
-      if (type === "expand") this.performanceStats.expansionLatencyMs = latency;
+      this.performanceStats.serverProcessMs = serverProcessMs;
+      if (type === "expand") {
+        this.performanceStats.expansionLatencyMs = latency;
+        this.performanceStats.expandServerProcessMs = serverProcessMs;
+      }
     }
 
     recordMessage() {
@@ -1098,16 +1163,18 @@
       const human = this.human();
       if (!human) return;
       if (!tile.owner && this.tileContext(tile).canExpand) {
-        const action = { type: "expand", tileId: tile.id, percent: this.ui.percent, sourceIds: this.validSourceTiles().map((source) => source.id) };
+        const action = { type: "expand", tileId: tile.id, percent: this.ui.percent };
         const pendingAction = this.beginPendingAction(action, tile, human);
         if (pendingAction === false) return;
+        action.sourceIds = this.fastSourceIds(tile);
         await this.postAction(action, { pendingAction });
         return;
       }
       if (tile.owner && tile.owner !== human.id && this.tileContext(tile).canAttack) {
-        const action = { type: "attack", tileId: tile.id, percent: this.ui.percent, sourceIds: this.validSourceTiles().map((source) => source.id) };
+        const action = { type: "attack", tileId: tile.id, percent: this.ui.percent };
         const pendingAction = this.beginPendingAction(action, tile, human);
         if (pendingAction === false) return;
+        action.sourceIds = this.fastSourceIds(tile);
         await this.postAction(action, { pendingAction });
         return;
       }
@@ -1451,19 +1518,25 @@
         return;
       }
       if (payload.action === "waterRoute") {
-        await this.postAction({
+        const human = this.human();
+        const action = {
           type: "waterRoute",
           tileId: tile?.id,
           percent: this.ui.percent,
-          sourceIds: this.validSourceTiles().map((source) => source.id),
-        });
+        };
+        const pendingAction = this.beginPendingAction(action, tile, human);
+        if (pendingAction === false) return;
+        action.sourceIds = this.fastSourceIds(tile);
+        await this.postAction(action, { pendingAction });
         return;
       }
       if (["expand", "attack", "defend"].includes(payload.action)) {
+        const human = this.human();
         const action = { type: payload.action, tileId: tile?.id, percent: this.ui.percent };
-        if (payload.action === "expand") action.sourceIds = this.validSourceTiles().map((source) => source.id);
-        if (payload.action === "attack") action.sourceIds = this.validSourceTiles().map((source) => source.id);
-        await this.postAction(action);
+        const pendingAction = this.beginPendingAction(action, tile, human);
+        if (pendingAction === false) return;
+        if (payload.action === "expand" || payload.action === "attack") action.sourceIds = this.fastSourceIds(tile);
+        await this.postAction(action, { pendingAction });
       }
     }
 
@@ -1642,6 +1715,14 @@
       return this.sourceIds
         .map((id) => this.tileMap.get(id))
         .filter((tile) => tile?.owner === this.state?.humanId && this.isBorder(tile, this.state.humanId));
+    }
+
+    fastSourceIds(target) {
+      if (!target) return [];
+      const selected = this.validSourceTiles().filter((source) => this.sourceCanReach(source, target));
+      if (selected.length) return selected.map((source) => source.id);
+      const source = this.closestSource(target);
+      return source ? [source.id] : [];
     }
 
     legalTileIds() {
