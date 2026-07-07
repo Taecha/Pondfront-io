@@ -1265,6 +1265,48 @@ function actionPayload(response) {
   };
 }
 
+function stateResponse(match, viewerId, query = {}) {
+  const since = Number(query.since || 0);
+  const afterEventId = Number(query.afterEventId ?? -1);
+  const wantsDelta = query.mode === "delta" && since > 0;
+  if (!wantsDelta) return { state: match.snapshot(viewerId) };
+  const changedTiles = match.tileManager.tiles.filter((tile) => Number(tile.lastChanged || 0) > since);
+  const tooLarge = changedTiles.length > Math.max(320, match.tileManager.tiles.length * 0.22);
+  if (tooLarge) return { state: match.snapshot(viewerId), fullSyncReason: "too-many-tile-changes" };
+  const now = match.now();
+  const objectiveSnapshot = match.objectives.snapshot();
+  const winState = match.winCheckState();
+  return {
+    delta: {
+      type: "state",
+      serverTime: now,
+      timeLeft: match.timeLeft(),
+      elapsed: match.elapsed(),
+      animalsLeft: winState.alivePlayers.length,
+      teamsLeft: match.teamManager?.active() ? winState.aliveTeams.length : 0,
+      winDebug: winState.debug,
+      metrics: { ...match.metrics },
+      objectives: objectiveSnapshot.objectives,
+      camps: objectiveSnapshot.camps,
+      lakeEvent: match.eventsManager.snapshot(now),
+      missions: match.missions.snapshot(viewerId),
+      relationships: match.diplomacy.snapshot(viewerId, now),
+      matchSettings: match.matchSettings,
+      sandbox: match.sandbox?.snapshot(match) || { enabled: false },
+      teamState: match.teamManager.snapshot(match),
+      ended: match.ended,
+      winnerId: match.winnerId,
+      winnerTeamId: match.winnerTeamId || null,
+      changedTiles: changedTiles.map((tile) => tileDelta(match, tile.id)).filter(Boolean),
+      players: match.players.map((player) => playerDelta(player)).filter(Boolean),
+      activeAttacks: match.combat.snapshot(now),
+      activeExpansions: match.combat.expansionSnapshot(),
+      specials: match.specials?.snapshot(now) || { pending: [], zones: [] },
+      events: match.visibleEventsFor(viewerId).filter((event) => Number(event.id) > afterEventId).slice(-config.MAX_EVENTS),
+    },
+  };
+}
+
 function actionDelta(match, body, result, events, timing) {
   const changedTileIds = collectChangedTileIds(match, body, result, events);
   const playerIds = collectChangedPlayerIds(body, result, events);
@@ -1592,10 +1634,20 @@ const server = http.createServer(async (req, res) => {
         sendJson(res, 400, { ok: false, message: "Lobby match has not started." });
         return;
       }
-      sendJson(res, 200, session.lobby.match.snapshot(session.player.id));
+      const response = stateResponse(session.lobby.match, session.player.id, {
+        mode: url.searchParams.get("mode") || "",
+        since: url.searchParams.get("since") || "0",
+        afterEventId: url.searchParams.get("afterEventId") || "-1",
+      });
+      sendJson(res, 200, response.delta ? { delta: response.delta } : response.state);
       return;
     }
-    sendJson(res, 200, game.snapshot(config.HUMAN_ID));
+    const response = stateResponse(game, config.HUMAN_ID, {
+      mode: url.searchParams.get("mode") || "",
+      since: url.searchParams.get("since") || "0",
+      afterEventId: url.searchParams.get("afterEventId") || "-1",
+    });
+    sendJson(res, 200, response.delta ? { delta: response.delta } : response.state);
     return;
   }
 

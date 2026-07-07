@@ -42,6 +42,10 @@ Local test against `http://localhost:5173`:
 - Worst server process time: 3ms
 - Average delta response size: about 3.8 KB
 - Full state response size at the same time: about 815 KB
+- Normal live polling now uses state deltas when possible:
+  - Full state: about 805 KB
+  - Delta state: about 10.7 KB
+  - Reduction: about 75x
 
 The deployed Render delay is therefore mostly network/payload/hosting latency, not local expansion logic.
 
@@ -81,6 +85,6 @@ Passed:
 - QA playtest script.
 - Delta expand response returns changed tiles.
 - Delta expand response includes server process timing.
+- Live polling can return a delta instead of a full map snapshot.
 - Full state polling still works.
 - Local server health check passes.
-

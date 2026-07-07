@@ -16,6 +16,8 @@ Measured locally after the fix:
 - Worst server processing: 3ms
 - Average delta response size: about 3.8 KB
 - Full state response size: about 815 KB
+- Normal polling delta size: about 10.7 KB instead of about 805 KB
+- Normal polling payload reduction: about 75x
 
 This means deployed delay is likely caused by network distance, Render instance wake/CPU, or payload transfer, not by a slow local expansion algorithm.
 
@@ -61,6 +63,6 @@ Interpretation:
 - Action sends include `clientActionId`.
 - Server returns delta action responses.
 - Changed tiles are sent instead of the full map.
+- Normal live polling uses delta responses instead of repeated full map snapshots.
 - Player stats and active waves are merged locally.
 - Debug stats now show server processing time.
-
