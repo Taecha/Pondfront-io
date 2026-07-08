@@ -127,20 +127,27 @@ class CoreManager {
   handleCoreCaptured(game, attacker, defender, tile) {
     if (!tile?.isCore || tile.coreOwnerId !== defender.id) return;
     const now = game.now();
+    const behavior = game.matchSettings?.coreCaptureBehavior || "transfer";
     defender.flags = defender.flags || {};
     defender.flags.coreLost = true;
     defender.flags.coreLostAt = now;
     defender.coreLost = true;
     defender.coreHealth = 0;
     tile.coreHealth = 0;
+    if (behavior === "neutralize") {
+      tile.owner = null;
+      tile.defenseEnergy = Math.max(0, (tile.defenseEnergy || 0) * 0.35);
+    }
     this.pushEvent({
       kind: "coreCaptured",
       playerId: attacker.id,
       targetOwner: defender.id,
       to: tile.id,
+      coreCaptureBehavior: behavior,
       at: now,
-      message: `${attacker.name} captured ${defender.name}'s Core Nest.`,
+      message: `Core Nest captured! ${attacker.name} took ${defender.name}'s Core Nest.`,
     });
+    if (behavior === "eliminate") game.eliminatePlayer?.(defender, attacker, "core captured");
   }
 }
 

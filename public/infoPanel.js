@@ -108,7 +108,14 @@
       const level = tile.buildingLevel || 1;
       facts.push({ label: "Building", value: `${building?.label || tile.building} L${level}` });
       const activeLeft = Math.max(0, Math.ceil((tile.buildingActiveAt || 0) - state.serverTime));
+      const conversionLeft = Math.max(0, Math.ceil((tile.buildingConversionUntil || 0) - state.serverTime));
       if (activeLeft > 0) facts.push({ label: "Construction", value: `${activeLeft}s` });
+      if (conversionLeft > 0) {
+        facts.push({ label: "Status", value: `Converting ${conversionLeft}s` });
+        facts.push({ label: "Effect", value: "50% until converted" });
+      } else if (activeLeft <= 0) {
+        facts.push({ label: "Status", value: "Active" });
+      }
     }
 
     if (objective) {

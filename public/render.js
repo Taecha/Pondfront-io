@@ -949,6 +949,8 @@
       const serverTime = this.state?.serverTime || 0;
       const constructionLeft = Math.max(0, Math.ceil((tile.buildingActiveAt || 0) - serverTime));
       const underConstruction = constructionLeft > 0;
+      const conversionLeft = Math.max(0, Math.ceil((tile.buildingConversionUntil || 0) - serverTime));
+      const converting = conversionLeft > 0;
       const colors = {
         nest: "#f2d87a",
         lilyFarm: "#8ee6a2",
@@ -988,6 +990,22 @@
         ctx.arc(cx, cy, ringRadius, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * progress);
         ctx.stroke();
         ctx.lineCap = "butt";
+      } else if (converting) {
+        const totalTime = Math.max(1, (tile.buildingConversionUntil || 0) - (tile.buildingCapturedAt || serverTime));
+        const progress = Math.max(0.04, Math.min(0.98, 1 - conversionLeft / totalTime));
+        const ringRadius = Math.max(6, size * 0.25);
+        const ringWidth = Math.max(1.3, size * 0.045);
+        ctx.lineWidth = ringWidth;
+        ctx.strokeStyle = "rgba(237, 248, 251, 0.2)";
+        ctx.beginPath();
+        ctx.arc(cx, cy, ringRadius, 0, Math.PI * 2);
+        ctx.stroke();
+        ctx.strokeStyle = "#83dced";
+        ctx.lineCap = "round";
+        ctx.beginPath();
+        ctx.arc(cx, cy, ringRadius, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * progress);
+        ctx.stroke();
+        ctx.lineCap = "butt";
       }
 
       this.drawBuildingGlyph(ctx, tile.building, cx, cy, Math.max(7, size * 0.42), color);
@@ -996,8 +1014,8 @@
         ctx.font = `900 ${Math.max(6, size * 0.13)}px Inter, sans-serif`;
         ctx.fillText(String(tile.buildingLevel), cx + size * 0.18, cy - size * 0.16);
       }
-      if (underConstruction && size > 14) {
-        const label = `${constructionLeft}s`;
+      if ((underConstruction || converting) && size > 14) {
+        const label = underConstruction ? `${constructionLeft}s` : `${conversionLeft}s`;
         const fontSize = Math.max(7, Math.min(12, size * 0.18));
         const labelY = cy + Math.max(8, size * 0.38);
         ctx.font = `950 ${fontSize}px Inter, sans-serif`;

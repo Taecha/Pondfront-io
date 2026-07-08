@@ -153,28 +153,36 @@ class EconomyManager {
     const boost = 1 + (level - 1) * 0.42;
     player.buildings[tile.building] += 1;
     if (tile.buildingActiveAt && now < tile.buildingActiveAt) return;
+    const effectMultiplier = this.buildingEffectMultiplier(tile, now);
+    const activeBoost = boost * effectMultiplier;
     if (tile.building === "nest") {
-      player.maxEnergy += balance.nestMaxEnergyBonus * boost;
-      player.incomeBreakdown.buildings += balance.nestIncomeBonus * level;
+      player.maxEnergy += balance.nestMaxEnergyBonus * activeBoost;
+      player.incomeBreakdown.buildings += balance.nestIncomeBonus * level * effectMultiplier;
     }
-      if (tile.building === "lilyFarm") {
-        const nearEnemy = tile.neighbors?.some((neighbor) => neighbor.owner && neighbor.owner !== player.id) ? balance.farmBorderPenalty : 0;
+    if (tile.building === "lilyFarm") {
+      const nearEnemy = tile.neighbors?.some((neighbor) => neighbor.owner && neighbor.owner !== player.id) ? balance.farmBorderPenalty : 0;
       const efficiency = this.farmEfficiency(player);
-      player.incomeBreakdown.buildings += Math.max(0.25, (balance.farmIncomeBonus + (tile.type === "lily" ? balance.farmLilyBonus : 0) - nearEnemy) * boost * efficiency);
-      if (player.animal === "frog") player.incomeBreakdown.animal += balance.farmFrogBonus * level;
+      const farmGain = Math.max(0.25, (balance.farmIncomeBonus + (tile.type === "lily" ? balance.farmLilyBonus : 0) - nearEnemy) * boost * efficiency);
+      player.incomeBreakdown.buildings += farmGain * effectMultiplier;
+      if (player.animal === "frog") player.incomeBreakdown.animal += balance.farmFrogBonus * level * effectMultiplier;
     }
     if (tile.building === "reedGuard") {
       const turtleBoost = player.animal === "turtle" ? balance.turtleReedGuardMultiplier || 1.28 : 1;
-      player.incomeBreakdown.buildings += balance.reedGuardIncomeBonus * level * turtleBoost;
+      player.incomeBreakdown.buildings += balance.reedGuardIncomeBonus * level * turtleBoost * effectMultiplier;
     }
     if (tile.building === "mudTunnel") {
-      player.flags.mudTunnel = true;
-      player.incomeBreakdown.buildings += balance.mudTunnelIncomeBonus * level;
+      if (effectMultiplier >= 1) player.flags.mudTunnel = true;
+      player.incomeBreakdown.buildings += balance.mudTunnelIncomeBonus * level * effectMultiplier;
     }
     if (tile.building === "jumpPad") {
-      player.flags.jumpPad = true;
-      player.maxEnergy += balance.jumpPadMaxEnergyBonus * boost;
+      if (effectMultiplier >= 1) player.flags.jumpPad = true;
+      player.maxEnergy += balance.jumpPadMaxEnergyBonus * activeBoost;
     }
+  }
+
+  buildingEffectMultiplier(tile, now) {
+    if (!tile?.buildingConversionUntil || now >= tile.buildingConversionUntil) return 1;
+    return balance.capturedBuildingEffectMultiplier || 0.5;
   }
 
   applyObjective(player, tile) {
@@ -286,6 +294,10 @@ class EconomyManager {
     tile.buildingLevel = 0;
     tile.buildingActiveAt = 0;
     tile.buildingCompleteNotified = false;
+    tile.buildingCapturedAt = 0;
+    tile.buildingConversionUntil = 0;
+    tile.buildingPreviousOwner = null;
+    tile.buildingCaptureReason = null;
     delete tile.buildingPendingEvent;
     tile.lastChanged = now;
     return { ok: true, message: `${building?.label || "Building"} removed.` };

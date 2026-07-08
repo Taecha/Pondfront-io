@@ -510,6 +510,12 @@
         if ((event.kind === "buildComplete" || event.kind === "buildUpgrade") && this.involvesHuman(event)) {
           this.ui.toast(event.message || (event.kind === "buildUpgrade" ? "Upgrade finished." : "Building finished."));
         }
+        if (event.kind === "buildingCaptured" && this.involvesHuman(event)) {
+          const label = this.state.config?.buildings?.[event.buildingType]?.label || "Building";
+          if (event.newOwnerId === this.state.humanId) this.ui.toast(`You captured ${label}!`);
+          else if (event.oldOwnerId === this.state.humanId) this.ui.toast(`Your ${label} was captured!`, true);
+          else this.ui.toast(event.message || `${label} captured.`);
+        }
         if (event.kind === "waveEnd" && this.involvesHuman(event)) {
           const captured = event.captured || 0;
           this.ui.toast(captured > 0 ? `Frontline wave captured ${captured} tiles.` : event.message || "Attack wave stopped.", captured === 0);
@@ -558,7 +564,9 @@
           (event.playerId === this.state.humanId ||
             event.targetId === this.state.humanId ||
             event.targetOwner === this.state.humanId ||
-            event.attackerId === this.state.humanId),
+            event.attackerId === this.state.humanId ||
+            event.newOwnerId === this.state.humanId ||
+            event.oldOwnerId === this.state.humanId),
       );
     }
 

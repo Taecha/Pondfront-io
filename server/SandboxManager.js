@@ -316,6 +316,10 @@ class SandboxManager {
     tile.buildingLevel = 0;
     tile.buildingActiveAt = 0;
     tile.buildingCompleteNotified = false;
+    tile.buildingCapturedAt = 0;
+    tile.buildingConversionUntil = 0;
+    tile.buildingPreviousOwner = null;
+    tile.buildingCaptureReason = null;
     delete tile.buildingPendingEvent;
     tile.lastChanged = now;
     return { ok: true, message: `Sandbox: removed ${label}.` };
@@ -380,6 +384,13 @@ class SandboxManager {
         tile.captureProgress = {};
         tile.building = null;
         tile.buildingLevel = 0;
+        tile.buildingActiveAt = 0;
+        tile.buildingCompleteNotified = false;
+        tile.buildingCapturedAt = 0;
+        tile.buildingConversionUntil = 0;
+        tile.buildingPreviousOwner = null;
+        tile.buildingCaptureReason = null;
+        delete tile.buildingPendingEvent;
         tile.defenseEnergy = tile.id === centerTile.id ? 8 : 2;
         tile.lastChanged = game.now();
       }
@@ -413,6 +424,12 @@ class SandboxManager {
       tile.building = null;
       tile.buildingLevel = 0;
       tile.buildingActiveAt = 0;
+      tile.buildingCompleteNotified = false;
+      tile.buildingCapturedAt = 0;
+      tile.buildingConversionUntil = 0;
+      tile.buildingPreviousOwner = null;
+      tile.buildingCaptureReason = null;
+      delete tile.buildingPendingEvent;
       tile.defenseEnergy = Math.max(0, (tile.defenseEnergy || 0) * 0.25);
       tile.lastChanged = game.now();
     });

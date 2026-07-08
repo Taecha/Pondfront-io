@@ -72,6 +72,7 @@
     farmBorderPenalty: 0.4,
     farmSoftCapTerritory: 16,
     farmSoftCapPenalty: 0.1,
+    capturedBuildingEffectMultiplier: 0.5,
 
     nestMaxEnergyBonus: 24,
     nestIncomeBonus: 0.08,

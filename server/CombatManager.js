@@ -420,11 +420,10 @@ class CombatManager {
 
   captureExpansionTile(game, wave, player, candidate, spend, cost, now) {
     const tile = candidate.tile;
+    const previousOwner = tile.owner || null;
     wave.remainingBudget = Math.max(0, wave.remainingBudget);
     tile.owner = player.id;
-    tile.building = null;
-    tile.buildingLevel = 0;
-    tile.buildingActiveAt = 0;
+    this.tileManager.transferBuilding(tile.id, player.id, previousOwner, "expansionWave", now, (event) => this.pushEvent(event));
     tile.captureProgress = {};
     tile.defenseEnergy = Math.min(14, Math.max(2, spend * 0.14));
     tile.lastChanged = now;
@@ -1261,6 +1260,7 @@ class CombatManager {
 
   captureWaveTile(game, wave, attacker, defender, candidate, spendCost, now, rawCost = spendCost) {
     const tile = candidate.tile;
+    const previousOwner = tile.owner || defender?.id || null;
     const pressureSpent = Math.round(this.attackPressure(tile, attacker.id));
     const coreHit = game.core?.handleCoreHit(game, wave, attacker, defender, candidate, rawCost);
     if (coreHit?.blocked) {
@@ -1272,9 +1272,7 @@ class CombatManager {
     defender.energy = Math.max(0, defender.energy - Math.min(defender.energy, rawCost * 0.11 + 1.25));
 
     tile.owner = attacker.id;
-    tile.building = null;
-    tile.buildingLevel = 0;
-    tile.buildingActiveAt = 0;
+    this.tileManager.transferBuilding(tile.id, attacker.id, previousOwner, wave.currentPush ? "currentPush" : "attackWave", now, (event) => this.pushEvent(event));
     tile.captureProgress = {};
     tile.defenseEnergy = Math.min(24, Math.max(2, wave.remainingPower * 0.025));
     tile.lastChanged = now;
@@ -2003,9 +2001,12 @@ class CombatManager {
 
   reedGuardBonus(ownerId, target, owner = null) {
     const animalBoost = owner?.animal === "turtle" ? balance.turtleReedGuardMultiplier || 1.16 : 1;
+    const now = Date.now() / 1000;
     const total = [target, ...target.neighbors].reduce((sum, tile) => {
-      if (tile.owner === ownerId && tile.building === "reedGuard") return sum + 4.5 * Math.max(1, Number(tile.buildingLevel) || 1) * animalBoost;
-      return sum;
+      if (tile.owner !== ownerId || tile.building !== "reedGuard") return sum;
+      if (tile.buildingActiveAt && tile.buildingActiveAt > now) return sum;
+      const conversionMultiplier = tile.buildingConversionUntil && now < tile.buildingConversionUntil ? balance.capturedBuildingEffectMultiplier || 0.5 : 1;
+      return sum + 4.5 * Math.max(1, Number(tile.buildingLevel) || 1) * animalBoost * conversionMultiplier;
     }, 0);
     return Math.min(owner?.animal === "turtle" ? 18 : 14, total);
   }

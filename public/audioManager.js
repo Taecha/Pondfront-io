@@ -140,6 +140,10 @@
         defend: () => this.chime([240, 360, 480], 0.09, out, 0.12),
         build: () => this.chime([360, 520, 680], 0.08, out, 0.12),
         buildComplete: () => this.chime([420, 560, 760, 960], 0.075, out, 0.13),
+        buildingCaptured: () => {
+          this.chime([360, 540, 760], 0.075, out, 0.12 * intensity);
+          setTimeout(() => this.sweep(700, 260, 0.16, "triangle", 0.08 * intensity, out), 70);
+        },
         upgrade: () => this.chime([480, 640, 840, 1080], 0.075, out, 0.14),
         upgradeComplete: () => this.chime([520, 740, 980, 1280], 0.07, out, 0.16),
         abilityDuck: () => this.flutter(out, "#duck"),
@@ -228,6 +232,7 @@
         if (event.kind === "buildComplete") this.play("buildComplete", { cooldown: 120 });
         if (event.kind === "buildUpgradeStarted") this.play("upgrade", { cooldown: 140, intensity: 0.72 });
         if (event.kind === "buildUpgrade") this.play("upgradeComplete", { cooldown: 120 });
+        if (event.kind === "buildingCaptured") this.play("buildingCaptured", { cooldown: 140, intensity: 0.92 });
         if (event.kind === "objectiveAppeared") this.play("objectiveSpawn", { cooldown: 220 });
         if (event.kind === "objectiveCaptured" || event.kind === "campCaptured") this.play("objectiveCapture", { cooldown: 220 });
         if (event.kind === "lakeEventWarning") this.play("warning", { cooldown: 420, intensity: 0.78 });

@@ -81,21 +81,33 @@
 
       if (event.kind === "expand") {
         this.spawnCaptureBurst(event.to, color, event.amount > 1 ? `+${event.amount} Tiles` : "Expanded");
+        this.spawnSplash(event.to, color, event.amount > 2 ? 1.2 : 0.86);
+        this.spawnWaterWash(event.to, color, event.amount > 2 ? 1.2 : 0.9);
+        if ((event.amount || 0) >= 4) this.spawnGlowPulse(event.to, color, 1.28);
       } else if (event.kind === "expansionWaveStart") {
         this.spawnPulse(event.to, color, 1);
         this.spawnRipple(event.to, color, 0.86);
+        this.spawnGlowPulse(event.from, color, 1.05);
+        this.spawnBorderPressure([event.from, event.to], color, 0.72);
         this.spawnAttackArrow(event.from, event.to, color, `${event.amount || ""}`.trim());
         this.spawnFloatingText(event.to, event.merged ? "Expansion +Energy" : "Expansion Wave", color);
       } else if (event.kind === "expansionWaveCapture") {
         this.spawnCaptureBurst(event.to, color, "Expanded");
         this.spawnRipple(event.to, color, 0.68);
+        this.spawnSplash(event.to, color, 0.94);
+        this.spawnWaterWash(event.to, color, 1.05);
         this.spawnAttackArrow(event.from, event.to, color, "");
       } else if (event.kind === "expansionWaveEnd") {
         this.spawnPulse(event.to, color, 0.72);
         this.spawnFloatingText(event.to, event.captured > 0 ? `Expanded +${event.captured}` : "Wave Spent", color);
+        if ((event.captured || 0) >= 8) {
+          this.spawnGlowPulse(event.to, color, 1.55);
+          this.screenShake(2.2, 220);
+        }
       } else if (event.kind === "expandProgress") {
         this.spawnPulse(event.to, color, 0.82);
         this.spawnRipple(event.to, color, 0.72);
+        this.spawnGlowPulse(event.to, "#edf8fb", 0.74, 620);
         const point = this.tileWorldPoint(event.to);
         if (point) this.effects.push({ kind: "progressRing", ...point, color, progress: event.progress || 0, cost: event.cost || 1, born: performance.now(), life: this.life(880) });
         this.spawnFloatingText(event.to, `${event.progress}/${event.cost}`, "#edf8fb");
@@ -103,23 +115,31 @@
         this.spawnAttackPowerEffect(event.from, event.to, color, event.amount || 0, event.abilityModifier);
         this.spawnWaveTrail(event.from, event.to, color, event.amount || 0);
         this.spawnBorderPulse([event.from, event.to].filter((id) => id != null), color);
+        this.spawnBorderPressure([event.to], this.attackStyle(event.amount || 0).color || color, Math.max(0.8, (event.amount || 0) / 60), this.attackStyle(event.amount || 0).notice);
+        if ((event.amount || 0) >= 80) this.spawnGlowPulse(event.from, color, 1.65);
         this.spawnFloatingText(event.to, `${this.attackStyle(event.amount || 0).label} ${event.amount || ""}`.trim(), color);
         this.spawnScreenNotice(event.merged ? "Wave Reinforced" : "Wave Committed", color);
       } else if (event.kind === "waveCapture") {
         this.spawnCaptureBurst(event.to, color, "Captured");
+        this.spawnSplash(event.to, color, 1.12);
+        this.spawnWaterWash(event.to, color, 1.18);
+        this.spawnBorderPressure([event.to], color, 1.2, "Border Broken!");
         this.spawnAttackArrow(event.from, event.to, color, "");
       } else if (event.kind === "waveResist") {
         this.spawnWeakenEffect(event.to, event.progress, event.cost);
         this.spawnWaveTrail(event.from, event.to, color, event.amount || 0);
+        this.spawnBorderPressure([event.to], "#f2d87a", 0.95, event.progress ? "" : "Stalled!");
         this.spawnFloatingText(event.to, event.progress ? `Weakened ${event.progress}/${event.cost}` : "Weakened", "#f2d87a");
         this.spawnScreenNotice("Border Weakened", "#f2d87a");
       } else if (event.kind === "borderWeakened") {
         this.spawnWeakenEffect(event.to, event.progress, event.cost);
         this.spawnAttackArrow(event.from, event.to, color, `-${event.amount || 0}`);
+        this.spawnBorderPressure([event.to], "#f2d87a", 0.9);
         this.spawnFloatingText(event.to, `${event.progress}/${event.cost}`, "#f2d87a");
       } else if (event.kind === "waveContested") {
         this.spawnPulse(event.to, "#f2d87a", 1.2);
         this.spawnRipple(event.to, "#f2d87a", 0.84);
+        this.spawnBorderPressure([event.to], "#f2d87a", 1.25);
         this.spawnFloatingText(event.to, "Contested", "#f2d87a");
         this.spawnScreenNotice("Border Contested", "#f2d87a");
       } else if (event.kind === "supportSent") {
@@ -137,6 +157,8 @@
         this.spawnPulse(event.to, color, 0.86);
       } else if (event.kind === "waterRouteAttack") {
         this.spawnAttackStream(event.routeTiles || [event.from, event.to], "#87d7ea", `${event.travelTime || ""}s`.trim() || "Current");
+        this.spawnGlowPulse(event.from, "#87d7ea", 1.35);
+        this.spawnWarningCircle(event.to, "#87d7ea", "Current", 1.65);
         (event.routeTiles || []).slice(0, this.settings.level === "ultra" ? 34 : 22).forEach((tileId) => this.spawnRipple(tileId, "#87d7ea", 0.54));
         this.spawnScreenNotice("Current Push Launched", "#87d7ea");
       } else if (event.kind === "currentPushWarning") {
@@ -145,14 +167,18 @@
         const point = this.tileWorldPoint(event.to);
         if (point) this.effects.push({ kind: "countdown", ...point, color: "#fff1a8", text: `${Math.ceil(event.impactIn || 0)}s`, born: performance.now(), life: this.life(1250) });
         this.spawnPulse(event.to, "#fff1a8", 1.45);
+        this.spawnWarningCircle(event.to, "#fff1a8", `${Math.ceil(event.impactIn || 0)}s`, 2.25);
         this.spawnFloatingText(event.to, "Incoming Current Push", "#fff1a8");
       } else if (event.kind === "currentPushImpact") {
         this.spawnShockwave(event.to, event.captured > 0 ? color : "#edf8fb", event.captured > 0 ? 2 : 1.32);
+        this.spawnSplash(event.to, event.captured > 0 ? color : "#edf8fb", event.captured > 0 ? 1.7 : 1.2);
+        this.spawnGlowPulse(event.to, event.captured > 0 ? color : "#edf8fb", event.captured > 0 ? 1.8 : 1.2);
         if (event.captured > 0) this.spawnCaptureBurst(event.to, color, `Current +${event.captured}`);
         else this.spawnBlockedShield(event.to, "Current Blocked");
         this.spawnScreenNotice(event.captured > 0 ? `Current Push: ${event.captured} tiles` : "Current Push Blocked", event.captured > 0 ? color : "#edf8fb");
       } else if (event.kind === "currentPushBlocked") {
         this.spawnBlockedShield(event.to, "Current Blocked");
+        this.spawnSplash(event.to, "#edf8fb", 1.05, "shield");
       } else if (event.kind === "specialLaunch") {
         this.spawnSpecialLaunch(event);
       } else if (event.kind === "specialDefense") {
@@ -196,6 +222,16 @@
         this.spawnBuildEffect(event.to, event.buildingType);
       } else if (event.kind === "buildUpgrade") {
         this.spawnUpgradeEffect(event.to, event.level || 2, event.buildingType);
+      } else if (event.kind === "buildingCaptured") {
+        const meta = BUILDING_META[event.buildingType] || { label: "Building", color: color, particle: "#edf8fb" };
+        const label = String(meta.label || "Building").replace(" Built", "");
+        this.spawnCaptureBurst(event.to, meta.color || color, `${label} Captured!`);
+        this.spawnRipple(event.to, meta.color || color, 1.28);
+        this.spawnSplash(event.to, meta.color || color, 1.05, "captureTransfer");
+        this.spawnGlowPulse(event.to, color, 1.25);
+        const point = this.tileWorldPoint(event.to);
+        if (point) this.spawnParticles(point, meta.particle || meta.color || color, this.count(16), 58, event.buildingType);
+        this.spawnScreenNotice(`${label} Captured`, meta.color || color);
       } else if (event.kind === "buildRemove") {
         this.spawnBlockedEffect(event.to, "Removed");
       } else if (event.kind === "lakeEventWarning") {
@@ -274,12 +310,121 @@
       });
     }
 
+    pointFromTarget(target) {
+      if (typeof target === "number") return this.tileWorldPoint(target);
+      if (target && Number.isFinite(target.wx) && Number.isFinite(target.wy)) return target;
+      return null;
+    }
+
+    spawnSplash(target, color = "#9ee7f4", size = 1, style = "splash") {
+      const point = this.pointFromTarget(target);
+      if (!point || !this.canSpawnAt(point, 120)) return;
+      this.effects.push({ kind: "splash", ...point, color, size, born: performance.now(), life: this.life(760) });
+      this.spawnParticles(point, color, this.count(size > 1.35 ? 14 : 8), 52 * size, style);
+    }
+
+    spawnGlowPulse(target, color = "#9ee7f4", size = 1, life = 920) {
+      const point = this.pointFromTarget(target);
+      if (!point || !this.canSpawnAt(point, 140)) return;
+      this.effects.push({ kind: "glowPulse", ...point, color, size, born: performance.now(), life: this.life(life) });
+    }
+
+    spawnWaterWash(tileId, color = "#87d7ea", size = 1) {
+      const point = this.tileWorldPoint(tileId);
+      if (!point || !this.canSpawnAt(point, 120)) return;
+      this.effects.push({ kind: "waterWash", ...point, color, size, born: performance.now(), life: this.life(720) });
+    }
+
+    spawnBorderPressure(tileIds = [], color = "#f2d87a", intensity = 1, text = "") {
+      tileIds
+        .filter((id) => id != null)
+        .slice(0, this.settings.isMobile ? 12 : 28)
+        .forEach((tileId, index) => {
+          const point = this.tileWorldPoint(tileId);
+          if (!point || !this.canSpawnAt(point, 110)) return;
+          this.effects.push({
+            kind: "borderPressure",
+            ...point,
+            color,
+            intensity,
+            delay: index * 0.035,
+            born: performance.now(),
+            life: this.life(900 + intensity * 130),
+          });
+        });
+      if (text && tileIds[0] != null) this.spawnFloatingText(tileIds[0], text, color);
+    }
+
+    spawnWarningCircle(tileId, color = "#fff1a8", text = "Incoming", radius = 2.1) {
+      const point = this.tileWorldPoint(tileId);
+      if (!point || !this.canSpawnAt(point, 220)) return;
+      this.effects.push({
+        kind: "warningCircle",
+        ...point,
+        color,
+        text,
+        radius,
+        born: performance.now(),
+        life: this.life(this.settings.reducedMotion ? 760 : 1450),
+      });
+    }
+
+    spawnLilyBarrageProjectiles(tileId, color = "#f2d87a", count = 11) {
+      const point = this.tileWorldPoint(tileId);
+      if (!point || !this.canSpawnAt(point, 260)) return;
+      this.effects.push({
+        kind: "lilyRain",
+        ...point,
+        color,
+        count: this.settings.isMobile ? Math.min(7, count) : count,
+        born: performance.now(),
+        life: this.life(1400),
+      });
+    }
+
+    spawnDragonflyGuard(tileId, color = "#87d7ea", text = "Guarded!") {
+      const point = this.tileWorldPoint(tileId);
+      if (!point || !this.canSpawnAt(point, 220)) return;
+      this.effects.push({ kind: "dragonflyGuard", ...point, color, text, born: performance.now(), life: this.life(1300) });
+      this.spawnGlowPulse(point, color, 1.65, 1200);
+    }
+
+    spawnReedRise(tileIds = [], color = "#8ddf96") {
+      tileIds
+        .filter((id) => id != null)
+        .slice(0, this.settings.isMobile ? 10 : 20)
+        .forEach((tileId, index) => {
+          const point = this.tileWorldPoint(tileId);
+          if (!point || !this.canSpawnAt(point, 120)) return;
+          this.effects.push({ kind: "reedRise", ...point, color, delay: index * 0.03, born: performance.now(), life: this.life(1050) });
+        });
+    }
+
+    spawnObjectiveAura(tileId, color = "#f2d87a", text = "Objective!") {
+      const point = this.tileWorldPoint(tileId);
+      if (!point) return null;
+      this.effects.push({ kind: "objectiveAura", ...point, color, born: performance.now(), life: this.life(1550) });
+      this.spawnGlowPulse(point, color, 1.85, 1300);
+      this.spawnRipple(tileId, color, 1.8);
+      this.spawnPulse(tileId, color, 1.55);
+      if (text) this.spawnFloatingText(tileId, text, color);
+      return point;
+    }
+
+    spawnVictoryBurst(target, color = "#f2d87a") {
+      const point = this.pointFromTarget(target);
+      if (!point || !this.canSpawnAt(point, 260)) return;
+      this.effects.push({ kind: "victoryBurst", ...point, color, born: performance.now(), life: this.life(1800) });
+      this.spawnGlowPulse(point, color, 2.2, 1600);
+    }
+
     spawnCaptureBurst(tileId, color = "#d8ad48", text = "Captured") {
       const point = this.tileWorldPoint(tileId);
       if (!point) return;
       this.spawnCaptureEffect(tileId, color, text);
       this.effects.push({ kind: "shockwave", ...point, color, size: 1.05, born: performance.now(), life: this.life(720) });
       this.effects.push({ kind: "bubble", ...point, color: "#dffaff", size: 1, born: performance.now(), life: this.life(900) });
+      this.effects.push({ kind: "waterWash", ...point, color, size: 1, born: performance.now(), life: this.life(680) });
       this.spawnParticles(point, color, this.count(8), 58, "bubble");
     }
 
@@ -394,6 +539,8 @@
         born: performance.now(),
         life: this.life(Math.min(2400, Math.max(1100, duration * 1000))),
       });
+      this.spawnGlowPulse(point, meta.color, 0.92, 980);
+      this.spawnSplash(point, meta.color, 0.72, "bubble");
       this.spawnRipple(tileId, meta.color, 0.86);
       this.spawnFloatingText(tileId, level ? `Upgrade L${level}` : "Building", meta.color);
       this.spawnParticles(point, meta.particle, this.count(10), 44, buildingType);
@@ -406,6 +553,8 @@
       this.effects.push({ kind: "build", ...point, buildingType, color: meta.color, upgraded, born: performance.now(), life: this.life(upgraded ? 1280 : 1050) });
       this.spawnRipple(tileId, meta.color, buildingType === "mudTunnel" ? 1.45 : upgraded ? 1.32 : 1.1);
       this.spawnPulse(tileId, meta.color, buildingType === "jumpPad" ? 1.45 : upgraded ? 1.25 : 1);
+      this.spawnGlowPulse(point, meta.color, upgraded ? 1.55 : 1.18, upgraded ? 1280 : 980);
+      this.spawnSplash(point, meta.color, upgraded ? 1.18 : 0.92, buildingType);
       this.spawnFloatingText(tileId, upgraded ? "Building Upgraded!" : meta.label, meta.color);
       if (upgraded) this.spawnFloatingText(tileId, "Level Up!", "#f2d87a");
       this.spawnParticles(point, meta.particle, this.count(upgraded ? 22 : 14), upgraded ? 74 : 54, buildingType);
@@ -434,6 +583,9 @@
       if (!point) return;
       const color = "#f2d87a";
       this.effects.push({ kind: "objectiveAura", ...point, color, born: performance.now(), life: this.life(1600) });
+      this.spawnWarningCircle(event.to, color, "Lily Barrage", 2.65);
+      this.spawnLilyBarrageProjectiles(event.to, color, 12);
+      this.spawnGlowPulse(point, color, 1.6, 1320);
       this.spawnPulse(event.to, color, 1.7);
       this.spawnRipple(event.to, color, 1.4);
       this.spawnFloatingText(event.to, "Lily Barrage!", color);
@@ -448,6 +600,11 @@
       const point = this.tileWorldPoint(event.to);
       if (!point) return;
       this.effects.push({ kind: "shield", ...point, color, born: performance.now(), life: this.life(1150) });
+      if (type === "reedShield") {
+        this.spawnReedRise([event.to, ...(event.affectedTiles || [])], color);
+      } else {
+        this.spawnDragonflyGuard(event.to, color, "Guarded!");
+      }
       this.spawnPulse(event.to, color, type === "reedShield" ? 1.25 : 1.48);
       this.spawnRipple(event.to, color, type === "reedShield" ? 1.1 : 1.55);
       this.spawnFloatingText(event.to, text, color);
@@ -461,6 +618,8 @@
       const color = event.captured > 0 ? attackerColor : "#f2d87a";
       this.spawnShockwave(event.to, color, event.captured > 0 ? 1.9 : 1.35);
       this.spawnRipple(event.to, color, 1.75);
+      this.spawnSplash(point, color, event.captured > 0 ? 1.65 : 1.22, "lilyImpact");
+      this.spawnGlowPulse(point, color, event.captured > 0 ? 1.75 : 1.25, 1100);
       this.spawnFloatingText(event.to, event.captured > 0 ? `Barrage +${event.captured}` : event.reduced > 0 ? "Guarded!" : "Weakened", color);
       (event.capturedTiles || []).slice(0, 8).forEach((tileId) => this.spawnCaptureBurst(tileId, attackerColor, "Captured"));
       (event.weakenedTiles || []).slice(0, 10).forEach((tileId) => this.spawnWeakenEffect(tileId, 1, 2));
@@ -650,19 +809,24 @@
       const text = isSnake ? "Ambush Ready!" : isFrog ? "Big Leap!" : isTurtle ? "Shell Guard!" : isCarp ? "Golden Current!" : "Flock Rush!";
       const kind = isSnake ? "snakeSkill" : isFrog ? "frogSkill" : isTurtle ? "turtleSkill" : isCarp ? "carpSkill" : "duckSkill";
       this.effects.push({ kind, ...center, color, born: performance.now(), life: this.life(1250) });
+      this.effects.push({
+        kind: isSnake ? "fangSlash" : isFrog ? "leapArc" : isTurtle ? "shellDome" : isCarp ? "goldenCurrent" : "featherStreaks",
+        ...center,
+        color,
+        born: performance.now(),
+        life: this.life(isFrog ? 1320 : 1180),
+      });
       this.spawnFloatingText(center, playerName ? `${playerName}: ${abilityName || text}` : abilityName || text, color);
       this.spawnParticles(center, color, this.count(isFrog ? 18 : isTurtle ? 20 : isCarp ? 28 : 24), isFrog ? 88 : isCarp ? 96 : 72, kind);
       this.effects.push({ kind: "shockwave", ...center, color, size: isFrog ? 1.4 : isTurtle ? 1.25 : 1.05, born: performance.now(), life: this.life(980) });
+      this.spawnGlowPulse(center, color, isCarp ? 1.7 : isTurtle ? 1.42 : isFrog ? 1.36 : 1.18, 1080);
+      if (isFrog) this.spawnSplash(center, color, 1.24, "frogSkill");
       if (isFrog || isTurtle || isCarp) this.screenShake(isFrog ? 3 : isTurtle ? 2 : 2.5, 240);
     }
 
     spawnObjectiveEffect(tileId, color = "#f2d87a", text = "Objective!") {
-      const point = this.tileWorldPoint(tileId);
+      const point = this.spawnObjectiveAura(tileId, color, text);
       if (!point) return;
-      this.effects.push({ kind: "objectiveAura", ...point, color, born: performance.now(), life: this.life(1550) });
-      this.spawnRipple(tileId, color, 1.8);
-      this.spawnPulse(tileId, color, 1.55);
-      this.spawnFloatingText(tileId, text, color);
       this.spawnScreenNotice(text, color);
       this.spawnParticles(point, color, this.count(28), 96, "objective");
       this.screenShake(3, 280);
@@ -684,6 +848,7 @@
       if (!center) return;
       const color = winner?.color || "#f2d87a";
       this.effects.push({ kind: "victory", ...center, color, born: performance.now(), life: this.life(2200) });
+      this.spawnVictoryBurst(center, color);
       this.spawnParticles(center, color, this.count(46), 130, "victory");
       this.screenShake(5, 480);
     }
@@ -958,6 +1123,141 @@
             ctx.arc(p.x + Math.cos(angle) * r, p.y + Math.sin(angle) * r - t * tileSize * 0.28, Math.max(1.5, tileSize * 0.045), 0, Math.PI * 2);
             ctx.stroke();
           }
+        } else if (effect.kind === "splash") {
+          const r = tileSize * (effect.size || 1) * (0.2 + t * 0.62);
+          ctx.lineWidth = Math.max(1.2, tileSize * 0.035);
+          ctx.globalAlpha = alpha * 0.8;
+          for (let i = 0; i < 4; i += 1) {
+            const start = i * 1.45 + t * 1.8;
+            ctx.beginPath();
+            ctx.arc(p.x, p.y, r * (0.75 + i * 0.08), start, start + 0.72);
+            ctx.stroke();
+          }
+          ctx.globalAlpha = alpha * 0.58;
+          ctx.fillStyle = this.withAlpha(effect.color, 0.82);
+          for (let i = 0; i < 6; i += 1) {
+            const angle = i * 1.08 + t * 0.9;
+            const dotR = r * (0.5 + i * 0.035);
+            ctx.beginPath();
+            ctx.arc(p.x + Math.cos(angle) * dotR, p.y + Math.sin(angle) * dotR, Math.max(1.4, tileSize * 0.035), 0, Math.PI * 2);
+            ctx.fill();
+          }
+        } else if (effect.kind === "glowPulse") {
+          const r = tileSize * (effect.size || 1) * (0.42 + t * 0.9);
+          const gradient = ctx.createRadialGradient(p.x, p.y, 0, p.x, p.y, r);
+          gradient.addColorStop(0, this.withAlpha(effect.color, 0.28 * alpha));
+          gradient.addColorStop(0.58, this.withAlpha(effect.color, 0.11 * alpha));
+          gradient.addColorStop(1, this.withAlpha(effect.color, 0));
+          ctx.fillStyle = gradient;
+          ctx.globalAlpha = 1;
+          ctx.beginPath();
+          ctx.arc(p.x, p.y, r, 0, Math.PI * 2);
+          ctx.fill();
+          ctx.globalAlpha = alpha * 0.42;
+          ctx.lineWidth = Math.max(1.4, tileSize * 0.045);
+          ctx.beginPath();
+          ctx.arc(p.x, p.y, r * 0.62, 0, Math.PI * 2);
+          ctx.stroke();
+        } else if (effect.kind === "waterWash") {
+          const r = tileSize * (effect.size || 1) * (0.45 + t * 0.36);
+          ctx.globalAlpha = alpha * 0.2;
+          ctx.fillStyle = this.withAlpha(effect.color, 0.38);
+          ctx.beginPath();
+          ctx.ellipse(p.x, p.y, r * 1.1, r * 0.72, Math.sin(t * Math.PI) * 0.18, 0, Math.PI * 2);
+          ctx.fill();
+          ctx.globalAlpha = alpha * 0.28;
+          ctx.lineWidth = Math.max(1, tileSize * 0.03);
+          ctx.beginPath();
+          ctx.ellipse(p.x, p.y, r * 0.9, r * 0.5, -0.16, 0, Math.PI * 2);
+          ctx.stroke();
+        } else if (effect.kind === "borderPressure") {
+          const localT = Math.max(0, Math.min(1, t - (effect.delay || 0)));
+          const pulse = Math.sin(localT * Math.PI);
+          ctx.globalAlpha = alpha * (0.28 + pulse * 0.52);
+          ctx.lineWidth = Math.max(1.2, tileSize * 0.045 * (effect.intensity || 1));
+          ctx.setLineDash([Math.max(3, tileSize * 0.12), Math.max(2, tileSize * 0.09)]);
+          ctx.lineDashOffset = -now * 0.04;
+          const inset = tileSize * (0.1 + pulse * 0.08);
+          this.roundRect(ctx, p.x - tileSize * 0.5 + inset, p.y - tileSize * 0.5 + inset, tileSize - inset * 2, tileSize - inset * 2, tileSize * 0.08);
+          ctx.stroke();
+          ctx.setLineDash([]);
+          ctx.globalAlpha = alpha * 0.5;
+          for (let i = 0; i < 3; i += 1) {
+            const y = p.y - tileSize * 0.2 + i * tileSize * 0.2;
+            ctx.beginPath();
+            ctx.moveTo(p.x - tileSize * 0.24, y);
+            ctx.lineTo(p.x + tileSize * (0.06 + pulse * 0.22), y + Math.sin(now * 0.01 + i) * tileSize * 0.05);
+            ctx.stroke();
+          }
+        } else if (effect.kind === "warningCircle") {
+          const r = tileSize * (effect.radius || 2) * (0.88 + Math.sin(t * Math.PI) * 0.08);
+          ctx.globalAlpha = alpha * 0.82;
+          ctx.lineWidth = Math.max(2, tileSize * 0.065);
+          ctx.setLineDash([Math.max(7, tileSize * 0.28), Math.max(5, tileSize * 0.18)]);
+          ctx.lineDashOffset = -now * 0.08;
+          ctx.beginPath();
+          ctx.arc(p.x, p.y, r, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * (1 - t * 0.2));
+          ctx.stroke();
+          ctx.setLineDash([]);
+          ctx.globalAlpha = alpha * 0.13;
+          ctx.beginPath();
+          ctx.arc(p.x, p.y, r * 0.86, 0, Math.PI * 2);
+          ctx.fill();
+          if (this.settings.floatingText && effect.text) this.drawPillText(ctx, effect.text, p.x, p.y - r - 12, effect.color);
+        } else if (effect.kind === "lilyRain") {
+          const r = tileSize * 2.7;
+          const count = effect.count || 8;
+          for (let i = 0; i < count; i += 1) {
+            const seed = i * 2.399;
+            const fall = Math.min(1, Math.max(0, t * 1.28 - i * 0.035));
+            const x = p.x + Math.cos(seed) * r * (0.16 + (i % 4) * 0.12);
+            const y = p.y - r * 0.96 + fall * r * 1.25 + Math.sin(seed + now * 0.004) * tileSize * 0.15;
+            ctx.globalAlpha = alpha * (fall < 0.98 ? 0.86 : 0.28);
+            ctx.fillStyle = this.withAlpha(effect.color, 0.86);
+            ctx.beginPath();
+            ctx.ellipse(x, y, tileSize * 0.13, tileSize * 0.055, seed + fall, 0, Math.PI * 2);
+            ctx.fill();
+          }
+          if (t > 0.58) {
+            ctx.globalAlpha = alpha * 0.34;
+            ctx.lineWidth = Math.max(1.5, tileSize * 0.055);
+            ctx.beginPath();
+            ctx.arc(p.x, p.y, tileSize * (0.5 + (t - 0.58) * 1.9), 0, Math.PI * 2);
+            ctx.stroke();
+          }
+        } else if (effect.kind === "dragonflyGuard") {
+          const r = tileSize * (1.35 + Math.sin(t * Math.PI) * 0.18);
+          ctx.lineWidth = Math.max(1.5, tileSize * 0.04);
+          ctx.globalAlpha = alpha * 0.72;
+          ctx.beginPath();
+          ctx.arc(p.x, p.y, r, 0, Math.PI * 2);
+          ctx.stroke();
+          ctx.globalAlpha = alpha * 0.64;
+          for (let i = 0; i < 7; i += 1) {
+            const angle = i * 0.9 + now * 0.004;
+            const x = p.x + Math.cos(angle) * r * 0.78;
+            const y = p.y + Math.sin(angle) * r * 0.78;
+            ctx.beginPath();
+            ctx.moveTo(x - tileSize * 0.06, y);
+            ctx.lineTo(x + tileSize * 0.06, y);
+            ctx.stroke();
+            ctx.beginPath();
+            ctx.ellipse(x - tileSize * 0.045, y - tileSize * 0.035, tileSize * 0.07, tileSize * 0.03, angle, 0, Math.PI * 2);
+            ctx.ellipse(x + tileSize * 0.045, y - tileSize * 0.035, tileSize * 0.07, tileSize * 0.03, -angle, 0, Math.PI * 2);
+            ctx.stroke();
+          }
+        } else if (effect.kind === "reedRise") {
+          const localT = Math.max(0, Math.min(1, t - (effect.delay || 0)));
+          const grow = Math.sin(localT * Math.PI * 0.5);
+          ctx.globalAlpha = alpha * 0.82;
+          ctx.lineWidth = Math.max(1.4, tileSize * 0.043);
+          for (let i = -3; i <= 3; i += 1) {
+            const x = p.x + i * tileSize * 0.12;
+            ctx.beginPath();
+            ctx.moveTo(x, p.y + tileSize * 0.32);
+            ctx.quadraticCurveTo(x + Math.sin(now * 0.004 + i) * tileSize * 0.12, p.y - tileSize * 0.1 * grow, x + tileSize * 0.08, p.y - tileSize * 0.42 * grow);
+            ctx.stroke();
+          }
         } else if (effect.kind === "ripple") {
           ctx.lineWidth = Math.max(1, tileSize * 0.04);
           ctx.beginPath();
@@ -1093,6 +1393,93 @@
             ctx.beginPath();
             ctx.arc(p.x, p.y, r * (0.62 + i * 0.24), 0, Math.PI * 2);
             ctx.stroke();
+          }
+        } else if (effect.kind === "victoryBurst") {
+          const r = tileSize * (0.7 + t * 2.1);
+          ctx.lineWidth = Math.max(1.6, tileSize * 0.05);
+          ctx.globalAlpha = alpha * 0.86;
+          for (let i = 0; i < 14; i += 1) {
+            const angle = i * (Math.PI / 7) + t * 0.35;
+            ctx.beginPath();
+            ctx.moveTo(p.x + Math.cos(angle) * r * 0.26, p.y + Math.sin(angle) * r * 0.26);
+            ctx.lineTo(p.x + Math.cos(angle) * r, p.y + Math.sin(angle) * r);
+            ctx.stroke();
+          }
+          ctx.globalAlpha = alpha * 0.2;
+          ctx.beginPath();
+          ctx.arc(p.x, p.y, r * 0.54, 0, Math.PI * 2);
+          ctx.fill();
+        } else if (effect.kind === "featherStreaks") {
+          const r = tileSize * (1.1 + t * 1.35);
+          ctx.lineWidth = Math.max(1.2, tileSize * 0.035);
+          ctx.globalAlpha = alpha * 0.72;
+          for (let i = -3; i <= 3; i += 1) {
+            const y = p.y + i * tileSize * 0.16;
+            ctx.beginPath();
+            ctx.moveTo(p.x - r * 0.6 + t * r * 0.25, y);
+            ctx.quadraticCurveTo(p.x - r * 0.08, y - tileSize * 0.22, p.x + r * 0.58, y + tileSize * 0.08);
+            ctx.stroke();
+            ctx.beginPath();
+            ctx.ellipse(p.x + r * 0.1 + i * tileSize * 0.04, y - tileSize * 0.08, tileSize * 0.13, tileSize * 0.045, 0.35, 0, Math.PI * 2);
+            ctx.stroke();
+          }
+        } else if (effect.kind === "fangSlash") {
+          const r = tileSize * (0.75 + t * 1.3);
+          ctx.lineWidth = Math.max(2, tileSize * 0.075);
+          ctx.globalAlpha = alpha * 0.82;
+          ctx.beginPath();
+          ctx.arc(p.x, p.y, r, -0.9, 0.5);
+          ctx.stroke();
+          ctx.beginPath();
+          ctx.arc(p.x + tileSize * 0.12, p.y + tileSize * 0.05, r * 0.72, Math.PI + 0.2, Math.PI + 1.45);
+          ctx.stroke();
+          ctx.globalAlpha = alpha * 0.22;
+          ctx.beginPath();
+          ctx.ellipse(p.x, p.y, r * 0.95, r * 0.42, -0.22, 0, Math.PI * 2);
+          ctx.fill();
+        } else if (effect.kind === "leapArc") {
+          const r = tileSize * 1.65;
+          ctx.lineWidth = Math.max(1.6, tileSize * 0.048);
+          ctx.globalAlpha = alpha * 0.8;
+          ctx.beginPath();
+          ctx.moveTo(p.x - r * 0.55, p.y + tileSize * 0.16);
+          ctx.quadraticCurveTo(p.x, p.y - r * (0.7 + t * 0.08), p.x + r * 0.55, p.y + tileSize * 0.16);
+          ctx.stroke();
+          const lx = p.x - r * 0.55 + r * 1.1 * Math.min(1, t * 1.2);
+          const ly = p.y + tileSize * 0.16 - Math.sin(Math.min(1, t * 1.2) * Math.PI) * r * 0.62;
+          ctx.beginPath();
+          ctx.arc(lx, ly, Math.max(2, tileSize * 0.08), 0, Math.PI * 2);
+          ctx.fill();
+        } else if (effect.kind === "shellDome") {
+          const r = tileSize * (1.0 + Math.sin(t * Math.PI) * 0.45);
+          ctx.lineWidth = Math.max(1.8, tileSize * 0.055);
+          ctx.globalAlpha = alpha * 0.75;
+          ctx.beginPath();
+          ctx.ellipse(p.x, p.y, r * 1.05, r * 0.72, 0, Math.PI, Math.PI * 2);
+          ctx.stroke();
+          for (let i = -2; i <= 2; i += 1) {
+            ctx.beginPath();
+            ctx.moveTo(p.x + i * r * 0.18, p.y);
+            ctx.lineTo(p.x + i * r * 0.07, p.y - r * 0.62);
+            ctx.stroke();
+          }
+        } else if (effect.kind === "goldenCurrent") {
+          const r = tileSize * (1.05 + t * 1.4);
+          ctx.lineWidth = Math.max(1.4, tileSize * 0.04);
+          ctx.globalAlpha = alpha * 0.72;
+          for (let i = -3; i <= 3; i += 1) {
+            const y = p.y + i * tileSize * 0.16;
+            ctx.beginPath();
+            ctx.moveTo(p.x - r * 0.68, y);
+            ctx.bezierCurveTo(p.x - r * 0.24, y - tileSize * 0.24, p.x + r * 0.24, y + tileSize * 0.24, p.x + r * 0.68, y);
+            ctx.stroke();
+          }
+          ctx.globalAlpha = alpha * 0.64;
+          for (let i = 0; i < 7; i += 1) {
+            const angle = i * 1.1 + t * 1.8;
+            ctx.beginPath();
+            ctx.ellipse(p.x + Math.cos(angle) * r * 0.48, p.y + Math.sin(angle) * r * 0.22, tileSize * 0.08, tileSize * 0.04, angle, 0, Math.PI * 2);
+            ctx.fill();
           }
         } else if (effect.kind === "duckSkill" || effect.kind === "snakeSkill" || effect.kind === "frogSkill" || effect.kind === "turtleSkill" || effect.kind === "carpSkill") {
           const radius = tileSize * (0.8 + t * (effect.kind === "frogSkill" ? 2.3 : 1.5));
@@ -1350,6 +1737,18 @@
           ctx.beginPath();
           ctx.ellipse(p.x, p.y, particle.size * 2.4, particle.size * 0.95, Math.sin(t * 5), 0, Math.PI * 2);
           ctx.fill();
+        } else if (particle.style === "lilyBarrage" || particle.style === "lilyImpact") {
+          ctx.globalAlpha = (1 - t) * 0.88;
+          ctx.beginPath();
+          ctx.ellipse(p.x, p.y, particle.size * 2.5, particle.size * 0.9, Math.sin(t * 8), 0, Math.PI * 2);
+          ctx.fill();
+          if (particle.style === "lilyImpact") {
+            ctx.strokeStyle = "rgba(255,245,190,0.82)";
+            ctx.lineWidth = 1.1;
+            ctx.beginPath();
+            ctx.arc(p.x, p.y, particle.size * (2 + t * 3), 0, Math.PI * 2);
+            ctx.stroke();
+          }
         } else if (particle.style === "eventReed") {
           ctx.lineWidth = 1.5;
           ctx.beginPath();
@@ -1394,6 +1793,37 @@
           ctx.globalAlpha = (1 - t) * 0.7;
           ctx.beginPath();
           ctx.arc(p.x, p.y, particle.size * (1.8 + t), 0, Math.PI * 2);
+          ctx.stroke();
+        } else if (particle.style === "dragonflyGuard") {
+          ctx.strokeStyle = "rgba(185,245,255,0.86)";
+          ctx.lineWidth = 1.2;
+          ctx.beginPath();
+          ctx.moveTo(p.x - particle.size * 2.4, p.y);
+          ctx.lineTo(p.x + particle.size * 2.4, p.y);
+          ctx.stroke();
+          ctx.beginPath();
+          ctx.ellipse(p.x - particle.size * 0.8, p.y - particle.size * 0.8, particle.size * 1.5, particle.size * 0.55, 0.35, 0, Math.PI * 2);
+          ctx.ellipse(p.x + particle.size * 0.8, p.y - particle.size * 0.8, particle.size * 1.5, particle.size * 0.55, -0.35, 0, Math.PI * 2);
+          ctx.stroke();
+        } else if (particle.style === "reedShield") {
+          ctx.lineWidth = 1.5;
+          ctx.beginPath();
+          ctx.moveTo(p.x, p.y + particle.size * 2.3);
+          ctx.quadraticCurveTo(p.x + Math.sin(t * 7) * particle.size, p.y, p.x + particle.size * 0.7, p.y - particle.size * 2.6);
+          ctx.stroke();
+        } else if (particle.style === "captureTransfer") {
+          ctx.globalAlpha = (1 - t) * 0.82;
+          ctx.beginPath();
+          ctx.arc(p.x, p.y, particle.size * (1.2 + t * 1.7), 0, Math.PI * 2);
+          ctx.stroke();
+          ctx.beginPath();
+          ctx.arc(p.x, p.y, particle.size * 0.9, 0, Math.PI * 2);
+          ctx.fill();
+        } else if (particle.style === "splash") {
+          ctx.strokeStyle = "rgba(225,250,255,0.78)";
+          ctx.lineWidth = 1.1;
+          ctx.beginPath();
+          ctx.arc(p.x, p.y, particle.size * (1.5 + t * 2), 0, Math.PI * 2);
           ctx.stroke();
         } else {
           ctx.beginPath();

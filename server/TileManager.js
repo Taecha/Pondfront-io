@@ -174,6 +174,10 @@ class TileManager {
       building: null,
       buildingLevel: 0,
       buildingActiveAt: 0,
+      buildingCapturedAt: 0,
+      buildingConversionUntil: 0,
+      buildingPreviousOwner: null,
+      buildingCaptureReason: null,
       captureProgress: {},
       defenseEnergy: 0,
       objectiveId: null,
@@ -264,6 +268,44 @@ class TileManager {
 
   owned(playerId) {
     return this.tiles.filter((tile) => tile.owner === playerId);
+  }
+
+  buildingConversionSeconds(tile) {
+    const level = Math.max(1, Math.min(3, Number(tile?.buildingLevel) || 1));
+    if (level >= 3) return 10;
+    if (level === 2) return 8;
+    return 5;
+  }
+
+  transferBuilding(tileId, newOwnerId, oldOwnerId = null, captureReason = "capture", now = Date.now() / 1000, pushEvent = null) {
+    const tile = this.getById(tileId);
+    if (!tile?.building || !newOwnerId || oldOwnerId === newOwnerId) return null;
+    const buildingType = tile.building;
+    const buildingLevel = Math.max(1, Number(tile.buildingLevel) || 1);
+    const conversionTime = this.buildingConversionSeconds(tile);
+    tile.buildingCapturedAt = now;
+    tile.buildingConversionUntil = now + conversionTime;
+    tile.buildingPreviousOwner = oldOwnerId || null;
+    tile.buildingCaptureReason = captureReason;
+    tile.lastChanged = now;
+    const event = {
+      kind: "buildingCaptured",
+      tileId: tile.id,
+      to: tile.id,
+      buildingType,
+      buildingLevel,
+      oldOwnerId: oldOwnerId || null,
+      newOwnerId,
+      playerId: newOwnerId,
+      targetOwner: oldOwnerId || null,
+      conversionTime,
+      conversionUntil: tile.buildingConversionUntil,
+      captureReason,
+      at: now,
+      message: `${config.BUILDINGS[buildingType]?.label || "Building"} captured. Converting for ${conversionTime}s.`,
+    };
+    if (typeof pushEvent === "function") pushEvent(event);
+    return event;
   }
 
   playable() {

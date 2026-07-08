@@ -196,10 +196,9 @@ class SpecialManager {
       const canCaptureMore = captured < (special.maxCaptures || 4) && defenderOwnedAtStart - captured > 1;
       const lowDefense = (tile.defenseEnergy || 0) < 12 && !tile.isCore;
       if (canCaptureMore && lowDefense && progress >= cost * 0.82) {
+        const previousOwner = tile.owner || defender.id;
         tile.owner = attacker.id;
-        tile.building = null;
-        tile.buildingLevel = 0;
-        tile.buildingActiveAt = 0;
+        this.tileManager.transferBuilding(tile.id, attacker.id, previousOwner, "lilyBarrage", now, (event) => this.pushEvent(event));
         tile.captureProgress = {};
         tile.defenseEnergy = Math.min(14, Math.max(3, pressure * 0.08));
         tile.lastChanged = now;

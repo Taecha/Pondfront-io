@@ -6302,3 +6302,482 @@ body[data-action-context="own"] .bottombar {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
+
+/* Compact UI baseline: keeps the map readable while preserving touch targets. */
+body {
+  --ui-scale: 0.88;
+  --panel-padding: 9px;
+  --panel-gap: 7px;
+  --font-size-small: 0.67rem;
+  --font-size-normal: 0.76rem;
+  --button-height: 34px;
+  --panel-radius: 9px;
+  --left-panel-width: 252px;
+  --right-panel-width: 266px;
+  --topbar-pad-y: 6px;
+  --topbar-pad-x: 9px;
+  --bottombar-pad-y: 6px;
+  --bottombar-pad-x: 9px;
+}
+
+body.ui-tiny {
+  --ui-scale: 0.78;
+  --panel-padding: 7px;
+  --panel-gap: 5px;
+  --font-size-small: 0.61rem;
+  --font-size-normal: 0.69rem;
+  --button-height: 30px;
+  --panel-radius: 8px;
+  --left-panel-width: 218px;
+  --right-panel-width: 236px;
+  --topbar-pad-y: 4px;
+  --topbar-pad-x: 7px;
+  --bottombar-pad-y: 5px;
+  --bottombar-pad-x: 7px;
+}
+
+body.ui-normal {
+  --ui-scale: 0.96;
+  --panel-padding: 11px;
+  --panel-gap: 9px;
+  --font-size-small: 0.72rem;
+  --font-size-normal: 0.82rem;
+  --button-height: 38px;
+  --panel-radius: 10px;
+  --left-panel-width: 276px;
+  --right-panel-width: 292px;
+}
+
+body.ui-large {
+  --ui-scale: 1.08;
+  --panel-padding: 14px;
+  --panel-gap: 11px;
+  --font-size-small: 0.78rem;
+  --font-size-normal: 0.9rem;
+  --button-height: 44px;
+  --panel-radius: 12px;
+  --left-panel-width: 330px;
+  --right-panel-width: 340px;
+}
+
+button,
+select {
+  min-height: var(--button-height);
+  font-size: var(--font-size-normal);
+}
+
+.topbar {
+  min-height: calc(var(--button-height) + 12px);
+  padding: var(--topbar-pad-y) var(--topbar-pad-x);
+  gap: var(--panel-gap);
+}
+
+.brand {
+  min-width: calc(174px * var(--ui-scale));
+  gap: 7px;
+}
+
+.brand strong {
+  font-size: calc(0.98rem * var(--ui-scale));
+}
+
+.top-stats {
+  gap: var(--panel-gap);
+}
+
+.stat {
+  min-width: calc(82px * var(--ui-scale));
+  padding: 5px 7px;
+  border-radius: var(--panel-radius);
+}
+
+.stat span,
+.panel-head-row small,
+.settings-section label,
+.compact-row small,
+.mission-row small {
+  font-size: var(--font-size-small);
+}
+
+.stat strong {
+  font-size: calc(0.86rem * var(--ui-scale));
+}
+
+.left-panel,
+.right-panel {
+  top: 8px;
+  gap: var(--panel-gap);
+  max-height: calc(100% - 16px);
+}
+
+.left-panel {
+  left: 8px;
+  width: min(var(--left-panel-width), calc(100vw - 24px));
+}
+
+.right-panel {
+  right: 8px;
+  width: min(var(--right-panel-width), calc(100vw - 24px));
+}
+
+.panel,
+.minimap-card,
+.settings-section,
+.mobile-sheet > div,
+.build-menu,
+.special-menu,
+.context-menu {
+  padding: var(--panel-padding);
+  border-radius: var(--panel-radius);
+}
+
+.panel p,
+.left-panel .panel p,
+.mobile-sheet-body p {
+  margin: 3px 0 6px;
+  font-size: var(--font-size-normal);
+  line-height: 1.28;
+}
+
+.info-grid,
+.compact-list,
+.right-panel-tabs,
+.percent-row,
+.attack-style-row,
+.action-row {
+  gap: var(--panel-gap);
+}
+
+.info-grid div {
+  min-height: calc(var(--button-height) - 8px);
+  padding: 4px 6px;
+  border-radius: calc(var(--panel-radius) - 2px);
+  font-size: var(--font-size-small);
+}
+
+.compact-row,
+.mission-row {
+  min-height: calc(var(--button-height) + 1px);
+  padding: 5px 6px;
+  gap: 6px;
+}
+
+.compact-row {
+  grid-template-columns: 29px minmax(0, 1fr);
+}
+
+.compact-row i {
+  width: 25px;
+  height: 21px;
+  border-radius: 6px;
+  font-size: 0.58rem;
+}
+
+.right-panel-tabs {
+  padding: 4px;
+}
+
+.right-panel-tabs button,
+#leaderboardToggle,
+#leaderboardExpandButton,
+.panel-head-actions button {
+  min-height: calc(var(--button-height) - 6px);
+  padding: 0 7px;
+  font-size: var(--font-size-small);
+}
+
+#miniMap {
+  height: calc(116px * var(--ui-scale)) !important;
+  margin-top: 5px;
+}
+
+.leaderboard-panel li {
+  min-height: calc(var(--button-height) + 1px);
+  padding: 4px 6px;
+  font-size: var(--font-size-small);
+}
+
+.bottombar {
+  min-height: auto;
+  padding: var(--bottombar-pad-y) var(--bottombar-pad-x);
+  gap: var(--panel-gap);
+}
+
+.percent-row button,
+.attack-style-row button,
+.action-row button,
+.bottombar select {
+  min-height: var(--button-height);
+  padding: 5px 8px;
+  font-size: var(--font-size-normal);
+}
+
+.settings-card {
+  width: min(820px, calc(100vw - 24px));
+  max-height: min(680px, calc(100vh - 24px));
+  border-radius: 14px;
+}
+
+.settings-card header {
+  padding: 12px;
+}
+
+.settings-grid {
+  gap: 10px;
+  padding: 0 12px 12px;
+}
+
+.settings-section {
+  gap: 8px;
+}
+
+.mobile-sheet-body,
+.build-sheet-list {
+  gap: 8px;
+}
+
+@media (max-width: 760px) {
+  body {
+    --ui-scale: 0.8;
+    --panel-padding: 8px;
+    --panel-gap: 6px;
+    --font-size-small: 0.62rem;
+    --font-size-normal: 0.72rem;
+    --button-height: 34px;
+    --left-panel-width: min(240px, calc(100vw - 112px));
+    --right-panel-width: 154px;
+  }
+
+  body.ui-large {
+    --button-height: 40px;
+    --font-size-normal: 0.8rem;
+    --left-panel-width: min(282px, calc(100vw - 92px));
+    --right-panel-width: 180px;
+  }
+
+  .topbar {
+    gap: 5px;
+  }
+
+  .top-stats {
+    grid-template-columns: repeat(3, minmax(64px, 1fr));
+  }
+
+  .left-panel {
+    width: var(--left-panel-width);
+  }
+
+  .right-panel {
+    width: var(--right-panel-width);
+  }
+
+  #miniMap {
+    height: 82px !important;
+  }
+
+  .bottombar {
+    padding-bottom: calc(5px + env(safe-area-inset-bottom));
+  }
+
+  .percent-row,
+  .attack-style-row,
+  .action-row,
+  .action-row:has(.hidden-action:nth-child(n + 1)) {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+
+  .mobile-sheet > div {
+    max-height: 54vh;
+  }
+}
+
+@media (max-width: 520px) {
+  .percent-row,
+  .attack-style-row,
+  .action-row,
+  .action-row:has(.hidden-action:nth-child(n + 1)) {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .right-panel-tabs button {
+    padding-inline: 4px;
+  }
+}
+
+/* Premium VFX/UI polish pass */
+.topbar,
+.panel,
+.minimap-card,
+.bottombar,
+.settings-card,
+.mobile-sheet > div,
+.build-menu,
+.special-menu,
+.context-menu {
+  backdrop-filter: blur(14px) saturate(1.16);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.07),
+    0 18px 42px rgba(0, 0, 0, 0.28);
+}
+
+.panel,
+.minimap-card,
+.settings-section {
+  background:
+    linear-gradient(180deg, rgba(18, 50, 67, 0.82), rgba(5, 18, 30, 0.88)),
+    var(--panel);
+}
+
+button:not(:disabled),
+.animal-choice:not(:disabled),
+.right-panel-tabs button,
+.percent-row button,
+.attack-style-row button,
+.action-row button {
+  position: relative;
+  overflow: hidden;
+}
+
+button:not(:disabled)::before,
+.animal-choice:not(:disabled)::before {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  content: "";
+  background: linear-gradient(120deg, transparent 0 28%, rgba(255, 255, 255, 0.14) 46%, transparent 64% 100%);
+  opacity: 0;
+  transform: translateX(-75%);
+  transition:
+    opacity 180ms ease,
+    transform 420ms ease;
+}
+
+button:not(:disabled):hover::before,
+.animal-choice:not(:disabled):hover::before {
+  opacity: 0.7;
+  transform: translateX(75%);
+}
+
+.action-row button:not(:disabled):hover,
+.percent-row button:not(:disabled):hover,
+.attack-style-row button:not(:disabled):hover {
+  border-color: rgba(154, 230, 242, 0.42);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.2),
+    0 10px 24px rgba(0, 0, 0, 0.28),
+    0 0 18px rgba(98, 198, 223, 0.16);
+}
+
+.action-row #attackButton.active,
+.action-row #specialButton.ready,
+#abilityButton.ready {
+  text-shadow: 0 0 12px rgba(255, 241, 168, 0.34);
+}
+
+.toast,
+.stack-toast {
+  border-color: rgba(154, 230, 242, 0.3);
+  background:
+    linear-gradient(180deg, rgba(16, 48, 67, 0.94), rgba(4, 15, 25, 0.94)),
+    rgba(5, 18, 30, 0.92);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.08),
+    0 14px 34px rgba(0, 0, 0, 0.34);
+}
+
+.leaderboard-panel li,
+.compact-row,
+.mission-row,
+.info-grid div {
+  transition:
+    transform 140ms ease,
+    border-color 160ms ease,
+    background-color 160ms ease,
+    box-shadow 160ms ease;
+}
+
+.leaderboard-panel li:hover,
+.compact-row:hover,
+.mission-row:hover {
+  transform: translateX(2px);
+  border-color: rgba(154, 230, 242, 0.34);
+  background: rgba(255, 255, 255, 0.075);
+}
+
+.leaderboard-panel li.local {
+  box-shadow:
+    inset 3px 0 0 rgba(242, 216, 122, 0.72),
+    0 0 18px rgba(242, 216, 122, 0.08);
+}
+
+.stat strong,
+.energy-value,
+#energyValue,
+#incomeValue,
+#territoryValue {
+  transition:
+    color 180ms ease,
+    text-shadow 180ms ease;
+}
+
+.stat:hover strong {
+  color: #fff7c2;
+  text-shadow: 0 0 12px rgba(242, 216, 122, 0.22);
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .panel:not(.hidden),
+  .minimap-card,
+  .bottombar,
+  .topbar {
+    animation: premiumPanelSettle 240ms ease both;
+  }
+
+  button.ready#buildButton,
+  #specialButton.ready,
+  #abilityButton.ready {
+    animation:
+      abilityReadyGlow 1.7s ease-in-out infinite,
+      premiumReadyLift 2.4s ease-in-out infinite;
+  }
+}
+
+@keyframes premiumPanelSettle {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes premiumReadyLift {
+  0%,
+  100% {
+    filter: brightness(1);
+  }
+  50% {
+    filter: brightness(1.08) saturate(1.12);
+  }
+}
+
+@media (max-width: 760px) {
+  .topbar,
+  .panel,
+  .minimap-card,
+  .bottombar,
+  .settings-card,
+  .mobile-sheet > div {
+    backdrop-filter: blur(10px) saturate(1.08);
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 0.06),
+      0 10px 24px rgba(0, 0, 0, 0.26);
+  }
+
+  button:not(:disabled)::before,
+  .animal-choice:not(:disabled)::before {
+    display: none;
+  }
+}
