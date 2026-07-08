@@ -183,6 +183,7 @@ class PondFrontServerGame {
       accountUser: settings.accountUser || null,
       practice: Boolean(settings.practice),
       beginnerCombat: Boolean(settings.beginnerCombat || settings.practice || difficulty === "easy"),
+      coreCaptureBehavior: ["transfer", "eliminate", "neutralize"].includes(settings.coreCaptureBehavior) ? settings.coreCaptureBehavior : "transfer",
       surrenderMode,
       sandbox: sandboxEnabled
         ? {
@@ -718,6 +719,13 @@ class PondFrontServerGame {
       tile.defenseEnergy = transfer ? Math.min(12, tile.defenseEnergy || 2) : Math.max(0, (tile.defenseEnergy || 0) * 0.35);
       tile.building = null;
       tile.buildingLevel = 0;
+      tile.buildingActiveAt = 0;
+      tile.buildingCompleteNotified = false;
+      tile.buildingCapturedAt = 0;
+      tile.buildingConversionUntil = 0;
+      tile.buildingPreviousOwner = null;
+      tile.buildingCaptureReason = null;
+      delete tile.buildingPendingEvent;
       tile.lastChanged = now;
     });
     player.stats.surrendered = 1;
@@ -882,6 +890,10 @@ class PondFrontServerGame {
         buildingLevel: tile.buildingLevel || 0,
         buildingActiveAt: tile.buildingActiveAt || 0,
         buildingPendingEvent: tile.buildingPendingEvent || null,
+        buildingCapturedAt: tile.buildingCapturedAt || 0,
+        buildingConversionUntil: tile.buildingConversionUntil || 0,
+        buildingPreviousOwner: tile.buildingPreviousOwner || null,
+        buildingCaptureReason: tile.buildingCaptureReason || null,
         captureProgress: this.roundCaptureProgress(tile.captureProgress),
         defenseEnergy: Math.round(tile.defenseEnergy),
         objectiveId: tile.objectiveId || null,
@@ -1376,6 +1388,8 @@ function collectChangedPlayerIds(body, result, events = []) {
     add(event.targetOwner);
     add(event.attackerId);
     add(event.defenderId);
+    add(event.newOwnerId);
+    add(event.oldOwnerId);
   });
   return ids;
 }
@@ -1390,6 +1404,10 @@ function tileDelta(match, id) {
     buildingLevel: tile.buildingLevel || 0,
     buildingActiveAt: tile.buildingActiveAt || 0,
     buildingPendingEvent: tile.buildingPendingEvent || null,
+    buildingCapturedAt: tile.buildingCapturedAt || 0,
+    buildingConversionUntil: tile.buildingConversionUntil || 0,
+    buildingPreviousOwner: tile.buildingPreviousOwner || null,
+    buildingCaptureReason: tile.buildingCaptureReason || null,
     captureProgress: match.roundCaptureProgress(tile.captureProgress),
     defenseEnergy: Math.round(tile.defenseEnergy),
     objectiveId: tile.objectiveId || null,
