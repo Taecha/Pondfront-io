@@ -14,6 +14,7 @@ class BotManager {
     if (this.game.sandbox?.enabled && this.game.sandbox.botsPaused) return;
     const started = Date.now();
     let thinkers = 0;
+    const thinkerLimit = this.thinkerLimit();
     this.game.players.forEach((bot) => {
       if (!bot.isBot || bot.defeated) return;
       const mode = this.sandboxMode(bot);
@@ -26,6 +27,10 @@ class BotManager {
         return;
       }
       if (now < bot.aiNextThinkAt) {
+        return;
+      }
+      if (thinkers >= thinkerLimit) {
+        bot.aiNextThinkAt = now + 0.35 + Math.random() * 0.65;
         return;
       }
       thinkers += 1;
@@ -53,7 +58,22 @@ class BotManager {
     const profile = this.difficultyProfile(bot);
     const interval = profile.thinkInterval || [profile.turnPaceMultiplier || 1, profile.turnPaceMultiplier || 1.4];
     const base = this.randomRange(interval, [1, 1.8]);
-    return Math.max(0.25, base * animalPace);
+    return Math.max(0.25, base * animalPace * this.mapLoadMultiplier());
+  }
+
+  mapLoadMultiplier() {
+    const tiles = this.game.tileManager?.tiles?.length || 0;
+    if (tiles >= 16000) return 1.35;
+    if (tiles >= 11000) return 1.22;
+    if (tiles >= 8000) return 1.12;
+    return 1;
+  }
+
+  thinkerLimit() {
+    const tiles = this.game.tileManager?.tiles?.length || 0;
+    if (tiles >= 16000) return 2;
+    if (tiles >= 10000) return 3;
+    return 4;
   }
 
   takeTurn(bot) {

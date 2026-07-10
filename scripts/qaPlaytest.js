@@ -35,6 +35,25 @@ function assertCheck(checks, name, pass, detail = "") {
   checks.push({ name, pass: Boolean(pass), detail });
 }
 
+function terrainStats(game) {
+  const total = Math.max(1, game.tileManager.tiles.length);
+  const counts = { water: 0, reeds: 0, mud: 0, lily: 0, blocked: 0, nest: 0 };
+  game.tileManager.tiles.forEach((tile) => {
+    if (tile.type === "water") counts.water += 1;
+    if (tile.type === "reeds") counts.reeds += 1;
+    if (tile.type === "mud") counts.mud += 1;
+    if (tile.type === "lily") counts.lily += 1;
+    if (tile.type === "nest") counts.nest += 1;
+    if (config.TILE_TYPES[tile.type]?.blocks) counts.blocked += 1;
+  });
+  const pct = Object.fromEntries(Object.entries(counts).map(([key, value]) => [key, Number(((value / total) * 100).toFixed(1))]));
+  return { counts, pct };
+}
+
+function inRange(value, min, max) {
+  return value >= min && value <= max;
+}
+
 function firstCapturable(game, player, predicate = () => true) {
   return game.tileManager.capturable(player.id).find((tile) => !tile.owner && predicate(tile));
 }
@@ -68,6 +87,53 @@ function testMapSizes(checks) {
     assertCheck(checks, `${id} map grid`, game.tileManager.cols === expected.cols && game.tileManager.rows === expected.rows, `${game.tileManager.cols}x${game.tileManager.rows}`);
     assertCheck(checks, `${id} bot count`, game.players.filter((player) => player.isBot).length === expected.defaultBots, `${game.players.filter((player) => player.isBot).length} bots`);
     assertCheck(checks, `${id} objectives scale`, game.matchSettings.map.objectiveCount === expected.objectiveCount, `${game.matchSettings.map.objectiveCount} objectives`);
+    if (expected.theme) {
+      const blockedTypes = new Set(expected.blockedTypes || []);
+      const blockers = game.tileManager.tiles.filter((tile) => blockedTypes.has(tile.type));
+      const playable = game.tileManager.playable();
+      const human = game.getPlayer(config.HUMAN_ID);
+      const spawnPoints = game.tileManager.spawnPoints.slice(0, Math.min(expected.defaultBots + 1, game.tileManager.spawnPoints.length));
+      const openSpawns = spawnPoints.filter(([x, y]) => {
+        const tile = game.tileManager.get(x, y);
+        return tile && !config.TILE_TYPES[tile.type]?.blocks && game.tileManager.nearbyPlayableCount(x, y, 3) >= 14;
+      }).length;
+      const objectiveTypes = new Set(game.objectives.objectives.map((objective) => objective.type));
+      const configuredObjectives = new Set(expected.objectiveTypes || []);
+      human.energy = Math.max(human.energy, 500);
+      const blockedTarget = blockers[0];
+      const blockedResult = blockedTarget ? game.combat.expandOrAttack(game, human, blockedTarget.id, 1) : { ok: true, message: "No blocker found" };
+      assertCheck(checks, `${id} themed blockers exist`, blockers.length > playable.length * 0.05, `${blockers.length} blockers, ${playable.length} playable`);
+      assertCheck(checks, `${id} blocked land rejects capture`, blockedTarget && !blockedResult.ok && !blockedTarget.owner, blockedResult.message);
+      assertCheck(checks, `${id} spawn areas are open`, openSpawns === spawnPoints.length, `${openSpawns}/${spawnPoints.length} open spawns`);
+      assertCheck(
+        checks,
+        `${id} objectives use map theme`,
+        [...objectiveTypes].every((type) => configuredObjectives.has(type)),
+        [...objectiveTypes].join(", "),
+      );
+    }
+  });
+}
+
+function testThemedMapTerrainBalance(checks) {
+  const expectations = {
+    amazon: { water: [60, 72], reeds: [5, 12.5], mud: [5, 12.5], lily: [3, 8.5], blocked: [9, 18.5] },
+    mekong: { water: [55, 67], reeds: [5, 12.5], mud: [7, 15.5], lily: [3, 8.5], blocked: [11, 20.5] },
+    everglades: { water: [45, 57], reeds: [10, 20.5], mud: [8, 15.5], lily: [5, 12.5], blocked: [8, 15.5] },
+    nile: { water: [65, 77], reeds: [1, 7.5], mud: [1, 6], lily: [2, 8], blocked: [14, 25.5] },
+  };
+  Object.entries(expectations).forEach(([id, expected]) => {
+    const game = newGame("duck", { mapSize: id, botCount: config.MAP_SIZES[id].defaultBots, difficulty: "normal" });
+    const stats = terrainStats(game);
+    Object.entries(expected).forEach(([kind, [min, max]]) => {
+      assertCheck(
+        checks,
+        `${id} ${kind} terrain ratio`,
+        inRange(stats.pct[kind], min, max),
+        `${kind}=${stats.pct[kind]}% expected ${min}-${max}%`,
+      );
+    });
+    assertCheck(checks, `${id} random nest clutter low`, stats.pct.nest <= 0.5, `nest=${stats.pct.nest}%`);
   });
 }
 
@@ -373,6 +439,7 @@ function runBotSimulation(checks) {
 
 const checks = [];
 testMapSizes(checks);
+testThemedMapTerrainBalance(checks);
 testExpansion(checks);
 testBuildings(checks);
 testAbilities(checks);

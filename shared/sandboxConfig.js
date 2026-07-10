@@ -4,8 +4,8 @@
   else root.PondSandboxConfig = config;
 })(typeof globalThis !== "undefined" ? globalThis : window, function makeSandboxConfig() {
   const animals = ["duck", "snake", "frog", "turtle", "carp"];
-  const mapSizes = ["small", "medium", "large", "huge"];
-  const botCounts = [0, 2, 4, 8, 12, 16];
+  const mapSizes = ["amazon", "mekong", "everglades", "nile", "small", "medium", "large", "huge"];
+  const botCounts = [0, 2, 4, 8, 12, 16, 18, 20, 22, 24, 26];
   const botDifficulties = {
     passive: { label: "Passive", serverDifficulty: "passive", personality: "passive" },
     easy: { label: "Easy", serverDifficulty: "easy", personality: "expander" },
@@ -69,9 +69,9 @@
       rules: { ...defaultRules, infiniteEnergy: true, currentPush: true },
     },
     chaos: {
-      label: "Huge Chaos",
-      mapSize: "huge",
-      botCount: 16,
+      label: "Delta Chaos",
+      mapSize: "mekong",
+      botCount: 22,
       botDifficulty: "chaos",
       rules: { ...defaultRules, botsFight: true, objectives: true },
     },

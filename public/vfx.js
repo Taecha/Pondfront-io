@@ -8,10 +8,10 @@
   };
 
   const QUALITY = {
-    low: { effects: 82, particles: 70, scale: 0.42, ambient: 22 },
-    medium: { effects: 150, particles: 165, scale: 0.68, ambient: 52 },
-    high: { effects: 240, particles: 340, scale: 1, ambient: 92 },
-    ultra: { effects: 360, particles: 540, scale: 1.35, ambient: 140 },
+    low: { effects: 48, particles: 42, scale: 0.34, ambient: 12 },
+    medium: { effects: 92, particles: 92, scale: 0.58, ambient: 28 },
+    high: { effects: 160, particles: 210, scale: 0.86, ambient: 52 },
+    ultra: { effects: 250, particles: 380, scale: 1.1, ambient: 76 },
   };
 
   const ATTACK_STYLE = [
@@ -41,19 +41,19 @@
       this.notices = [];
       this.shake = { power: 0, until: 0, started: 0 };
       this.settings = {
-        level: "high",
+        level: "medium",
         floatingText: true,
         attackArrows: true,
         screenShake: true,
         reducedMotion: false,
-        particles: "high",
+        particles: "medium",
         abilityEffects: true,
         mapDecorations: true,
-        visualQuality: "high",
+        visualQuality: "medium",
         isMobile: false,
       };
-      this.maxEffects = 180;
-      this.maxParticles = 260;
+      this.maxEffects = 92;
+      this.maxParticles = 92;
     }
 
     configure(settings = {}) {
@@ -64,8 +64,11 @@
       const particleQuality = QUALITY[this.settings.particles] || effectQuality;
       const mobileScale = this.settings.isMobile ? 0.58 : 1;
       const motionScale = this.settings.reducedMotion ? 0.35 : 1;
-      this.maxEffects = Math.round(effectQuality.effects * mobileScale * motionScale);
-      this.maxParticles = Math.round(particleQuality.particles * mobileScale * motionScale);
+      const visualScale = this.settings.visualQuality === "low" || this.settings.mapDecorations === false ? 0.82 : 1;
+      const hardEffectCap = this.settings.isMobile ? 82 : 260;
+      const hardParticleCap = this.settings.isMobile ? 120 : 520;
+      this.maxEffects = Math.min(hardEffectCap, Math.round(effectQuality.effects * mobileScale * motionScale * visualScale));
+      this.maxParticles = Math.min(hardParticleCap, Math.round(particleQuality.particles * mobileScale * motionScale * visualScale));
     }
 
     addEvents(events, state) {
@@ -886,8 +889,12 @@
     }
 
     spawnParticles(point, color, count, spread, style) {
+      if (!point || !this.canSpawnAt(point, 160)) return;
       if (this.settings.level === "low" && style !== "shield") count = Math.min(count, 4);
       if (this.settings.reducedMotion) count = Math.min(count, 5);
+      const room = Math.max(0, this.maxParticles - this.particles.length);
+      count = Math.min(count, room);
+      if (count <= 0) return;
       for (let i = 0; i < count; i += 1) {
         const angle = Math.random() * Math.PI * 2;
         const speed = (0.25 + Math.random() * 0.75) * spread;

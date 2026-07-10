@@ -117,6 +117,7 @@
         gameMode: document.querySelector("#gameMode"),
         beginnerCombat: document.querySelector("#beginnerCombat"),
         mapSize: document.querySelector("#mapSize"),
+        mapInfoCard: document.querySelector("#mapInfoCard"),
         botCount: document.querySelector("#botCount"),
         matchLength: document.querySelector("#matchLength"),
         surrenderMode: document.querySelector("#surrenderMode"),
@@ -228,6 +229,7 @@
         showAnimalAnimations: document.querySelector("#showAnimalAnimations"),
         showBorderStatus: document.querySelector("#showBorderStatus"),
         uiScale: document.querySelector("#uiScale"),
+        visualPreset: document.querySelector("#visualPreset"),
         effectsLevel: document.querySelector("#effectsLevel"),
         visualQuality: document.querySelector("#visualQuality"),
         particlesLevel: document.querySelector("#particlesLevel"),
@@ -278,6 +280,7 @@
       this.leaderboardExpanded = false;
       this.rightPanelTab = "leaderboard";
       this.lastDebugFrameAt = 0;
+      this.lastLeaderboardRenderAt = 0;
       this.debugMode = new URLSearchParams(window.location.search).has("debug") || localStorage.getItem("pondfront:debug") === "1";
       document.body.classList.toggle("debug-open", this.debugMode);
       this.nodes.strategicView.checked = true;
@@ -288,10 +291,14 @@
       if (this.nodes.showBorderStatus) this.nodes.showBorderStatus.checked = true;
       if (this.nodes.showCoachHints) this.nodes.showCoachHints.checked = localStorage.getItem("pondfront:coachHints") !== "off";
       if (this.nodes.showDebugStats) this.nodes.showDebugStats.checked = this.debugMode;
+      if (this.nodes.effectsLevel) this.nodes.effectsLevel.value = "medium";
+      if (this.nodes.visualQuality) this.nodes.visualQuality.value = "medium";
+      if (this.nodes.particlesLevel) this.nodes.particlesLevel.value = "medium";
+      const savedPreset = localStorage.getItem("pondfront:visual-preset");
+      const defaultPreset = savedPreset || (this.isMobile() ? "simple" : "balanced");
+      if (this.nodes.visualPreset) this.nodes.visualPreset.value = defaultPreset;
+      this.applyVisualPreset(defaultPreset, { store: false });
       if (this.isMobile()) {
-        if (this.nodes.effectsLevel) this.nodes.effectsLevel.value = "medium";
-        if (this.nodes.visualQuality) this.nodes.visualQuality.value = "medium";
-        if (this.nodes.particlesLevel) this.nodes.particlesLevel.value = "medium";
         if (this.nodes.screenShake) this.nodes.screenShake.checked = false;
         if (this.nodes.showAnimalAnimations) this.nodes.showAnimalAnimations.checked = false;
       }
@@ -428,7 +435,7 @@
       this.nodes.leaderboardExpandButton?.addEventListener("click", () => {
         this.leaderboardExpanded = !this.leaderboardExpanded;
         this.nodes.rightPanel?.classList.toggle("leaderboard-expanded", this.leaderboardExpanded);
-        this.updateLeaderboard(this.lastState);
+        this.updateLeaderboard(this.lastState, true);
       });
       this.nodes.lakeEventBanner?.addEventListener("click", () => {
         const tileId = Number(this.nodes.lakeEventBanner.dataset.focusTileId);
@@ -483,6 +490,10 @@
       this.nodes.showAnimalAnimations?.addEventListener("change", () => this.emit("viewChanged"));
       this.nodes.showBorderStatus?.addEventListener("change", () => this.emit("viewChanged"));
       this.nodes.uiScale?.addEventListener("change", () => this.setUiScale(this.nodes.uiScale.value));
+      this.nodes.visualPreset?.addEventListener("change", () => {
+        this.applyVisualPreset(this.nodes.visualPreset.value);
+        this.emit("viewChanged");
+      });
       this.nodes.effectsLevel.addEventListener("change", () => this.emit("viewChanged"));
       this.nodes.visualQuality?.addEventListener("change", () => this.emit("viewChanged"));
       this.nodes.particlesLevel?.addEventListener("change", () => this.emit("viewChanged"));
@@ -548,7 +559,7 @@
       });
       this.nodes.leaderboardToggle?.addEventListener("click", () => {
         this.leaderboardMode = this.leaderboardMode === "teams" ? "players" : "teams";
-        this.updateLeaderboard(this.lastState);
+        this.updateLeaderboard(this.lastState, true);
       });
       this.nodes.mobileMainAction?.addEventListener("click", () => {
         const type = this.nodes.mobileMainAction.dataset.actionType;
@@ -627,14 +638,65 @@
       document.body.dataset.rightPanelTab = this.rightPanelTab;
     }
 
-    setUiScale(scale = "compact") {
+    applyVisualPreset(preset = "balanced", options = {}) {
+      const normalized = ["simple", "balanced", "high", "ultra"].includes(preset) ? preset : "balanced";
+      const setValue = (node, value) => {
+        if (node) node.value = value;
+      };
+      const setChecked = (node, value) => {
+        if (node) node.checked = value;
+      };
+      if (this.nodes.visualPreset) this.nodes.visualPreset.value = normalized;
+      if (normalized === "simple") {
+        setChecked(this.nodes.strategicView, true);
+        setValue(this.nodes.visualQuality, "low");
+        setValue(this.nodes.effectsLevel, "low");
+        setValue(this.nodes.particlesLevel, "low");
+        setChecked(this.nodes.mapDecorations, false);
+        setChecked(this.nodes.floatingText, false);
+        setChecked(this.nodes.showAnimalAnimations, false);
+        setChecked(this.nodes.screenShake, false);
+        this.setUiScale("compact", { store: false, emit: false });
+      } else if (normalized === "high") {
+        setChecked(this.nodes.strategicView, false);
+        setValue(this.nodes.visualQuality, "high");
+        setValue(this.nodes.effectsLevel, "high");
+        setValue(this.nodes.particlesLevel, "high");
+        setChecked(this.nodes.mapDecorations, true);
+        setChecked(this.nodes.floatingText, true);
+        setChecked(this.nodes.showAnimalAnimations, true);
+        setChecked(this.nodes.screenShake, true);
+      } else if (normalized === "ultra") {
+        setChecked(this.nodes.strategicView, false);
+        setValue(this.nodes.visualQuality, "ultra");
+        setValue(this.nodes.effectsLevel, "ultra");
+        setValue(this.nodes.particlesLevel, "ultra");
+        setChecked(this.nodes.mapDecorations, true);
+        setChecked(this.nodes.floatingText, true);
+        setChecked(this.nodes.showAnimalAnimations, true);
+        setChecked(this.nodes.screenShake, true);
+      } else {
+        setChecked(this.nodes.strategicView, false);
+        setValue(this.nodes.visualQuality, "medium");
+        setValue(this.nodes.effectsLevel, "medium");
+        setValue(this.nodes.particlesLevel, "medium");
+        setChecked(this.nodes.mapDecorations, true);
+        setChecked(this.nodes.floatingText, true);
+        setChecked(this.nodes.showAnimalAnimations, true);
+        setChecked(this.nodes.screenShake, true);
+        this.setUiScale("compact", { store: false, emit: false });
+      }
+      if (options.store !== false) localStorage.setItem("pondfront:visual-preset", normalized);
+    }
+
+    setUiScale(scale = "compact", options = {}) {
       const next = ["tiny", "compact", "normal", "large"].includes(scale) ? scale : "compact";
       if (this.nodes.uiScale) this.nodes.uiScale.value = next;
       document.body.classList.toggle("ui-tiny", next === "tiny");
       document.body.classList.toggle("ui-compact", next === "compact");
       document.body.classList.toggle("ui-large", next === "large");
-      localStorage.setItem("pondfront:ui-scale", next);
-      this.emit("viewChanged");
+      if (options.store !== false) localStorage.setItem("pondfront:ui-scale", next);
+      if (options.emit !== false) this.emit("viewChanged");
     }
 
     syncAudioControls() {
@@ -759,9 +821,9 @@
       if (this.nodes.createNameInput) this.nodes.createNameInput.value = payload.playerName;
       this.setSelectValue(this.nodes.createAnimalSelect, payload.animal);
       this.setSelectValue(this.nodes.createGameMode, payload.gameMode === "solo" ? "solo" : payload.gameMode);
-      this.setSelectValue(this.nodes.createMapSize, payload.mapSize === "large" ? "medium" : payload.mapSize);
+      this.setSelectValue(this.nodes.createMapSize, payload.mapSize);
       this.setSelectValue(this.nodes.createBotDifficulty, payload.difficulty);
-      this.setSelectValue(this.nodes.createBotCount, String(Math.min(10, payload.botCount || 8)));
+      this.setSelectValue(this.nodes.createBotCount, String(payload.botCount || 8));
       this.setSelectValue(this.nodes.createTeamCount, String(payload.teamCount || 2));
       this.setSelectValue(this.nodes.createBotsPerTeam, String(payload.botsPerTeam || 4));
       this.setSelectValue(this.nodes.createSurrenderMode, payload.surrenderMode || "off");
@@ -983,7 +1045,8 @@
 
     syncBotOptions(initial = false) {
       const mapSize = this.nodes.mapSize?.value || "medium";
-      const map = root.PondMapConfig?.[mapSize] || root.PondMapConfig?.medium;
+      const map = this.mapPreset(mapSize);
+      this.renderMapInfo(mapSize, map);
       if (!map || !this.nodes.botCount) return;
       const mode = this.nodes.gameMode?.value || "solo";
       if (mode === "teamBattle") {
@@ -995,13 +1058,63 @@
         return;
       }
       const current = Number(this.nodes.botCount.value || map.defaultBots);
-      const values = [];
-      for (let count = map.minBots; count <= map.maxBots; count += 1) values.push(count);
+      const levels = map.botLevels || {
+        low: map.minBots,
+        normal: map.defaultBots,
+        high: Math.round((map.defaultBots + map.maxBots) / 2),
+        max: map.maxBots,
+      };
+      const labels = { low: "Low", normal: "Normal", high: "High", max: "Max" };
+      const values = Object.entries(levels)
+        .map(([level, count]) => ({
+          level,
+          count: Math.max(map.minBots, Math.min(map.maxBots, Number(count) || map.defaultBots)),
+        }))
+        .filter((entry, index, list) => list.findIndex((candidate) => candidate.count === entry.count) === index);
       this.nodes.botCount.innerHTML = values
-        .map((count) => `<option value="${count}">${count}</option>`)
+        .map((entry) => `<option value="${entry.count}">${labels[entry.level] || entry.level} - ${entry.count}</option>`)
         .join("");
       const next = initial || current < map.minBots || current > map.maxBots ? map.defaultBots : current;
       this.nodes.botCount.value = String(next);
+    }
+
+    mapPreset(mapSize) {
+      const maps = root.PondMapConfig || {};
+      if (mapSize !== "random") return maps[mapSize] || maps.medium;
+      const themed = Object.values(maps).filter((map) => map?.theme);
+      if (!themed.length) return maps.medium;
+      const minBots = Math.min(...themed.map((map) => Number(map.minBots || 0)));
+      const maxBots = Math.max(...themed.map((map) => Number(map.maxBots || 0)));
+      return {
+        label: "Random Themed Map",
+        description: "Chooses one of the large river or swamp maps when the match starts.",
+        terrain: themed.map((map) => map.label).join(", "),
+        difficulty: "Varied",
+        recommendedBots: "16-24",
+        bestAnimals: ["Duck", "Snake", "Frog", "Turtle", "Carp"],
+        minBots,
+        maxBots,
+        defaultBots: 20,
+        botLevels: { low: 16, normal: 20, high: 22, max: 24 },
+      };
+    }
+
+    renderMapInfo(mapSize, map) {
+      const node = this.nodes.mapInfoCard;
+      if (!node || !map) return;
+      const size = map.cols && map.rows ? `${map.cols}x${map.rows}` : mapSize === "random" ? "varies" : "custom";
+      const animals = Array.isArray(map.bestAnimals) ? map.bestAnimals.join(", ") : "All animals";
+      const bots = map.recommendedBots || `${map.defaultBots || 0}`;
+      node.innerHTML = `
+        <strong>${this.escape(map.label || mapSize)}</strong>
+        <span>${this.escape(map.description || "Balanced pond territory map.")}</span>
+        <dl>
+          <dt>Size</dt><dd>${this.escape(size)}</dd>
+          <dt>Bots</dt><dd>${this.escape(bots)}</dd>
+          <dt>Terrain</dt><dd>${this.escape(map.terrain || "Mixed pond terrain")}</dd>
+          <dt>Best</dt><dd>${this.escape(animals)}</dd>
+        </dl>
+      `;
     }
 
     updateLobbyMode() {
@@ -1243,6 +1356,9 @@
       panel.classList.toggle("hidden", !enabled);
       document.body.classList.toggle("debug-stats-open", enabled);
       if (!enabled || !state) return;
+      const now = performance.now();
+      if (now - this.lastDebugFrameAt < 300) return;
+      this.lastDebugFrameAt = now;
       const game = root.pondFrontGame;
       const vfx = game?.renderer?.vfx;
       const perf = game?.performanceStats || {};
@@ -1451,8 +1567,11 @@
       ) + timer;
     }
 
-    updateLeaderboard(state) {
+    updateLeaderboard(state, force = false) {
       if (!state) return;
+      const now = performance.now();
+      if (!force && now - this.lastLeaderboardRenderAt < 650) return;
+      this.lastLeaderboardRenderAt = now;
       const teamModeAvailable = Boolean(state.teamState?.active && state.teamState?.teams?.length);
       const limit = this.leaderboardExpanded ? 12 : 5;
       if (!teamModeAvailable && this.leaderboardMode === "teams") this.leaderboardMode = "players";
@@ -1780,6 +1899,7 @@
         showAnimalAnimations: this.nodes.showAnimalAnimations?.checked !== false,
         showBorderStatus: this.nodes.showBorderStatus?.checked !== false,
         showDebugStats: this.debugMode || this.nodes.showDebugStats?.checked === true,
+        visualPreset: this.nodes.visualPreset?.value || "balanced",
         visualQuality: this.nodes.visualQuality?.value || "high",
         mapDecorations: this.nodes.mapDecorations?.checked !== false,
         isMobile: this.isMobile(),

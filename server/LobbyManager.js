@@ -307,7 +307,15 @@ class LobbyManager {
 
   sanitizeSettings(settings = {}) {
     const gameMode = ["solo", "coop", "teamBattle"].includes(settings.gameMode) ? settings.gameMode : "solo";
-    const mapSize = ["small", "medium", "large", "huge"].includes(settings.mapSize) ? settings.mapSize : "medium";
+    const mapIds = Object.keys(config.MAP_SIZES);
+    const themedMapIds = mapIds.filter((id) => config.MAP_SIZES[id]?.theme);
+    const requestedMap = String(settings.mapSize || "medium");
+    const mapSize =
+      requestedMap === "random" && themedMapIds.length
+        ? themedMapIds[Math.floor(Math.random() * themedMapIds.length)]
+        : mapIds.includes(requestedMap)
+          ? requestedMap
+          : "medium";
     const botDifficulty = ["easy", "normal", "smart", "chaos"].includes(settings.botDifficulty || settings.difficulty)
       ? settings.botDifficulty || settings.difficulty
       : "normal";

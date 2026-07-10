@@ -41,6 +41,8 @@ class EconomyManager {
   }
 
   recalculate(players, now = Date.now() / 1000, game = null) {
+    const playerById = new Map(players.map((player) => [player.id, player]));
+    const playable = this.tileManager.playableCount || this.tileManager.playable().length || 1;
     players.forEach((player) => {
       const preservedFlags = player.flags || {};
       player.territory = 0;
@@ -68,7 +70,7 @@ class EconomyManager {
 
     this.tileManager.tiles.forEach((tile) => {
       if (!tile.owner || config.TILE_TYPES[tile.type].blocks) return;
-      const player = players.find((candidate) => candidate.id === tile.owner);
+      const player = playerById.get(tile.owner);
       if (!player || player.defeated) return;
       const type = config.TILE_TYPES[tile.type];
 
@@ -99,7 +101,6 @@ class EconomyManager {
     });
 
     players.forEach((player) => {
-      const playable = this.tileManager.playable().length || 1;
       const territoryPct = player.territory / playable;
       if (territoryPct < balance.recoveryTerritoryPct && player.territory > 0) {
         player.incomeBreakdown.recovery += balance.recoveryIncomeMax * (1 - territoryPct / balance.recoveryTerritoryPct);

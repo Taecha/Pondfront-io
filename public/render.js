@@ -35,15 +35,44 @@
       if (this.state) this.fit(false);
     }
 
-    setState(state) {
-      const oldOwners = this.state ? new Map(this.state.tiles.map((tile) => [tile.id, tile.owner])) : null;
+    setState(state, options = {}) {
+      const deltaTiles = options.changedTiles || [];
+      const deltaMode = Boolean(options.delta && this.state && this.tileMap);
+      const oldOwners = !deltaMode && this.state ? new Map(this.state.tiles.map((tile) => [tile.id, tile.owner])) : null;
       const oldPlayers = this.playerMap || new Map();
+      const previousTileMap = this.tileMap || new Map();
+      const previousTiles = deltaMode ? new Map(deltaTiles.map((tile) => [tile.id, previousTileMap.get(tile.id)])) : new Map();
+      const miniChanged =
+        !deltaMode ||
+        deltaTiles.some((tile) => {
+          const oldTile = previousTiles.get(tile.id);
+          return !oldTile || oldTile.owner !== tile.owner || oldTile.type !== tile.type || oldTile.objectiveId !== tile.objectiveId || oldTile.campId !== tile.campId || oldTile.isCore !== tile.isCore;
+        });
       this.state = state;
-      this.tileMap = new Map(state.tiles.map((tile) => [tile.id, tile]));
+      if (deltaMode) {
+        deltaTiles.forEach((tile) => {
+          const resolved = state.tiles[tile.id] || { ...(previousTileMap.get(tile.id) || {}), ...tile };
+          this.tileMap.set(resolved.id, resolved);
+        });
+      } else {
+        this.tileMap = new Map(state.tiles.map((tile) => [tile.id, tile]));
+      }
       this.playerMap = new Map(state.players.map((player) => [player.id, player]));
-      this.miniMapDirty = true;
+      this.miniMapDirty = this.miniMapDirty || miniChanged;
       if (!this.fitted) this.fit(true);
-      if (oldOwners) {
+      if (deltaMode) {
+        deltaTiles.forEach((update) => {
+          const tile = this.tileMap.get(update.id);
+          if (!tile) return;
+          const previous = previousTiles.get(update.id);
+          const oldOwner = previous ? previous.owner : undefined;
+          if (oldOwner === tile.owner) return;
+          const oldColor = oldOwner ? oldPlayers.get(oldOwner)?.color : "#234f5e";
+          const newColor = tile.owner ? this.playerMap.get(tile.owner)?.color : "#234f5e";
+          this.ownerTransitions.set(tile.id, { oldColor, newColor, atMs: performance.now() });
+          this.eventAnims.push({ kind: "ripple", to: tile.id, atMs: performance.now(), playerId: tile.owner });
+        });
+      } else if (oldOwners) {
         state.tiles.forEach((tile) => {
           const oldOwner = oldOwners.get(tile.id);
           if (oldOwner !== tile.owner) {
@@ -258,6 +287,9 @@
         effects,
       };
       if (lowPower) {
+        next.strategicView = true;
+        next.showIcons = false;
+        next.mapDecorations = false;
         if (effects.level === "ultra") effects.level = mobile || this.camera.zoom < 0.5 ? "medium" : "high";
         else if (effects.level === "high") effects.level = mobile || this.camera.zoom < 0.5 ? "low" : "medium";
         if (effects.particles === "ultra") effects.particles = mobile || this.camera.zoom < 0.5 ? "medium" : "high";
@@ -366,10 +398,11 @@
       const mapW = this.state.cols * s;
       const mapH = this.state.rows * s;
       const radius = Math.max(8, Math.min(20, 12 * this.camera.zoom));
+      const cleanMode = options.strategicView || options.visualQuality === "low" || options.effects?.level === "low";
       ctx.save();
       ctx.shadowColor = "rgba(0,0,0,0.32)";
-      ctx.shadowBlur = 28;
-      ctx.shadowOffsetY = 10;
+      ctx.shadowBlur = cleanMode ? 8 : 28;
+      ctx.shadowOffsetY = cleanMode ? 3 : 10;
       ctx.fillStyle = "rgba(3,12,19,0.48)";
       this.roundRect(ctx, topLeft.x - 10, topLeft.y - 10, mapW + 20, mapH + 20, radius + 8);
       ctx.fill();
@@ -386,15 +419,16 @@
       ctx.save();
       this.roundRect(ctx, topLeft.x, topLeft.y, mapW, mapH, radius);
       ctx.clip();
-      this.drawMapWaterTexture(ctx, topLeft, mapW, mapH, options);
-      this.drawRegionUnderlays(ctx);
+      if (!cleanMode) this.drawMapWaterTexture(ctx, topLeft, mapW, mapH, options);
+      if (!cleanMode) this.drawRegionUnderlays(ctx);
       const visibleTiles = this.visibleTiles(1);
       visibleTiles.forEach((tile) => this.drawTile(ctx, tile, options));
+      if (!cleanMode) this.drawTerrainEdges(ctx, visibleTiles, options);
       this.drawLakeEventArea(ctx, visibleTiles, options);
-      this.drawMapDecorations(ctx, visibleTiles, options);
+      if (!cleanMode) this.drawMapDecorations(ctx, visibleTiles, options);
       visibleTiles.forEach((tile) => this.drawBorders(ctx, tile));
-      this.drawLocalGlow(ctx);
-      this.drawRegionNames(ctx);
+      if (!cleanMode) this.drawLocalGlow(ctx, visibleTiles);
+      if (!cleanMode) this.drawRegionNames(ctx);
       this.drawDefense(ctx, visibleTiles);
       this.drawBorderStatus(ctx, visibleTiles, options);
       this.drawSpecialMarkers(ctx);
@@ -605,18 +639,32 @@
       if (!options.mapDecorations || options.visualQuality === "low") return;
       const now = performance.now();
       const ultra = options.visualQuality === "ultra";
-      const quality = ultra ? 1.25 : options.visualQuality === "high" ? 1 : 0.62;
+      const high = options.visualQuality === "high" || ultra;
+      const quality = ultra ? 1.1 : high ? 0.9 : 0.56;
       ctx.save();
-      ctx.globalAlpha = 0.13 * quality;
+      ctx.globalAlpha = 0.1 * quality;
       ctx.strokeStyle = "rgba(199, 241, 247, 0.58)";
       ctx.lineWidth = Math.max(0.7, this.camera.zoom * 0.8);
-      const spacing = Math.max(48, this.baseTile * this.camera.zoom * 5.2);
+      const spacing = Math.max(high ? 46 : 60, this.baseTile * this.camera.zoom * (high ? 5.2 : 6.8));
       for (let y = topLeft.y + 18; y < topLeft.y + mapH; y += spacing) {
         ctx.beginPath();
-        for (let x = topLeft.x - 20; x <= topLeft.x + mapW + 20; x += 22) {
-          const wave = Math.sin((x + now * 0.015 + y * 0.7) * 0.024) * 2.5 * quality;
+        for (let x = topLeft.x - 20; x <= topLeft.x + mapW + 20; x += high ? 26 : 34) {
+          const wave = Math.sin((x + now * 0.006 + y * 0.65) * 0.022) * 1.8 * quality;
           ctx.lineTo(x, y + wave);
         }
+        ctx.stroke();
+      }
+      const shimmerCount = ultra ? 42 : high ? 28 : 16;
+      ctx.globalAlpha = 0.12 * quality;
+      ctx.strokeStyle = "rgba(223, 250, 252, 0.56)";
+      ctx.lineWidth = Math.max(0.6, this.camera.zoom * 0.62);
+      for (let i = 0; i < shimmerCount; i += 1) {
+        const x = topLeft.x + ((i * 173 + this.seedOffset(11)) % Math.max(1, mapW));
+        const y = topLeft.y + ((i * 97 + this.seedOffset(23)) % Math.max(1, mapH));
+        const drift = Math.sin(now * 0.0012 + i) * 2.4;
+        ctx.beginPath();
+        ctx.moveTo(x - 9, y + drift);
+        ctx.quadraticCurveTo(x, y - 2 + drift, x + 12, y + drift * 0.5);
         ctx.stroke();
       }
       if (this.state.regions?.length) {
@@ -637,23 +685,33 @@
       if (!options.mapDecorations || options.visualQuality === "low" || this.camera.zoom < 0.42) return;
       const ultra = options.visualQuality === "ultra";
       const high = options.visualQuality === "high" || ultra;
-      const limit = ultra ? 260 : high ? 180 : 90;
+      const limit = options.isMobile ? 32 : ultra ? 170 : high ? 116 : 72;
       const size = this.baseTile * this.camera.zoom;
       let drawn = 0;
       ctx.save();
       for (const tile of visibleTiles) {
         if (drawn >= limit) break;
         const seed = this.tileNoise(tile.id + 17, 0, 1);
-        if (tile.owner && seed < 0.965) continue;
-        if (!tile.owner && tile.type === "water" && seed < (ultra ? 0.88 : high ? 0.925 : 0.965)) continue;
-        if (tile.type !== "water" && !this.state.config.tileTypes[tile.type]?.strategic && seed < 0.9) continue;
+        if (tile.owner && seed < 0.985) continue;
+        const typeInfo = this.state.config.tileTypes[tile.type] || {};
+        const nearBank = tile.type === "water" && this.neighbors(tile).some((neighbor) => neighbor && neighbor.type !== "water" && !neighbor.owner);
+        if (!tile.owner && tile.type === "water" && !(nearBank ? seed > (high ? 0.74 : 0.82) : seed > (ultra ? 0.965 : high ? 0.978 : 0.988))) continue;
+        if (tile.type !== "water" && !typeInfo.strategic && !typeInfo.blocks && !this.isDecorationClusterAnchor(tile, seed)) continue;
+        if ((typeInfo.strategic || typeInfo.blocks) && !this.isDecorationClusterAnchor(tile, seed) && seed < 0.74) continue;
         const p = this.worldToScreen(tile.x * this.baseTile, tile.y * this.baseTile);
         const x = p.x + size * this.tileNoise(tile.id + 3, 0.25, 0.78);
         const y = p.y + size * this.tileNoise(tile.id + 9, 0.25, 0.78);
         if (tile.type === "water") {
-          this.drawTinyRipple(ctx, x, y, size, tile.id, tile.owner ? 0.18 : 0.34);
+          this.drawWaterAccent(ctx, tile, x, y, size, seed, nearBank ? 0.3 : 0.2);
           drawn += 1;
-        } else if (tile.type === "lily" || tile.type === "reeds" || tile.type === "mud" || tile.type === "nest" || tile.type === "rock") {
+        } else if (
+          tile.type === "lily" ||
+          tile.type === "reeds" ||
+          tile.type === "mud" ||
+          tile.type === "nest" ||
+          tile.type === "rock" ||
+          typeInfo.blocks
+        ) {
           this.drawTerrainAccent(ctx, tile, p.x, p.y, size);
           drawn += 1;
         } else if (tile.owner && this.camera.zoom > 0.9) {
@@ -663,6 +721,70 @@
         }
       }
       ctx.restore();
+    }
+
+    drawTerrainEdges(ctx, visibleTiles, options) {
+      if (!options.mapDecorations || options.visualQuality === "low") return;
+      const size = this.baseTile * this.camera.zoom;
+      if (size < 5.2) return;
+      const limit = options.isMobile ? 220 : options.visualQuality === "ultra" ? 760 : options.visualQuality === "high" ? 620 : 430;
+      let drawn = 0;
+      ctx.save();
+      ctx.lineCap = "round";
+      for (const tile of visibleTiles) {
+        if (drawn >= limit || tile.owner || tile.type === "water") continue;
+        const type = this.state.config.tileTypes[tile.type] || {};
+        if (!type.blocks && !type.strategic && !["mud", "reeds", "lily"].includes(tile.type)) continue;
+        const p = this.worldToScreen(tile.x * this.baseTile, tile.y * this.baseTile);
+        const edges = [
+          [0, -1, p.x + size * 0.12, p.y + size * 0.1, p.x + size * 0.88, p.y + size * 0.1],
+          [1, 0, p.x + size * 0.9, p.y + size * 0.12, p.x + size * 0.9, p.y + size * 0.88],
+          [0, 1, p.x + size * 0.12, p.y + size * 0.9, p.x + size * 0.88, p.y + size * 0.9],
+          [-1, 0, p.x + size * 0.1, p.y + size * 0.12, p.x + size * 0.1, p.y + size * 0.88],
+        ];
+        const color =
+          tile.type === "mud"
+            ? "rgba(193, 139, 95, 0.28)"
+            : tile.type === "reeds"
+              ? "rgba(182, 219, 126, 0.26)"
+              : tile.type === "lily"
+                ? "rgba(170, 238, 166, 0.22)"
+                : tile.type === "desert"
+                  ? "rgba(246, 220, 160, 0.24)"
+                  : "rgba(225, 246, 236, 0.18)";
+        ctx.strokeStyle = color;
+        ctx.lineWidth = Math.max(0.8, Math.min(2.2, size * 0.045));
+        for (const [dx, dy, x1, y1, x2, y2] of edges) {
+          const nx = tile.x + dx;
+          const ny = tile.y + dy;
+          if (nx < 0 || ny < 0 || nx >= this.state.cols || ny >= this.state.rows) continue;
+          const neighbor = this.tileMap.get(ny * this.state.cols + nx);
+          if (!neighbor || neighbor.owner || neighbor.type !== "water") continue;
+          ctx.beginPath();
+          ctx.moveTo(x1, y1);
+          ctx.lineTo(x2, y2);
+          ctx.stroke();
+          drawn += 1;
+          if (drawn >= limit) break;
+        }
+      }
+      ctx.restore();
+    }
+
+    isDecorationClusterAnchor(tile, seed) {
+      const sameNearby = this.neighbors(tile).filter((neighbor) => neighbor?.type === tile.type).length;
+      const bankNearby = this.neighbors(tile).some((neighbor) => neighbor && neighbor.type === "water");
+      return seed > 0.78 || (sameNearby >= 2 && seed > 0.54) || (bankNearby && seed > 0.66);
+    }
+
+    drawWaterAccent(ctx, tile, x, y, size, seed, alpha) {
+      if (seed > 0.92) {
+        this.drawTinyLeaf(ctx, x, y, size, tile.id, alpha * 0.92);
+      } else if (seed > 0.84) {
+        this.drawTinyBubbles(ctx, x, y, size, tile.id, alpha * 0.82);
+      } else {
+        this.drawTinyRipple(ctx, x, y, size, tile.id, alpha);
+      }
     }
 
     drawTinyRipple(ctx, x, y, size, seed, alpha) {
@@ -679,6 +801,38 @@
         ctx.globalAlpha = alpha * 0.55;
         ctx.beginPath();
         ctx.ellipse(x + size * 0.12, y - size * 0.08, size * 0.1, size * 0.032, 0.08, 0, Math.PI * 2);
+        ctx.stroke();
+      }
+      ctx.restore();
+    }
+
+    drawTinyLeaf(ctx, x, y, size, seed, alpha) {
+      ctx.save();
+      ctx.globalAlpha = alpha;
+      ctx.fillStyle = seed % 3 > 1 ? "#d7e58c" : "#9cd887";
+      ctx.beginPath();
+      ctx.ellipse(x, y, size * 0.08, size * 0.035, this.tileNoise(seed + 13, -0.8, 0.8), 0, Math.PI * 2);
+      ctx.fill();
+      ctx.globalAlpha = alpha * 0.45;
+      ctx.strokeStyle = "rgba(226, 252, 235, 0.72)";
+      ctx.lineWidth = Math.max(0.7, size * 0.018);
+      ctx.beginPath();
+      ctx.moveTo(x - size * 0.05, y);
+      ctx.lineTo(x + size * 0.06, y);
+      ctx.stroke();
+      ctx.restore();
+    }
+
+    drawTinyBubbles(ctx, x, y, size, seed, alpha) {
+      ctx.save();
+      ctx.globalAlpha = alpha;
+      ctx.strokeStyle = "rgba(225, 250, 255, 0.68)";
+      ctx.lineWidth = Math.max(0.65, size * 0.018);
+      for (let i = 0; i < 2; i += 1) {
+        const ox = this.tileNoise(seed + i * 19, -0.1, 0.12) * size;
+        const oy = this.tileNoise(seed + i * 23, -0.08, 0.1) * size;
+        ctx.beginPath();
+        ctx.arc(x + ox, y + oy, Math.max(1.2, size * (0.028 + i * 0.012)), 0, Math.PI * 2);
         ctx.stroke();
       }
       ctx.restore();
@@ -720,6 +874,48 @@
         ctx.lineTo(cx + size * 0.11, cy + size * 0.04);
         ctx.closePath();
         ctx.fill();
+      } else if (tile.type === "jungleIsland" || tile.type === "grassIsland") {
+        ctx.globalAlpha = 0.34;
+        ctx.fillStyle = tile.type === "jungleIsland" ? "#6f9b51" : "#9abb68";
+        for (let i = 0; i < 3; i += 1) {
+          ctx.beginPath();
+          ctx.arc(
+            cx + this.tileNoise(tile.id + i * 31, -0.14, 0.14) * size,
+            cy + this.tileNoise(tile.id + i * 37, -0.1, 0.1) * size,
+            size * 0.055,
+            0,
+            Math.PI * 2,
+          );
+          ctx.fill();
+        }
+      } else if (tile.type === "riceField") {
+        ctx.globalAlpha = 0.28;
+        ctx.strokeStyle = "#e3e998";
+        ctx.lineWidth = Math.max(0.8, size * 0.02);
+        for (let i = 0; i < 2; i += 1) {
+          const yy = cy + (i - 0.5) * size * 0.12;
+          ctx.beginPath();
+          ctx.moveTo(cx - size * 0.16, yy);
+          ctx.lineTo(cx + size * 0.16, yy + this.tileNoise(tile.id + i, -0.02, 0.02) * size);
+          ctx.stroke();
+        }
+      } else if (tile.type === "desert") {
+        ctx.globalAlpha = 0.22;
+        ctx.strokeStyle = "#f7df9f";
+        ctx.lineWidth = Math.max(0.7, size * 0.018);
+        ctx.beginPath();
+        ctx.moveTo(cx - size * 0.18, cy);
+        ctx.quadraticCurveTo(cx, cy - size * 0.08, cx + size * 0.2, cy + size * 0.02);
+        ctx.stroke();
+      } else if (tile.type === "log" || tile.type === "bridge") {
+        ctx.globalAlpha = 0.32;
+        ctx.strokeStyle = tile.type === "bridge" ? "#d6ad72" : "#8f673d";
+        ctx.lineWidth = Math.max(1.2, size * 0.05);
+        ctx.lineCap = "round";
+        ctx.beginPath();
+        ctx.moveTo(cx - size * 0.18, cy + size * 0.04);
+        ctx.lineTo(cx + size * 0.18, cy - size * 0.04);
+        ctx.stroke();
       }
       ctx.restore();
     }
@@ -757,6 +953,7 @@
 
       const owner = tile.owner ? this.playerMap.get(tile.owner) : null;
       if (!owner && tile.type === "water") return;
+      const simpleTerrain = options.strategicView || options.visualQuality === "low" || size < 13;
 
       const transition = this.ownerTransitions.get(tile.id);
       let transitionAlpha = 0;
@@ -792,7 +989,7 @@
           ctx.fillStyle = `rgba(255,255,255,${sheen})`;
           ctx.fillRect(p.x + size * 0.08, p.y + size * 0.08, size * 0.18, size * 0.18);
         }
-        if (isSpecial && this.camera.zoom > 0.7) {
+        if (!simpleTerrain && isSpecial && this.camera.zoom > 0.7) {
           this.drawSpecialWash(ctx, tile, p.x, p.y, size, true);
         }
       } else if (!isSpecial) {
@@ -800,7 +997,7 @@
         this.roundRect(ctx, p.x + 0.6, p.y + 0.6, size - 1.2, size - 1.2, Math.max(2, size * 0.12));
         ctx.fill();
       } else {
-        ctx.fillStyle = type.blocks ? "#55636c" : type.neutralColor;
+        ctx.fillStyle = type.blocks ? type.neutralColor || type.color || "#55636c" : type.neutralColor;
         const inset = Math.max(0.6, Math.min(3.2, size * 0.08));
         this.roundRect(ctx, p.x + inset, p.y + inset, size - inset * 2, size - inset * 2, Math.max(2, size * 0.18));
         ctx.fill();
@@ -808,7 +1005,8 @@
         ctx.lineWidth = 1;
         this.roundRect(ctx, p.x + inset + 1, p.y + inset + 1, size - inset * 2 - 2, size - inset * 2 - 2, Math.max(2, size * 0.12));
         ctx.stroke();
-        this.drawSpecialWash(ctx, tile, p.x, p.y, size, false);
+        if (type.blocks && size > 6) this.drawBlockedLandDetail(ctx, tile, p.x, p.y, size, simpleTerrain);
+        if (!simpleTerrain) this.drawSpecialWash(ctx, tile, p.x, p.y, size, false);
       }
 
       const showIcon =
@@ -818,6 +1016,61 @@
       if (tile.building && (options.showIcons || this.camera.zoom > 0.82 || options.selectedTileId === tile.id)) {
         this.drawBuilding(ctx, tile, p.x, p.y, size);
       }
+    }
+
+    drawBlockedLandDetail(ctx, tile, x, y, size, simple = false) {
+      const cx = x + size / 2;
+      const cy = y + size / 2;
+      const alpha = simple ? 0.18 : 0.28;
+      ctx.save();
+      ctx.globalAlpha = alpha;
+      if (tile.type === "jungleIsland" || tile.type === "grassIsland") {
+        ctx.fillStyle = tile.type === "jungleIsland" ? "#244f32" : "#496b3b";
+        ctx.beginPath();
+        ctx.ellipse(cx, cy, size * 0.3, size * 0.2, this.tileNoise(tile.id, -0.28, 0.28), 0, Math.PI * 2);
+        ctx.fill();
+        if (!simple && size > 11) {
+          ctx.fillStyle = tile.type === "jungleIsland" ? "#7fb05d" : "#b2d477";
+          for (let i = 0; i < 3; i += 1) {
+            ctx.beginPath();
+            ctx.arc(cx + this.tileNoise(tile.id + i * 13, -0.17, 0.17) * size, cy + this.tileNoise(tile.id + i * 17, -0.12, 0.12) * size, size * 0.055, 0, Math.PI * 2);
+            ctx.fill();
+          }
+        }
+      } else if (tile.type === "riceField") {
+        ctx.strokeStyle = "#e1e38b";
+        ctx.lineWidth = Math.max(0.7, size * 0.02);
+        for (let i = 0; i < (simple ? 2 : 4); i += 1) {
+          const yy = y + size * (0.26 + i * 0.14);
+          ctx.beginPath();
+          ctx.moveTo(x + size * 0.2, yy);
+          ctx.lineTo(x + size * 0.8, yy + this.tileNoise(tile.id + i, -0.018, 0.018) * size);
+          ctx.stroke();
+        }
+      } else if (tile.type === "desert") {
+        ctx.strokeStyle = "#f4d790";
+        ctx.lineWidth = Math.max(0.7, size * 0.02);
+        for (let i = 0; i < (simple ? 1 : 2); i += 1) {
+          const yy = cy + (i - 0.5) * size * 0.15;
+          ctx.beginPath();
+          ctx.moveTo(x + size * 0.18, yy);
+          ctx.quadraticCurveTo(cx, yy - size * 0.08, x + size * 0.82, yy + size * 0.03);
+          ctx.stroke();
+        }
+      } else if (tile.type === "village") {
+        ctx.fillStyle = "#8a5732";
+        ctx.fillRect(cx - size * 0.12, cy - size * 0.05, size * 0.1, size * 0.1);
+        ctx.fillRect(cx + size * 0.05, cy - size * 0.08, size * 0.11, size * 0.12);
+      } else if (tile.type === "log" || tile.type === "bridge") {
+        ctx.strokeStyle = tile.type === "bridge" ? "#caa36a" : "#7b5734";
+        ctx.lineWidth = Math.max(1.3, size * 0.08);
+        ctx.lineCap = "round";
+        ctx.beginPath();
+        ctx.moveTo(x + size * 0.22, y + size * 0.58);
+        ctx.lineTo(x + size * 0.78, y + size * 0.42);
+        ctx.stroke();
+      }
+      ctx.restore();
     }
 
     drawSpecialWash(ctx, tile, x, y, size, owned) {
@@ -886,6 +1139,94 @@
         ctx.lineTo(cx + size * 0.18, cy + size * 0.02);
         ctx.closePath();
         ctx.fill();
+      } else if (tile.type === "jungleIsland" || tile.type === "grassIsland") {
+        ctx.globalAlpha = owned ? alpha * 1.3 : alpha;
+        ctx.fillStyle = tile.type === "jungleIsland" ? "#315d39" : "#4d7040";
+        ctx.beginPath();
+        ctx.ellipse(cx, cy, size * 0.34, size * 0.25, this.tileNoise(tile.id, -0.35, 0.35), 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillStyle = tile.type === "jungleIsland" ? "rgba(130,185,92,0.5)" : "rgba(185,218,126,0.45)";
+        for (let i = 0; i < 4; i += 1) {
+          ctx.beginPath();
+          ctx.arc(cx + this.tileNoise(tile.id + i * 11, -0.2, 0.2) * size, cy + this.tileNoise(tile.id + i * 17, -0.16, 0.16) * size, size * 0.08, 0, Math.PI * 2);
+          ctx.fill();
+        }
+      } else if (tile.type === "riceField") {
+        ctx.globalAlpha = owned ? alpha * 1.2 : alpha;
+        ctx.fillStyle = "#9bbf63";
+        ctx.fillRect(x + size * 0.15, y + size * 0.18, size * 0.7, size * 0.62);
+        ctx.strokeStyle = "rgba(235,244,159,0.72)";
+        ctx.lineWidth = Math.max(1, size * 0.025);
+        for (let i = 0; i < 4; i += 1) {
+          const yy = y + size * (0.26 + i * 0.13);
+          ctx.beginPath();
+          ctx.moveTo(x + size * 0.18, yy);
+          ctx.lineTo(x + size * 0.82, yy + this.tileNoise(tile.id + i, -0.025, 0.025) * size);
+          ctx.stroke();
+        }
+      } else if (tile.type === "desert") {
+        ctx.globalAlpha = owned ? alpha : alpha * 0.9;
+        ctx.fillStyle = "#c7ad73";
+        ctx.beginPath();
+        ctx.ellipse(cx, cy, size * 0.36, size * 0.22, this.tileNoise(tile.id, -0.28, 0.28), 0, Math.PI * 2);
+        ctx.fill();
+        ctx.strokeStyle = "rgba(255,238,169,0.55)";
+        ctx.lineWidth = Math.max(1, size * 0.025);
+        ctx.beginPath();
+        ctx.moveTo(x + size * 0.18, cy);
+        ctx.quadraticCurveTo(cx, cy - size * 0.13, x + size * 0.82, cy + size * 0.04);
+        ctx.stroke();
+      } else if (tile.type === "log") {
+        ctx.globalAlpha = owned ? alpha * 1.25 : alpha;
+        ctx.strokeStyle = "#8b633b";
+        ctx.lineWidth = Math.max(2, size * 0.13);
+        ctx.lineCap = "round";
+        ctx.beginPath();
+        ctx.moveTo(x + size * 0.2, y + size * 0.58);
+        ctx.lineTo(x + size * 0.8, y + size * 0.42);
+        ctx.stroke();
+        ctx.strokeStyle = "rgba(236,207,142,0.55)";
+        ctx.lineWidth = Math.max(1, size * 0.025);
+        ctx.beginPath();
+        ctx.moveTo(x + size * 0.26, y + size * 0.55);
+        ctx.lineTo(x + size * 0.74, y + size * 0.43);
+        ctx.stroke();
+      } else if (tile.type === "bridge") {
+        ctx.globalAlpha = owned ? alpha * 1.2 : alpha;
+        ctx.strokeStyle = "#b8905b";
+        ctx.lineWidth = Math.max(2, size * 0.13);
+        ctx.lineCap = "round";
+        ctx.beginPath();
+        ctx.moveTo(x + size * 0.18, cy);
+        ctx.lineTo(x + size * 0.82, cy);
+        ctx.stroke();
+        ctx.strokeStyle = "rgba(73,46,28,0.46)";
+        ctx.lineWidth = Math.max(1, size * 0.03);
+        for (let i = 0; i < 4; i += 1) {
+          const xx = x + size * (0.28 + i * 0.14);
+          ctx.beginPath();
+          ctx.moveTo(xx, cy - size * 0.12);
+          ctx.lineTo(xx, cy + size * 0.12);
+          ctx.stroke();
+        }
+      } else if (tile.type === "village") {
+        ctx.globalAlpha = owned ? alpha * 1.1 : alpha;
+        ctx.fillStyle = "#caa36a";
+        ctx.fillRect(x + size * 0.28, y + size * 0.42, size * 0.18, size * 0.2);
+        ctx.fillRect(x + size * 0.54, y + size * 0.38, size * 0.18, size * 0.24);
+        ctx.fillStyle = "#8a5732";
+        ctx.beginPath();
+        ctx.moveTo(x + size * 0.24, y + size * 0.42);
+        ctx.lineTo(x + size * 0.37, y + size * 0.28);
+        ctx.lineTo(x + size * 0.5, y + size * 0.42);
+        ctx.closePath();
+        ctx.fill();
+        ctx.beginPath();
+        ctx.moveTo(x + size * 0.5, y + size * 0.38);
+        ctx.lineTo(x + size * 0.63, y + size * 0.24);
+        ctx.lineTo(x + size * 0.76, y + size * 0.38);
+        ctx.closePath();
+        ctx.fill();
       }
       ctx.restore();
     }
@@ -939,6 +1280,63 @@
         ctx.beginPath();
         ctx.arc(cx, cy, size * 0.14, 0.2, Math.PI * 1.85);
         ctx.stroke();
+      } else if (tile.type === "jungleIsland" || tile.type === "grassIsland") {
+        ctx.fillStyle = tile.type === "jungleIsland" ? "#315d39" : "#4d7040";
+        ctx.beginPath();
+        ctx.ellipse(cx, cy, size * 0.27, size * 0.2, -0.12, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillStyle = tile.type === "jungleIsland" ? "#80b95c" : "#b7d77b";
+        ctx.beginPath();
+        ctx.arc(cx - size * 0.09, cy - size * 0.02, size * 0.07, 0, Math.PI * 2);
+        ctx.arc(cx + size * 0.07, cy - size * 0.05, size * 0.08, 0, Math.PI * 2);
+        ctx.fill();
+      } else if (tile.type === "riceField") {
+        ctx.fillStyle = "#9bbf63";
+        ctx.fillRect(cx - size * 0.22, cy - size * 0.18, size * 0.44, size * 0.36);
+        ctx.strokeStyle = "#eef09c";
+        ctx.lineWidth = Math.max(1, size * 0.035);
+        for (let i = -1; i <= 1; i += 1) {
+          ctx.beginPath();
+          ctx.moveTo(cx - size * 0.2, cy + i * size * 0.09);
+          ctx.lineTo(cx + size * 0.2, cy + i * size * 0.09);
+          ctx.stroke();
+        }
+      } else if (tile.type === "desert") {
+        ctx.fillStyle = "#c7ad73";
+        ctx.beginPath();
+        ctx.ellipse(cx, cy, size * 0.28, size * 0.18, 0.15, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.strokeStyle = "#f0dc98";
+        ctx.lineWidth = Math.max(1, size * 0.035);
+        ctx.beginPath();
+        ctx.moveTo(cx - size * 0.2, cy);
+        ctx.quadraticCurveTo(cx, cy - size * 0.1, cx + size * 0.22, cy + size * 0.03);
+        ctx.stroke();
+      } else if (tile.type === "log" || tile.type === "bridge") {
+        ctx.strokeStyle = tile.type === "bridge" ? "#b8905b" : "#8b633b";
+        ctx.lineWidth = Math.max(2, size * 0.16);
+        ctx.lineCap = "round";
+        ctx.beginPath();
+        ctx.moveTo(cx - size * 0.23, cy + (tile.type === "log" ? size * 0.08 : 0));
+        ctx.lineTo(cx + size * 0.23, cy - (tile.type === "log" ? size * 0.08 : 0));
+        ctx.stroke();
+      } else if (tile.type === "village") {
+        ctx.fillStyle = "#caa36a";
+        ctx.fillRect(cx - size * 0.18, cy - size * 0.02, size * 0.16, size * 0.18);
+        ctx.fillRect(cx + size * 0.04, cy - size * 0.05, size * 0.16, size * 0.21);
+        ctx.fillStyle = "#8a5732";
+        ctx.beginPath();
+        ctx.moveTo(cx - size * 0.22, cy - size * 0.02);
+        ctx.lineTo(cx - size * 0.1, cy - size * 0.16);
+        ctx.lineTo(cx + size * 0.02, cy - size * 0.02);
+        ctx.closePath();
+        ctx.fill();
+        ctx.beginPath();
+        ctx.moveTo(cx, cy - size * 0.05);
+        ctx.lineTo(cx + size * 0.12, cy - size * 0.19);
+        ctx.lineTo(cx + size * 0.24, cy - size * 0.05);
+        ctx.closePath();
+        ctx.fill();
       }
       ctx.restore();
     }
@@ -1085,14 +1483,14 @@
       ctx.stroke();
     }
 
-    drawLocalGlow(ctx) {
+    drawLocalGlow(ctx, tiles = this.state.tiles) {
       if (this.camera.zoom < 0.42) return;
       const size = this.baseTile * this.camera.zoom;
       ctx.save();
       ctx.globalAlpha = 0.14 + Math.sin(performance.now() * 0.004) * 0.04;
       ctx.strokeStyle = "#edf8fb";
       ctx.lineWidth = Math.max(1, size * 0.026);
-      this.state.tiles.forEach((tile) => {
+      tiles.forEach((tile) => {
         if (tile.owner !== this.state.humanId) return;
         if (!this.neighbors(tile).some((neighbor) => neighbor && neighbor.owner !== tile.owner)) return;
         const p = this.worldToScreen(tile.x * this.baseTile, tile.y * this.baseTile);
@@ -1273,8 +1671,9 @@
           ring: false,
         });
       });
-      (this.state.tiles || []).forEach((tile) => {
-        if (!tile.isCore) return;
+      (this.state.players || []).forEach((player) => {
+        const tile = player.coreTileId != null ? this.tileMap.get(player.coreTileId) : null;
+        if (!tile?.isCore) return;
         const owner = this.playerMap.get(tile.coreOwnerId);
         markers.push({
           tile,
@@ -2298,7 +2697,10 @@
     drawMiniMap(options) {
       if (!this.state) return;
       const now = performance.now();
-      const interval = options.isMobile ? 360 : 240;
+      const totalTiles = this.state.tiles.length;
+      const interval = options.isMobile ? 700 : totalTiles > 14000 ? 650 : totalTiles > 9000 ? 480 : 240;
+      const dirtyThrottle = totalTiles > 14000 ? 320 : totalTiles > 9000 ? 220 : 80;
+      if (this.miniMapDirty && now - this.lastMiniMapDrawAt < dirtyThrottle) return;
       if (!this.miniMapDirty && now - this.lastMiniMapDrawAt < interval) return;
       this.lastMiniMapDrawAt = now;
       this.miniMapDirty = false;
@@ -2312,42 +2714,50 @@
       bg.addColorStop(1, "#071d2b");
       ctx.fillStyle = bg;
       ctx.fillRect(0, 0, rect.width, rect.height);
+      const human = this.playerMap.get(this.state.humanId);
+      let humanBounds = null;
+      let teamBounds = null;
+      const includeBounds = (bounds, tile) => {
+        if (!bounds) return { minX: tile.x, minY: tile.y, maxX: tile.x, maxY: tile.y };
+        bounds.minX = Math.min(bounds.minX, tile.x);
+        bounds.minY = Math.min(bounds.minY, tile.y);
+        bounds.maxX = Math.max(bounds.maxX, tile.x);
+        bounds.maxY = Math.max(bounds.maxY, tile.y);
+        return bounds;
+      };
       this.state.tiles.forEach((tile) => {
         const type = this.state.config.tileTypes[tile.type];
         const owner = tile.owner ? this.playerMap.get(tile.owner) : null;
-        ctx.fillStyle = owner ? owner.color : type.blocks ? "#66717a" : "#276072";
+        ctx.fillStyle = owner ? owner.color : type.blocks ? type.neutralColor || type.color || "#66717a" : "#276072";
         ctx.globalAlpha = owner ? 0.94 : type.blocks ? 0.68 : type.strategic ? 0.32 : 0.18;
         ctx.fillRect(tile.x * cellW, tile.y * cellH, Math.ceil(cellW), Math.ceil(cellH));
+        if (tile.owner === this.state.humanId) humanBounds = includeBounds(humanBounds, tile);
+        if (human?.teamId && owner?.teamId === human.teamId) teamBounds = includeBounds(teamBounds, tile);
       });
       ctx.globalAlpha = 1;
       this.drawMiniObjectives(ctx, cellW, cellH);
       this.drawMiniLakeEvent(ctx, cellW, cellH, options);
       this.drawMiniAnimalMarkers(ctx, cellW, cellH, options);
       this.drawMiniPings(ctx, cellW, cellH);
-      const humanTiles = this.state.tiles.filter((tile) => tile.owner === this.state.humanId);
-      if (humanTiles.length) {
-        const minX = Math.min(...humanTiles.map((tile) => tile.x)) * cellW;
-        const minY = Math.min(...humanTiles.map((tile) => tile.y)) * cellH;
-        const maxX = (Math.max(...humanTiles.map((tile) => tile.x)) + 1) * cellW;
-        const maxY = (Math.max(...humanTiles.map((tile) => tile.y)) + 1) * cellH;
+      if (humanBounds) {
+        const minX = humanBounds.minX * cellW;
+        const minY = humanBounds.minY * cellH;
+        const maxX = (humanBounds.maxX + 1) * cellW;
+        const maxY = (humanBounds.maxY + 1) * cellH;
         ctx.strokeStyle = "#ffffff";
         ctx.lineWidth = 1.5;
         ctx.strokeRect(minX, minY, Math.max(3, maxX - minX), Math.max(3, maxY - minY));
       }
-      const human = this.playerMap.get(this.state.humanId);
-      if (human?.teamId) {
-        const teamTiles = this.state.tiles.filter((tile) => this.playerMap.get(tile.owner)?.teamId === human.teamId);
-        if (teamTiles.length) {
-          const minX = Math.min(...teamTiles.map((tile) => tile.x)) * cellW;
-          const minY = Math.min(...teamTiles.map((tile) => tile.y)) * cellH;
-          const maxX = (Math.max(...teamTiles.map((tile) => tile.x)) + 1) * cellW;
-          const maxY = (Math.max(...teamTiles.map((tile) => tile.y)) + 1) * cellH;
-          ctx.strokeStyle = human.teamColor || "#83dced";
-          ctx.lineWidth = 1;
-          ctx.setLineDash([4, 3]);
-          ctx.strokeRect(minX, minY, Math.max(4, maxX - minX), Math.max(4, maxY - minY));
-          ctx.setLineDash([]);
-        }
+      if (teamBounds) {
+        const minX = teamBounds.minX * cellW;
+        const minY = teamBounds.minY * cellH;
+        const maxX = (teamBounds.maxX + 1) * cellW;
+        const maxY = (teamBounds.maxY + 1) * cellH;
+        ctx.strokeStyle = human.teamColor || "#83dced";
+        ctx.lineWidth = 1;
+        ctx.setLineDash([4, 3]);
+        ctx.strokeRect(minX, minY, Math.max(4, maxX - minX), Math.max(4, maxY - minY));
+        ctx.setLineDash([]);
       }
       this.drawMiniAttacks(ctx, cellW, cellH, options);
       this.drawMiniCamera(ctx, rect, cellW, cellH);
@@ -2527,6 +2937,11 @@
     tileNoise(seed, min = 0, max = 1) {
       const value = Math.sin(seed * 12.9898 + 78.233) * 43758.5453;
       return min + (value - Math.floor(value)) * (max - min);
+    }
+
+    seedOffset(seed) {
+      const value = Math.sin((this.state?.seed || 1) * 0.001 + seed * 18.731) * 100000;
+      return Math.floor(Math.abs(value));
     }
 
     tileCenter(tile) {

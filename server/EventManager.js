@@ -92,12 +92,15 @@ class EventManager {
   }
 
   pickType(game) {
-    const types = Object.keys(lakeEvents).filter((type) => type !== this.lastType);
+    const mapTypes = game.matchSettings?.map?.eventTypes || game.tileManager?.map?.eventTypes || [];
+    const sourceTypes = mapTypes.length ? mapTypes.filter((type) => lakeEvents[type]) : Object.keys(lakeEvents);
+    const types = sourceTypes.filter((type) => type !== this.lastType);
     const human = game.getPlayer(config.HUMAN_ID);
-    if (human?.animal === "frog" && Math.random() < 0.3 && this.lastType !== "lilyBloom") return "lilyBloom";
-    if (human?.animal === "snake" && Math.random() < 0.25 && this.lastType !== "mudslide") return "mudslide";
-    if (human?.animal === "carp" && Math.random() < 0.28 && this.lastType !== "lilyBloom") return "lilyBloom";
-    if (human?.animal === "turtle" && Math.random() < 0.22 && this.lastType !== "mudslide") return "mudslide";
+    const hasType = (type) => sourceTypes.includes(type) && this.lastType !== type;
+    if (human?.animal === "frog" && Math.random() < 0.3 && hasType("lilyBloom")) return "lilyBloom";
+    if (human?.animal === "snake" && Math.random() < 0.25 && hasType("mudslide")) return "mudslide";
+    if (human?.animal === "carp" && Math.random() < 0.28 && hasType("lilyBloom")) return "lilyBloom";
+    if (human?.animal === "turtle" && Math.random() < 0.22 && hasType("mudslide")) return "mudslide";
     return types[Math.floor(Math.random() * types.length)] || "rainstorm";
   }
 

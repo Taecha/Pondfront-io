@@ -50,6 +50,13 @@
     mud: TIPS.mud,
     rock: TIPS.rock,
     nest: TIPS.nestZone,
+    jungleIsland: "Jungle Island blocks movement, building, capture, attacks, and Current Push routes. Use river lanes around it.",
+    riceField: "Rice Field is land terrain. It blocks capture and creates narrow canal fronts.",
+    grassIsland: "Grass Island blocks movement and makes Everglades fights more about swamp lanes.",
+    desert: "Desert bank is blocked terrain. Nile matches are won by controlling the river and oasis paths.",
+    log: "Fallen Log blocks capture and Current Push. It creates small tactical chokepoints.",
+    village: "Village is a blocked landmark. It cannot be captured, but nearby canals can become valuable fronts.",
+    bridge: "Bridge blocker cuts canal movement and forces attacks through nearby water lanes.",
   };
 
   const BUILDING_TIPS = {

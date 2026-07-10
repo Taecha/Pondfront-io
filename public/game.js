@@ -66,6 +66,9 @@
       this.lastPerfUiAt = 0;
       this.performanceLowSince = 0;
       this.performanceAutoLow = false;
+      this.stateVersion = 0;
+      this.legalCache = { key: "", ids: [] };
+      this.humanBordersCache = { key: "", borders: [] };
       this.seenEventIds = new Set();
       this.bind();
       this.loop();
@@ -406,8 +409,16 @@
 
     setState(state, options = {}) {
       this.state = state;
-      this.tileMap = new Map(state.tiles.map((tile) => [tile.id, tile]));
-      this.renderer.setState(state);
+      this.stateVersion += 1;
+      this.legalCache.key = "";
+      this.humanBordersCache.key = "";
+      if (!options.delta || !this.tileMap.size) {
+        this.tileMap = new Map(state.tiles.map((tile) => [tile.id, tile]));
+      }
+      this.renderer.setState(state, {
+        delta: Boolean(options.delta),
+        changedTiles: options.changedTiles || [],
+      });
       const newEvents = state.events.filter((event) => !this.seenEventIds.has(event.id));
       state.events.forEach((event) => this.seenEventIds.add(event.id));
       this.audio?.addEvents(newEvents, state);
@@ -859,10 +870,17 @@
 
     applyActionDelta(delta = {}) {
       if (!this.state || !delta) return;
-      const tileUpdates = new Map((delta.changedTiles || []).map((tile) => [tile.id, tile]));
-      const nextTiles = tileUpdates.size
-        ? this.state.tiles.map((tile) => (tileUpdates.has(tile.id) ? { ...tile, ...tileUpdates.get(tile.id) } : tile))
-        : this.state.tiles;
+      const changedTiles = delta.changedTiles || [];
+      let nextTiles = this.state.tiles;
+      if (changedTiles.length) {
+        nextTiles = this.state.tiles.slice();
+        changedTiles.forEach((update) => {
+          const oldTile = this.tileMap.get(update.id) || nextTiles[update.id] || { id: update.id };
+          const nextTile = { ...oldTile, ...update };
+          nextTiles[update.id] = nextTile;
+          this.tileMap.set(nextTile.id, nextTile);
+        });
+      }
       const playerUpdates = new Map((delta.players || []).map((player) => [player.id, player]));
       const nextPlayers = playerUpdates.size
         ? this.state.players.map((player) => (playerUpdates.has(player.id) ? { ...player, ...playerUpdates.get(player.id) } : player))
@@ -897,7 +915,7 @@
         metrics: { ...(this.state.metrics || {}), ...(delta.metrics || {}) },
         events: mergedEvents,
       };
-      this.setState(nextState, { silent: true, delta: true });
+      this.setState(nextState, { silent: true, delta: true, changedTiles });
     }
 
     latencyDebugEnabled() {
@@ -1776,44 +1794,55 @@
       const human = this.human();
       if (!human) return [];
       const buildingType = this.pendingBuildType || this.ui.nodes.buildSelect.value;
+      const key = [
+        this.stateVersion,
+        this.mode,
+        human.id,
+        human.animal,
+        Math.round(human.energy || 0),
+        human.buildings?.jumpPad || 0,
+        buildingType || "",
+        this.pendingSpecialType || "",
+        this.sourceIds.join("."),
+      ].join("|");
+      if (this.legalCache.key === key) return this.legalCache.ids;
+
+      let ids = [];
 
       if (this.mode === "ability" && human.animal === "frog") {
-        return this.leapTargetIds();
-      }
-
-      if (this.mode === "special") {
-        return this.specialTargetIds(this.pendingSpecialType || "lilyBarrage");
-      }
-
-      if (this.mode === "build") {
-        return this.state.tiles
+        ids = this.leapTargetIds();
+      } else if (this.mode === "special") {
+        ids = this.specialTargetIds(this.pendingSpecialType || "lilyBarrage");
+      } else if (this.mode === "build") {
+        ids = this.state.tiles
           .filter((tile) => this.canBuildHere(human, tile, buildingType))
           .map((tile) => tile.id);
-      }
-
-      if (this.mode === "defend") {
-        return this.state.tiles
+      } else if (this.mode === "defend") {
+        ids = this.state.tiles
           .filter((tile) => tile.owner === human.id && this.isBorder(tile, human.id))
           .map((tile) => tile.id);
-      }
-
-      const mode = this.mode === "attack" || this.mode === "diplomacy" ? "attack" : "expand";
-      const sources = this.validSourceTiles().length ? this.validSourceTiles() : this.humanBorders();
-      const ids = new Set();
-      sources.forEach((source) => {
-        this.neighbors(source).forEach((target) => this.addLegalTarget(ids, target, mode));
-        if (human.animal === "frog" && mode === "expand") {
-          const range = human.buildings?.jumpPad ? 3 : 2;
-          for (let y = source.y - range; y <= source.y + range; y += 1) {
-            for (let x = source.x - range; x <= source.x + range; x += 1) {
-              const target = this.tileAt(x, y);
-              const d = Math.abs(source.x - x) + Math.abs(source.y - y);
-              if (d > 1 && d <= range) this.addLegalTarget(ids, target, mode);
+      } else {
+        const mode = this.mode === "attack" || this.mode === "diplomacy" ? "attack" : "expand";
+        const validSources = this.validSourceTiles();
+        const sources = validSources.length ? validSources : this.humanBorders();
+        const targetIds = new Set();
+        sources.forEach((source) => {
+          this.neighbors(source).forEach((target) => this.addLegalTarget(targetIds, target, mode));
+          if (human.animal === "frog" && mode === "expand") {
+            const range = human.buildings?.jumpPad ? 3 : 2;
+            for (let y = source.y - range; y <= source.y + range; y += 1) {
+              for (let x = source.x - range; x <= source.x + range; x += 1) {
+                const target = this.tileAt(x, y);
+                const d = Math.abs(source.x - x) + Math.abs(source.y - y);
+                if (d > 1 && d <= range) this.addLegalTarget(targetIds, target, mode);
+              }
             }
           }
-        }
-      });
-      return [...ids];
+        });
+        ids = [...targetIds];
+      }
+      this.legalCache = { key, ids };
+      return ids;
     }
 
     addLegalTarget(ids, tile, mode) {
@@ -1836,16 +1865,17 @@
 
     specialTargetIds(specialType) {
       if (!this.state) return [];
-      return this.state.tiles.filter((tile) => this.isValidSpecialTarget(tile, specialType)).map((tile) => tile.id);
+      const human = this.human();
+      const ownedTiles = this.state.tiles.filter((tile) => tile.owner === human?.id);
+      return this.state.tiles.filter((tile) => this.isValidSpecialTarget(tile, specialType, ownedTiles)).map((tile) => tile.id);
     }
 
-    isValidSpecialTarget(tile, specialType) {
+    isValidSpecialTarget(tile, specialType, ownedTiles = null) {
       const human = this.human();
       const special = this.state?.config?.specials?.[specialType] || root.PondSpecials?.[specialType];
       if (!human || !tile || !special || this.isBlocked(tile)) return false;
-      const inRange = this.state.tiles
-        .filter((owned) => owned.owner === human.id)
-        .some((owned) => this.distance(owned, tile) <= (special.range || 18));
+      const owned = ownedTiles || this.state.tiles.filter((candidate) => candidate.owner === human.id);
+      const inRange = owned.some((candidate) => this.distance(candidate, tile) <= (special.range || 18));
       if (!inRange) return false;
       if (specialType === "lilyBarrage") {
         if (!tile.owner || tile.owner === human.id) return false;
@@ -1867,13 +1897,15 @@
 
     leapTargetIds() {
       if (!this.state) return [];
-      return this.state.tiles.filter((tile) => this.isLeapTarget(tile)).map((tile) => tile.id);
+      const borders = this.humanBorders();
+      return this.state.tiles.filter((tile) => this.isLeapTarget(tile, borders)).map((tile) => tile.id);
     }
 
-    isLeapTarget(tile) {
+    isLeapTarget(tile, borders = null) {
       const human = this.human();
       if (!tile || !human || human.animal !== "frog" || tile.owner || this.isBlocked(tile)) return false;
-      return this.humanBorders().some((source) => {
+      const sources = borders || this.humanBorders();
+      return sources.some((source) => {
         const range = human.flags?.jumpPad || human.buildings?.jumpPad ? 3 : 2;
         const d = this.distance(source, tile);
         return d >= 2 && d <= range;
@@ -2078,7 +2110,11 @@
 
     humanBorders() {
       const humanId = this.state?.humanId;
-      return this.state?.tiles.filter((tile) => this.isBorder(tile, humanId)) || [];
+      const key = `${this.stateVersion}|${humanId || ""}`;
+      if (this.humanBordersCache.key === key) return this.humanBordersCache.borders;
+      const borders = this.state?.tiles.filter((tile) => this.isBorder(tile, humanId)) || [];
+      this.humanBordersCache = { key, borders };
+      return borders;
     }
 
     sourceCanReach(source, target) {

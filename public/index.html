@@ -176,18 +176,24 @@
                 <option value="chaos">Chaos</option>
               </select>
               <label class="check-row" for="beginnerCombat"><input id="beginnerCombat" type="checkbox" checked /> Beginner combat</label>
-              <label for="mapSize">Map size</label>
+              <label for="mapSize">Map</label>
               <select id="mapSize">
-                <option value="small">Small 60x36</option>
-                <option value="medium">Medium 90x54</option>
-                <option value="large" selected>Large 130x78</option>
-                <option value="huge">Huge 170x100</option>
+                <option value="amazon">Amazon River</option>
+                <option value="mekong">Mekong Delta</option>
+                <option value="everglades">Everglades Swamp</option>
+                <option value="nile">Nile River</option>
+                <option value="random">Random Themed Map</option>
+                <option value="small">Small Pond</option>
+                <option value="medium" selected>Medium Lake</option>
+                <option value="large">Large Lake</option>
+                <option value="huge">Huge Lake</option>
               </select>
+              <div id="mapInfoCard" class="map-info-card" aria-live="polite"></div>
               <label for="botCount">Bot count</label>
               <select id="botCount">
-                <option value="8">8</option>
-                <option value="9" selected>9</option>
-                <option value="10">10</option>
+                <option value="8">Low - 8</option>
+                <option value="9" selected>Normal - 9</option>
+                <option value="10">Max - 10</option>
               </select>
               <label for="matchLength">Match pace</label>
               <select id="matchLength">
@@ -260,13 +266,17 @@
               <option value="economy">Economy Test</option>
               <option value="combat">Combat Test</option>
               <option value="currentPush">Current Push Test</option>
-              <option value="chaos">Huge Chaos</option>
+              <option value="chaos">Delta Chaos</option>
             </select></label>
             <label for="sandboxMapSize">Map<select id="sandboxMapSize">
               <option value="small">Small</option>
               <option value="medium" selected>Medium</option>
               <option value="large">Large</option>
               <option value="huge">Huge</option>
+              <option value="amazon">Amazon River</option>
+              <option value="mekong">Mekong Delta</option>
+              <option value="everglades">Everglades Swamp</option>
+              <option value="nile">Nile River</option>
             </select></label>
             <label for="sandboxAnimal">Starting animal<select id="sandboxAnimal">
               <option value="duck">Duck</option>
@@ -282,6 +292,11 @@
               <option value="8">8</option>
               <option value="12">12</option>
               <option value="16">16</option>
+              <option value="18">18</option>
+              <option value="20">20</option>
+              <option value="22">22</option>
+              <option value="24">24</option>
+              <option value="26">26</option>
             </select></label>
             <label for="sandboxBotDifficulty">Bot difficulty<select id="sandboxBotDifficulty">
               <option value="passive">Passive</option>
@@ -333,10 +348,15 @@
               <option value="teamBattle">Team Battle</option>
             </select></label>
             <label for="createMapSize">Map<select id="createMapSize">
-              <option value="small">Small</option>
-              <option value="medium" selected>Medium</option>
-              <option value="large">Large</option>
-              <option value="huge">Huge</option>
+              <option value="amazon">Amazon River</option>
+              <option value="mekong">Mekong Delta</option>
+              <option value="everglades">Everglades Swamp</option>
+              <option value="nile">Nile River</option>
+              <option value="random">Random Themed Map</option>
+              <option value="small">Small Pond</option>
+              <option value="medium" selected>Medium Lake</option>
+              <option value="large">Large Lake</option>
+              <option value="huge">Huge Lake</option>
             </select></label>
             <label for="createBotDifficulty">Bots<select id="createBotDifficulty">
               <option value="easy">Chill</option>
@@ -349,6 +369,13 @@
               <option value="4">4</option>
               <option value="8" selected>8</option>
               <option value="10">10</option>
+              <option value="14">14</option>
+              <option value="16">16</option>
+              <option value="18">18</option>
+              <option value="20">20</option>
+              <option value="22">22</option>
+              <option value="24">24</option>
+              <option value="26">26</option>
             </select></label>
             <label for="createTeamCount">Teams<select id="createTeamCount">
               <option value="2" selected>2</option>
@@ -447,16 +474,28 @@
                   <option value="teamBattle">Team Battle</option>
                 </select></label>
                 <label for="lobbyMapSize">Map<select id="lobbyMapSize">
-                  <option value="small">Small</option>
-                  <option value="medium">Medium</option>
-                  <option value="large">Large</option>
-                  <option value="huge">Huge</option>
+                  <option value="amazon">Amazon River</option>
+                  <option value="mekong">Mekong Delta</option>
+                  <option value="everglades">Everglades Swamp</option>
+                  <option value="nile">Nile River</option>
+                  <option value="random">Random Themed Map</option>
+                  <option value="small">Small Pond</option>
+                  <option value="medium">Medium Lake</option>
+                  <option value="large">Large Lake</option>
+                  <option value="huge">Huge Lake</option>
                 </select></label>
                 <label for="lobbyBotCount">Bots<select id="lobbyBotCount">
                   <option value="0">0</option>
                   <option value="4">4</option>
                   <option value="8">8</option>
                   <option value="10">10</option>
+                  <option value="14">14</option>
+                  <option value="16">16</option>
+                  <option value="18">18</option>
+                  <option value="20">20</option>
+                  <option value="22">22</option>
+                  <option value="24">24</option>
+                  <option value="26">26</option>
                 </select></label>
                 <label for="lobbyBotDifficulty">Bot strategy<select id="lobbyBotDifficulty">
                   <option value="easy">Chill</option>
@@ -811,6 +850,15 @@
                   <h3>Interface</h3>
                   <p id="matchRulesSummary" class="settings-note">Surrender: Off</p>
                   <label>
+                    Visual preset
+                    <select id="visualPreset" aria-label="Visual preset">
+                      <option value="simple">Simple</option>
+                      <option value="balanced" selected>Balanced</option>
+                      <option value="high">High</option>
+                      <option value="ultra">Ultra</option>
+                    </select>
+                  </label>
+                  <label>
                     UI scale
                     <select id="uiScale" aria-label="UI scale">
                       <option value="tiny">Tiny</option>
@@ -823,8 +871,8 @@
                     Visual quality
                     <select id="visualQuality" aria-label="Visual quality">
                       <option value="ultra">Ultra</option>
-                      <option value="high" selected>High</option>
-                      <option value="medium">Medium</option>
+                      <option value="high">High</option>
+                      <option value="medium" selected>Medium</option>
                       <option value="low">Low</option>
                     </select>
                   </label>
@@ -840,17 +888,17 @@
                     Effects
                     <select id="effectsLevel" aria-label="Effects level">
                       <option value="ultra">Ultra</option>
-                      <option value="high" selected>High</option>
-                      <option value="medium">Medium</option>
+                      <option value="high">High</option>
+                      <option value="medium" selected>Medium</option>
                       <option value="low">Low</option>
                     </select>
                   </label>
                   <label>
                     Particles
                     <select id="particlesLevel" aria-label="Particle level">
-                      <option value="high" selected>High</option>
+                      <option value="high">High</option>
                       <option value="ultra">Ultra</option>
-                      <option value="medium">Medium</option>
+                      <option value="medium" selected>Medium</option>
                       <option value="low">Low</option>
                     </select>
                   </label>

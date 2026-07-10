@@ -1055,6 +1055,54 @@ select {
   width: 100%;
 }
 
+.map-info-card {
+  grid-column: 1 / -1;
+  display: grid;
+  gap: 8px;
+  padding: 10px 11px;
+  border: 1px solid rgba(177, 229, 238, 0.14);
+  border-radius: 8px;
+  color: #cce5eb;
+  background:
+    linear-gradient(180deg, rgba(18, 53, 70, 0.62), rgba(7, 22, 35, 0.7)),
+    rgba(255, 255, 255, 0.035);
+}
+
+.map-info-card strong {
+  color: #f7fdff;
+  font-size: 0.9rem;
+}
+
+.map-info-card span {
+  color: #afcbd4;
+  font-size: 0.78rem;
+  line-height: 1.35;
+}
+
+.map-info-card dl {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 4px 9px;
+  margin: 0;
+  font-size: 0.72rem;
+}
+
+.map-info-card dt {
+  color: #86b3bf;
+  font-weight: 950;
+  text-transform: uppercase;
+}
+
+.map-info-card dd {
+  min-width: 0;
+  margin: 0;
+  overflow: hidden;
+  color: #e5f4f8;
+  font-weight: 820;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .lake-preview {
   display: grid;
   gap: 12px;

@@ -34,7 +34,10 @@ class ObjectiveManager {
 
   placeObjectives(now) {
     const objectiveCount = this.tileManager.map?.objectiveCount || Object.keys(objectiveConfig.LAKE_OBJECTIVES).length;
-    const definitions = Object.entries(objectiveConfig.LAKE_OBJECTIVES);
+    const configuredTypes = this.tileManager.map?.objectiveTypes || [];
+    const definitions = (configuredTypes.length ? configuredTypes : Object.keys(objectiveConfig.LAKE_OBJECTIVES))
+      .map((type) => [type, objectiveConfig.LAKE_OBJECTIVES[type]])
+      .filter((entry) => entry[1]);
     const centers = this.objectiveCenters(objectiveCount);
     for (let i = 0; i < objectiveCount; i += 1) {
       const [type, definition] = definitions[i % definitions.length];
