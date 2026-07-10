@@ -122,7 +122,15 @@ class PondFrontServerGame {
           ? difficultyValue
           : "normal";
     const gameMode = sandboxEnabled ? "sandbox" : ["solo", "coop", "teamBattle"].includes(settings.gameMode) ? settings.gameMode : "solo";
-    const mapSize = ["small", "medium", "large", "huge"].includes(settings.mapSize) ? settings.mapSize : "medium";
+    const mapIds = Object.keys(config.MAP_SIZES);
+    const themedMapIds = mapIds.filter((id) => config.MAP_SIZES[id]?.theme);
+    const requestedMap = String(settings.mapSize || "medium");
+    const mapSize =
+      requestedMap === "random" && themedMapIds.length
+        ? themedMapIds[Math.floor(Math.random() * themedMapIds.length)]
+        : mapIds.includes(requestedMap)
+          ? requestedMap
+          : "medium";
     const map = config.MAP_SIZES[mapSize] || config.MAP_SIZES.medium;
     const humanPlayers = Array.isArray(settings.humanPlayers)
       ? settings.humanPlayers
