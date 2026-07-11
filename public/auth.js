@@ -24,6 +24,9 @@
         confirm: document.querySelector("#authConfirmPassword"),
         error: document.querySelector("#authError"),
         submit: document.querySelector("#authSubmitButton"),
+        google: document.querySelector("#googleAuthButton"),
+        discord: document.querySelector("#discordAuthButton"),
+        oauthHint: document.querySelector("#oauthAvailabilityHint"),
         nameInputs: [
           document.querySelector("#playerName"),
           document.querySelector("#createNameInput"),
@@ -37,6 +40,7 @@
         if (!profileUser || !this.user || profileUser.id !== this.user.id) return;
         this.setUser({ ...this.user, ...profileUser }, { loadProfile: false });
       });
+      this.handleOAuthResult();
       this.refresh();
     }
 
@@ -59,6 +63,8 @@
         event.preventDefault();
         this.submit();
       });
+      this.nodes.google?.addEventListener("click", () => this.startOAuth("google"));
+      this.nodes.discord?.addEventListener("click", () => this.startOAuth("discord"));
     }
 
     open(mode = "login") {
@@ -115,6 +121,87 @@
       } catch {
         this.setUser(null);
       }
+      await this.loadProviders();
+    }
+
+    async loadProviders() {
+      try {
+        const data = await this.request("/api/auth/providers");
+        const providers = new Map((data.providers || []).map((provider) => [provider.id, provider]));
+        ["google", "discord"].forEach((id) => {
+          const button = this.nodes[id];
+          const provider = providers.get(id);
+          if (!button) return;
+          button.disabled = !provider?.enabled;
+          button.dataset.available = provider?.enabled ? "true" : "false";
+          button.title = provider?.enabled ? `Continue with ${provider.label}` : `${provider?.label || id} sign-in is not configured on this server.`;
+        });
+        const available = [...providers.values()].filter((provider) => provider.enabled).length;
+        if (this.nodes.oauthHint) {
+          this.nodes.oauthHint.textContent = available
+            ? "Authentication happens on the provider's official website."
+            : "Social sign-in will appear after the server owner adds OAuth credentials.";
+        }
+      } catch {
+        if (this.nodes.oauthHint) this.nodes.oauthHint.textContent = "Social sign-in is temporarily unavailable.";
+      }
+    }
+
+    startOAuth(provider) {
+      const button = this.nodes[provider];
+      if (!button || button.disabled) {
+        this.setError(`${provider === "google" ? "Google" : "Discord"} sign-in is not configured yet.`);
+        return;
+      }
+      if (!this.user) {
+        const proceed = window.confirm(
+          "Create a persistent PondFront account? Only rewards already verified by the server can be imported; unsaved guest progress cannot be trusted or imported.",
+        );
+        if (!proceed) return;
+      }
+      this.setOAuthLoading(provider, true);
+      window.location.assign(`/api/auth/oauth/${provider}/start`);
+    }
+
+    setOAuthLoading(provider, loading) {
+      ["google", "discord"].forEach((id) => {
+        const button = this.nodes[id];
+        if (!button) return;
+        if (loading) button.disabled = true;
+        const label = button.querySelector("strong");
+        if (label) label.textContent = loading && id === provider ? "Opening secure sign-in..." : `Continue with ${id === "google" ? "Google" : "Discord"}`;
+      });
+    }
+
+    handleOAuthResult() {
+      const params = new URLSearchParams(window.location.search);
+      const error = params.get("authError");
+      const success = params.get("auth");
+      const provider = params.get("provider") === "discord" ? "Discord" : "Google";
+      if (!error && !success) return;
+      if (error) {
+        this.open("login");
+        this.setError(this.oauthErrorMessage(error, provider));
+      }
+      if (success) window.setTimeout(() => this.profile?.load?.(), 250);
+      params.delete("authError");
+      params.delete("auth");
+      params.delete("provider");
+      const query = params.toString();
+      window.history.replaceState({}, "", `${window.location.pathname}${query ? `?${query}` : ""}${window.location.hash}`);
+    }
+
+    oauthErrorMessage(code, provider) {
+      const messages = {
+        cancelled: `${provider} login was cancelled.`,
+        session_expired: "Login session expired. Please try again.",
+        provider_unavailable: `${provider} sign-in is unavailable on this server.`,
+        account_already_connected: "That provider account is already connected to another PondFront profile.",
+        email_link_required: "An account already uses that verified email. Log in to that PondFront account, then connect this provider from Profile > Accounts.",
+        provider_error: `${provider} could not complete login. Please try again.`,
+        server_error: "The server could not complete authentication. No account changes were made.",
+      };
+      return messages[code] || "Authentication could not be completed.";
     }
 
     setUser(user, options = {}) {
@@ -123,7 +210,7 @@
       this.nodes.panel?.classList.toggle("guest", !this.user);
       this.nodes.panel?.classList.toggle("signed-in", Boolean(this.user));
       this.nodes.badge.textContent = this.user ? this.badgeIcon(this.user.selectedBadge) : "G";
-      this.nodes.name.textContent = this.user ? this.user.username : "Playing as Guest";
+      this.nodes.name.textContent = this.user ? this.user.displayName || this.user.username : "Playing as Guest";
       this.nodes.hint.textContent = this.user
         ? `Level ${this.user.level || 1} | ${Math.round(this.user.xp || 0)} XP | ${Math.round(this.user.coins || 0)} coins`
         : "Create an account to save XP, badges, stats, and match history.";

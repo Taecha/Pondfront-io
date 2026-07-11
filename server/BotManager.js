@@ -142,10 +142,6 @@ class BotManager {
 
     if (this.trySkirmish(bot, enemy, phase)) return;
 
-    if (bot.energy > bot.maxEnergy * 0.55 && Math.random() < this.buildChance(bot, phase)) {
-      if (this.tryBuild(bot)) return;
-    }
-
     const neutral = this.game.tileManager.capturable(bot.id).filter((tile) => !tile.owner);
 
     if (neutral.length && this.shouldExpand(bot, phase)) {
@@ -158,6 +154,10 @@ class BotManager {
     if (progressTarget && (progressTarget.captureProgress?.[bot.id] || 0) > 0) {
       if (this.tryExpandNeutral(bot, progressTarget)) return;
       return;
+    }
+
+    if (bot.energy > bot.maxEnergy * 0.55 && Math.random() < this.buildChance(bot, phase)) {
+      if (this.tryBuild(bot)) return;
     }
 
     const lateAttackTarget = this.pickAttack(bot, enemy, phase);
@@ -422,6 +422,7 @@ class BotManager {
 
   phase() {
     const elapsed = this.game.elapsed();
+    if (this.game.finalTideActive) return "surge";
     if (elapsed >= balance.finalSurgeTime) return "surge";
     if (elapsed >= balance.lateGameTime) return "late";
     if (elapsed >= balance.midGameTime) return "mid";

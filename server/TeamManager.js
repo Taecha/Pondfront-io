@@ -119,7 +119,8 @@ class TeamManager {
       if (!player.teamId) return;
       players.forEach((other) => {
         if (other.id !== player.id && other.teamId === player.teamId) {
-          player.allies.add(other.id);
+          if (this.settings?.friendlyFire) player.allies.delete(other.id);
+          else player.allies.add(other.id);
           player.enemies.delete(other.id);
         }
       });
@@ -193,7 +194,7 @@ class TeamManager {
   sameTeam(a, b) {
     const left = typeof a === "string" ? this.player(a) : a;
     const right = typeof b === "string" ? this.player(b) : b;
-    return Boolean(this.active() && left?.teamId && right?.teamId && left.teamId === right.teamId);
+    return Boolean(this.active() && !this.settings?.friendlyFire && left?.teamId && right?.teamId && left.teamId === right.teamId);
   }
 
   player(id) {
@@ -269,6 +270,39 @@ class TeamManager {
       at: now,
     });
     return { ok: true, message: `Team command sent: ${commandDef.label}.` };
+  }
+
+  revive(game, actor, targetId, tileId) {
+    if (!this.active() || (this.settings?.teamRevives || "off") === "off") return { ok: false, message: "Team revives are disabled." };
+    const target = game.getPlayer(targetId);
+    const tile = game.tileManager.getById(Number(tileId));
+    if (!target || target.teamId !== actor.teamId || target.id === actor.id) return { ok: false, message: "Choose an eliminated teammate." };
+    if (!target.defeated && game.isPlayerAlive(target)) return { ok: false, message: "That teammate is still active." };
+    if (!tile || tile.owner !== actor.id || !game.tileManager.isBorder(tile, actor.id)) return { ok: false, message: "Revive on one of your safe border tiles." };
+    const mode = this.settings.teamRevives;
+    const used = Number(target.flags?.revivesUsed || 0);
+    if (mode === "one" && used >= 1) return { ok: false, message: "That teammate already used their revive." };
+    game.teamRevivePool = game.teamRevivePool || new Map();
+    const poolUsed = game.teamRevivePool.get(actor.teamId) || 0;
+    if (mode === "pool" && poolUsed >= Math.max(1, game.players.filter((player) => player.teamId === actor.teamId).length)) {
+      return { ok: false, message: "Your team revive pool is empty." };
+    }
+    const cost = Math.round(100 * (1 + used * 0.55 + poolUsed * 0.2));
+    if (actor.energy < cost) return { ok: false, message: `Need ${cost - Math.round(actor.energy)} more Animal Energy (${cost} total).` };
+    actor.energy -= cost;
+    target.defeated = false;
+    target.removed = false;
+    target.flags = target.flags || {};
+    delete target.flags.surrendered;
+    target.flags.revivesUsed = used + 1;
+    target.flags.reviveProtectionUntil = game.now() + 10;
+    target.flags.reviveAttackLockUntil = game.now() + 10;
+    game.tileManager.claimStartAt(target, tile.id, game.now(), 1);
+    game.core.setup(game.players.filter((player) => !player.removed), game.now());
+    game.teamRevivePool.set(actor.teamId, poolUsed + 1);
+    game.economy.recalculate(game.players, game.now(), game);
+    this.pushEvent({ kind: "teamRevive", playerId: target.id, targetId: actor.id, to: tile.id, cost, protectionUntil: target.flags.reviveProtectionUntil, message: `${actor.name} revived ${target.name}.`, at: game.now() });
+    return { ok: true, message: `${target.name} revived with 10s protection.`, cost };
   }
 
   reactionDelay(bot, command) {

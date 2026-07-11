@@ -164,6 +164,32 @@ class PondDatabase {
         FOREIGN KEY (userId) REFERENCES users(id) ON DELETE CASCADE
       );
 
+      CREATE TABLE IF NOT EXISTS oauth_accounts (
+        id TEXT PRIMARY KEY,
+        userId TEXT NOT NULL,
+        provider TEXT NOT NULL,
+        providerUserId TEXT NOT NULL,
+        providerEmail TEXT NOT NULL DEFAULT '',
+        providerEmailVerified INTEGER NOT NULL DEFAULT 0,
+        providerDisplayName TEXT NOT NULL DEFAULT '',
+        avatarUrl TEXT NOT NULL DEFAULT '',
+        createdAt TEXT NOT NULL,
+        lastLoginAt TEXT NOT NULL,
+        UNIQUE (provider, providerUserId),
+        UNIQUE (userId, provider),
+        FOREIGN KEY (userId) REFERENCES users(id) ON DELETE CASCADE
+      );
+
+      CREATE TABLE IF NOT EXISTS oauth_states (
+        stateHash TEXT PRIMARY KEY,
+        provider TEXT NOT NULL,
+        codeVerifier TEXT NOT NULL,
+        userId TEXT NOT NULL DEFAULT '',
+        mode TEXT NOT NULL DEFAULT 'login',
+        createdAt TEXT NOT NULL,
+        expiresAt TEXT NOT NULL
+      );
+
       CREATE TABLE IF NOT EXISTS player_stats (
         userId TEXT PRIMARY KEY,
         gamesPlayed INTEGER NOT NULL DEFAULT 0,
@@ -271,9 +297,21 @@ class PondDatabase {
 
       CREATE INDEX IF NOT EXISTS idx_match_history_user_created ON match_history(userId, createdAt DESC);
       CREATE INDEX IF NOT EXISTS idx_sessions_user ON sessions(userId);
+      CREATE INDEX IF NOT EXISTS idx_oauth_accounts_user ON oauth_accounts(userId);
+      CREATE INDEX IF NOT EXISTS idx_oauth_states_expires ON oauth_states(expiresAt);
     `);
+    this.ensureColumn("users", "displayName", "TEXT NOT NULL DEFAULT ''");
+    this.ensureColumn("users", "emailVerified", "INTEGER NOT NULL DEFAULT 0");
+    this.ensureColumn("users", "avatarUrl", "TEXT NOT NULL DEFAULT ''");
     if (!this.get("SELECT value FROM meta WHERE key = ?", "createdAt")) this.setMeta("createdAt", nowIso());
-    this.setMeta("version", "2");
+    this.setMeta("version", "3");
+  }
+
+  ensureColumn(table, column, definition) {
+    const allowed = new Set(["users:displayName", "users:emailVerified", "users:avatarUrl"]);
+    if (!allowed.has(`${table}:${column}`)) throw new Error("Unsupported schema migration.");
+    const columns = this.all(`PRAGMA table_info(${table})`);
+    if (!columns.some((entry) => entry.name === column)) this.db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`);
   }
 
   setMeta(key, value) {
@@ -342,6 +380,9 @@ class PondDatabase {
           username: this.normalizeUsername(entry.username),
           usernameKey: entry.usernameKey || this.usernameKey(entry.username),
           email: String(entry.email || ""),
+          displayName: String(entry.displayName || entry.username || ""),
+          emailVerified: Boolean(entry.emailVerified),
+          avatarUrl: String(entry.avatarUrl || ""),
           passwordHash: entry.passwordHash || "",
           createdAt: entry.createdAt || nowIso(),
           lastLoginAt: entry.lastLoginAt || entry.createdAt || nowIso(),
@@ -425,13 +466,16 @@ class PondDatabase {
     return this.rowToUser(this.get("SELECT * FROM users WHERE id = ?", userId));
   }
 
-  createUser({ username, passwordHash, email = "" }) {
+  createUser({ username, passwordHash = "", email = "", displayName = "", emailVerified = false, avatarUrl = "" }) {
     const cleanUsername = this.normalizeUsername(username);
     const user = {
       id: this.id("user"),
       username: cleanUsername,
       usernameKey: this.usernameKey(cleanUsername),
       email: String(email || "").trim().slice(0, 120),
+      displayName: String(displayName || cleanUsername).trim().slice(0, 80),
+      emailVerified: Boolean(emailVerified),
+      avatarUrl: String(avatarUrl || "").trim().slice(0, 500),
       passwordHash,
       createdAt: nowIso(),
       lastLoginAt: nowIso(),
@@ -457,12 +501,15 @@ class PondDatabase {
     const verb = ignore ? "INSERT OR IGNORE" : "INSERT";
     this.run(
       `${verb} INTO users
-       (id, username, usernameKey, email, passwordHash, createdAt, lastLoginAt, level, xp, coins, selectedBadge, selectedTitle, selectedCosmetic, unlockedTitles, unlockedCosmetics)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+       (id, username, usernameKey, email, displayName, emailVerified, avatarUrl, passwordHash, createdAt, lastLoginAt, level, xp, coins, selectedBadge, selectedTitle, selectedCosmetic, unlockedTitles, unlockedCosmetics)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       user.id,
       user.username,
       user.usernameKey,
       user.email || "",
+      user.displayName || user.username,
+      user.emailVerified ? 1 : 0,
+      user.avatarUrl || "",
       user.passwordHash,
       user.createdAt,
       user.lastLoginAt,
@@ -492,12 +539,15 @@ class PondDatabase {
   writeUserState(user) {
     this.run(
       `UPDATE users SET
-        username = ?, usernameKey = ?, email = ?, passwordHash = ?, lastLoginAt = ?, level = ?, xp = ?, coins = ?,
+        username = ?, usernameKey = ?, email = ?, displayName = ?, emailVerified = ?, avatarUrl = ?, passwordHash = ?, lastLoginAt = ?, level = ?, xp = ?, coins = ?,
         selectedBadge = ?, selectedTitle = ?, selectedCosmetic = ?, unlockedTitles = ?, unlockedCosmetics = ?
        WHERE id = ?`,
       user.username,
       user.usernameKey || this.usernameKey(user.username),
       user.email || "",
+      user.displayName || user.username,
+      user.emailVerified ? 1 : 0,
+      user.avatarUrl || "",
       user.passwordHash,
       user.lastLoginAt || nowIso(),
       int(user.level, 1),
@@ -513,8 +563,8 @@ class PondDatabase {
     this.replaceUserBadges(user.id, user.unlockedBadges || ["rookie"]);
   }
 
-  addSession(userId, userAgent = "") {
-    const token = this.id("sess");
+  addSession(userId, userAgent = "", suppliedToken = "") {
+    const token = String(suppliedToken || this.id("sess"));
     const now = nowIso();
     const session = {
       token,
@@ -552,6 +602,120 @@ class PondDatabase {
 
   deleteSession(token) {
     this.run("DELETE FROM sessions WHERE token = ?", String(token || ""));
+  }
+
+  findUserByVerifiedEmail(email) {
+    const clean = String(email || "").trim().toLowerCase();
+    if (!clean) return null;
+    return this.rowToUser(this.get("SELECT * FROM users WHERE lower(email) = ? AND emailVerified = 1", clean));
+  }
+
+  uniqueUsername(preferred = "Pond Player") {
+    const base = this.normalizeUsername(preferred).replace(/[^a-zA-Z0-9 _-]/g, "").trim() || "Pond Player";
+    if (!this.findUserByUsername(base)) return base;
+    for (let suffix = 2; suffix < 10000; suffix += 1) {
+      const tail = ` ${suffix}`;
+      const candidate = `${base.slice(0, Math.max(1, 20 - tail.length))}${tail}`;
+      if (!this.findUserByUsername(candidate)) return candidate;
+    }
+    return `Pond ${crypto.randomBytes(4).toString("hex")}`.slice(0, 20);
+  }
+
+  oauthAccount(provider, providerUserId) {
+    return this.get("SELECT * FROM oauth_accounts WHERE provider = ? AND providerUserId = ?", String(provider), String(providerUserId));
+  }
+
+  oauthAccountForUser(userId, provider) {
+    return this.get("SELECT * FROM oauth_accounts WHERE userId = ? AND provider = ?", String(userId), String(provider));
+  }
+
+  oauthAccountsFor(userId) {
+    return this.all(
+      `SELECT id, userId, provider, providerUserId, providerDisplayName, avatarUrl, createdAt, lastLoginAt,
+              CASE WHEN providerEmailVerified = 1 THEN 1 ELSE 0 END AS emailVerified
+       FROM oauth_accounts WHERE userId = ? ORDER BY provider ASC`,
+      String(userId),
+    );
+  }
+
+  linkOAuthAccount(userId, identity = {}) {
+    const provider = String(identity.provider || "");
+    const providerUserId = String(identity.providerUserId || "");
+    if (!userId || !["google", "discord"].includes(provider) || !providerUserId) return { ok: false, reason: "invalid_identity" };
+    const claimed = this.oauthAccount(provider, providerUserId);
+    if (claimed && claimed.userId !== userId) return { ok: false, reason: "provider_already_connected", account: claimed };
+    const existingForUser = this.oauthAccountForUser(userId, provider);
+    if (existingForUser && existingForUser.providerUserId !== providerUserId) return { ok: false, reason: "provider_slot_used", account: existingForUser };
+    const now = nowIso();
+    const values = [
+      String(identity.email || "").trim().slice(0, 160),
+      identity.emailVerified ? 1 : 0,
+      String(identity.displayName || "").trim().slice(0, 100),
+      String(identity.avatarUrl || "").trim().slice(0, 500),
+      now,
+    ];
+    if (claimed || existingForUser) {
+      const account = claimed || existingForUser;
+      this.run(
+        `UPDATE oauth_accounts SET providerEmail = ?, providerEmailVerified = ?, providerDisplayName = ?, avatarUrl = ?, lastLoginAt = ? WHERE id = ?`,
+        ...values,
+        account.id,
+      );
+    } else {
+      this.run(
+        `INSERT INTO oauth_accounts
+         (id, userId, provider, providerUserId, providerEmail, providerEmailVerified, providerDisplayName, avatarUrl, createdAt, lastLoginAt)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        this.id("oauth"),
+        userId,
+        provider,
+        providerUserId,
+        values[0],
+        values[1],
+        values[2],
+        values[3],
+        now,
+        now,
+      );
+    }
+    const user = this.findUserById(userId);
+    if (user && (!user.displayName || user.displayName === user.username) && identity.displayName) user.displayName = String(identity.displayName).slice(0, 80);
+    if (user && !user.avatarUrl && identity.avatarUrl) user.avatarUrl = String(identity.avatarUrl).slice(0, 500);
+    if (user && !user.email && identity.emailVerified && identity.email) {
+      user.email = String(identity.email).slice(0, 120);
+      user.emailVerified = true;
+    }
+    if (user) this.writeUserState(user);
+    return { ok: true, account: this.oauthAccount(provider, providerUserId), user: this.findUserById(userId) };
+  }
+
+  disconnectOAuthAccount(userId, provider) {
+    const result = this.run("DELETE FROM oauth_accounts WHERE userId = ? AND provider = ?", String(userId), String(provider));
+    return Number(result.changes || 0) > 0;
+  }
+
+  createOAuthState(entry = {}) {
+    const now = nowIso();
+    this.run("DELETE FROM oauth_states WHERE expiresAt < ?", now);
+    this.run(
+      `INSERT INTO oauth_states (stateHash, provider, codeVerifier, userId, mode, createdAt, expiresAt) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      String(entry.stateHash),
+      String(entry.provider),
+      String(entry.codeVerifier),
+      String(entry.userId || ""),
+      entry.mode === "link" ? "link" : "login",
+      now,
+      entry.expiresAt || new Date(Date.now() + 10 * 60 * 1000).toISOString(),
+    );
+  }
+
+  consumeOAuthState(stateHash) {
+    return this.transaction(() => {
+      const entry = this.get("SELECT * FROM oauth_states WHERE stateHash = ?", String(stateHash));
+      if (!entry) return null;
+      this.run("DELETE FROM oauth_states WHERE stateHash = ?", String(stateHash));
+      return entry.expiresAt >= nowIso() ? entry : null;
+    });
   }
 
   statsFor(userId) {

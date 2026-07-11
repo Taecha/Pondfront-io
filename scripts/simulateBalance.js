@@ -4,7 +4,7 @@ const config = require("../shared/gameConfig");
 function runMatch(index, difficulty = "smart") {
   const animals = ["duck", "snake", "frog", "turtle", "carp"];
   const game = new PondFrontServerGame();
-  game.reset(animals[index % animals.length], difficulty);
+  game.reset(animals[index % animals.length], difficulty, { skipSpawnSelection: true });
   game.simTime = 0;
   game.startedAt = 0;
   game.players.forEach((player, playerIndex) => {

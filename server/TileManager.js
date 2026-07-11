@@ -499,9 +499,9 @@ class TileManager {
 
   themedTerrainTargets() {
     return {
-      amazon: { waterMin: 0.6, reedsMin: 0.08, reedsMax: 0.12, mudMin: 0.08, mudMax: 0.12, lilyMin: 0.055, lilyMax: 0.08, blockedMax: 0.18, blockedMin: 0.1 },
-      mekong: { waterMin: 0.55, reedsMin: 0.08, reedsMax: 0.12, mudMin: 0.1, mudMax: 0.15, lilyMin: 0.05, lilyMax: 0.08, blockedMax: 0.2, blockedMin: 0.12 },
-      everglades: { waterMin: 0.45, reedsMin: 0.15, reedsMax: 0.2, mudMin: 0.1, mudMax: 0.15, lilyMin: 0.08, lilyMax: 0.12, blockedMax: 0.15, blockedMin: 0.1 },
+      amazon: { waterMin: 0.62, reedsMin: 0.075, reedsMax: 0.115, mudMin: 0.075, mudMax: 0.115, lilyMin: 0.05, lilyMax: 0.08, blockedMax: 0.18, blockedMin: 0.1 },
+      mekong: { waterMin: 0.57, reedsMin: 0.075, reedsMax: 0.115, mudMin: 0.09, mudMax: 0.145, lilyMin: 0.045, lilyMax: 0.08, blockedMax: 0.2, blockedMin: 0.12 },
+      everglades: { waterMin: 0.48, reedsMin: 0.12, reedsMax: 0.18, mudMin: 0.09, mudMax: 0.14, lilyMin: 0.07, lilyMax: 0.115, blockedMax: 0.15, blockedMin: 0.09 },
       nile: { waterMin: 0.65, reedsMin: 0.015, reedsMax: 0.07, mudMin: 0.015, mudMax: 0.05, lilyMin: 0.02, lilyMax: 0.07, blockedMax: 0.25, blockedMin: 0.15 },
     }[this.map.theme];
   }
@@ -840,13 +840,22 @@ class TileManager {
   claimStart(player, spawnIndex, now) {
     const [sx, sy] = this.spawnPoints[spawnIndex % this.spawnPoints.length];
     const core = this.get(sx, sy);
+    return this.claimStartAt(player, core?.id, now, 2);
+  }
+
+  claimStartAt(player, tileId, now, radius = 2) {
+    const core = this.getById(Number(tileId));
+    if (!core || config.TILE_TYPES[core.type]?.blocks) return false;
+    const sx = core.x;
+    const sy = core.y;
     if (core) player.coreTileId = core.id;
-    for (let y = sy - 2; y <= sy + 2; y += 1) {
-      for (let x = sx - 2; x <= sx + 2; x += 1) {
+    const safeRadius = Math.max(1, Math.min(3, Number(radius) || 2));
+    for (let y = sy - safeRadius; y <= sy + safeRadius; y += 1) {
+      for (let x = sx - safeRadius; x <= sx + safeRadius; x += 1) {
         const tile = this.get(x, y);
         if (!tile || config.TILE_TYPES[tile.type].blocks) continue;
         const d = Math.abs(x - sx) + Math.abs(y - sy);
-        if (d <= 2) {
+        if (d <= safeRadius) {
           tile.owner = player.id;
           tile.captureProgress = {};
           tile.lastChanged = now;
@@ -854,6 +863,7 @@ class TileManager {
         }
       }
     }
+    return true;
   }
 
   borderReachInfo(player, target, sourceIds = []) {

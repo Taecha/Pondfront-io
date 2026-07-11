@@ -23,6 +23,7 @@ function newGame(animal = "duck", settings = {}) {
       matchLength: settings.matchLength || "quick",
       practice: settings.practice ?? true,
       playerName: settings.playerName || "QA Tester",
+      skipSpawnSelection: true,
     });
     const baseTime = game.startedAt;
     game.simTime = baseTime;

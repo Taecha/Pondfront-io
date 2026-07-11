@@ -840,7 +840,7 @@ class CombatManager {
     player.energy -= spend;
     player.stats.energyUsed += spend;
     player.stats.attacksLaunched = (player.stats.attacksLaunched || 0) + 1;
-    player.currentPushCooldownUntil = now + (CURRENT_PUSH.cooldownSeconds || 45);
+    player.currentPushCooldownUntil = player.flags?.unlimitedCurrentPush ? 0 : now + (CURRENT_PUSH.cooldownSeconds || 45);
     player.flags.warExhaustion = Math.min(balance.maxWarExhaustion, (player.flags.warExhaustion || 0) + (balance.warExhaustionPerAttack || 0.08) * 0.65);
 
     const push = {
@@ -1567,7 +1567,7 @@ class CombatManager {
     }
 
     if (player.animal === "duck") {
-      const duration = animal.duration + ((player.level || 1) >= 3 ? balance.level3DuckDurationBonus || 4 : 0);
+      const duration = Math.round((animal.duration + ((player.level || 1) >= 3 ? balance.level3DuckDurationBonus || 4 : 0)) * (player.flags?.modifierAbilityPower ? 1.2 : 1));
       player.abilityActiveUntil = now + duration;
       player.abilityReadyAt = now + this.abilityCooldown(player, animal);
       player.stats.abilitiesUsed = (player.stats.abilitiesUsed || 0) + 1;
@@ -1596,7 +1596,7 @@ class CombatManager {
 
     if (player.animal === "snake") {
       player.flags.ambushReady = true;
-      player.abilityActiveUntil = now + animal.duration;
+      player.abilityActiveUntil = now + Math.round(animal.duration * (player.flags?.modifierAbilityPower ? 1.2 : 1));
       player.abilityReadyAt = now + this.abilityCooldown(player, animal);
       player.stats.abilitiesUsed = (player.stats.abilitiesUsed || 0) + 1;
       const result = {
@@ -1623,7 +1623,7 @@ class CombatManager {
     }
 
     if (player.animal === "turtle") {
-      player.abilityActiveUntil = now + animal.duration;
+      player.abilityActiveUntil = now + Math.round(animal.duration * (player.flags?.modifierAbilityPower ? 1.2 : 1));
       player.abilityReadyAt = now + this.abilityCooldown(player, animal);
       player.stats.abilitiesUsed = (player.stats.abilitiesUsed || 0) + 1;
       const affectedTiles = this.tileManager
@@ -1656,7 +1656,7 @@ class CombatManager {
     }
 
     if (player.animal === "carp") {
-      player.abilityActiveUntil = now + animal.duration;
+      player.abilityActiveUntil = now + Math.round(animal.duration * (player.flags?.modifierAbilityPower ? 1.2 : 1));
       player.abilityReadyAt = now + this.abilityCooldown(player, animal);
       player.stats.abilitiesUsed = (player.stats.abilitiesUsed || 0) + 1;
       const affectedTiles = this.tileManager
@@ -1749,7 +1749,10 @@ class CombatManager {
       }
     });
 
-    const clusterSize = (balance.frogBigLeapClusterSize || 5) + ((player.level || 1) >= 3 ? balance.level3FrogLeapBonus || 2 : 0);
+    const clusterSize =
+      (balance.frogBigLeapClusterSize || 5) +
+      ((player.level || 1) >= 3 ? balance.level3FrogLeapBonus || 2 : 0) +
+      (player.flags?.modifierAbilityPower ? 2 : 0);
     const unique = [...new Map(options.map((entry) => [entry.tile.id, entry])).values()]
       .sort((a, b) => b.score - a.score)
       .slice(0, clusterSize)
@@ -1856,6 +1859,7 @@ class CombatManager {
     let cooldown = animal.cooldown;
     if (player.animal === "snake" && (player.level || 1) >= 3) cooldown *= balance.level3SnakeCooldownMultiplier || 0.82;
     cooldown *= 1 - Math.min(0.35, player.flags?.abilityCooldownReduction || 0);
+    cooldown *= Math.max(0.1, Number(player.flags?.modifierAbilityCooldownMultiplier || 1));
     return Math.max(8, Math.round(cooldown));
   }
 

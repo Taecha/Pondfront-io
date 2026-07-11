@@ -556,6 +556,531 @@
   }
 }
 
+.modifier-settings {
+  grid-column: 1 / -1;
+  border-top: 1px solid rgba(184, 237, 245, 0.15);
+  padding-top: 8px;
+}
+
+.modifier-settings summary {
+  color: #cdeef3;
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.modifier-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px 10px;
+  margin-top: 9px;
+}
+
+.modifier-grid label {
+  align-items: center;
+  color: #a9cbd2;
+  display: flex;
+  font-size: 11px;
+  gap: 7px;
+  min-width: 0;
+}
+
+.spawn-selection-overlay {
+  inset: 0;
+  pointer-events: none;
+  position: absolute;
+  z-index: 42;
+}
+
+.spawn-top-banner {
+  align-items: center;
+  background: rgba(4, 21, 31, 0.91);
+  border: 1px solid rgba(137, 224, 230, 0.34);
+  border-radius: 7px;
+  box-shadow: 0 8px 22px rgba(2, 10, 16, 0.28);
+  display: grid;
+  gap: 1px 16px;
+  grid-template-columns: auto auto;
+  left: 50%;
+  padding: 8px 13px;
+  position: absolute;
+  top: 12px;
+  transform: translateX(-50%);
+  white-space: nowrap;
+}
+
+.spawn-top-banner span {
+  color: #e9fbff;
+  font-size: 14px;
+  font-weight: 900;
+}
+
+.spawn-top-banner strong {
+  color: #82e5d4;
+  font-size: 16px;
+  grid-row: 1 / 3;
+}
+
+.spawn-top-banner small {
+  color: #91b9c2;
+  font-size: 10px;
+}
+
+.spawn-status-panel {
+  background: rgba(4, 20, 29, 0.92);
+  border: 1px solid rgba(137, 224, 230, 0.28);
+  border-radius: 7px;
+  box-shadow: 0 10px 26px rgba(2, 9, 14, 0.32);
+  left: 12px;
+  max-height: min(62vh, 520px);
+  overflow: auto;
+  padding: 9px;
+  pointer-events: auto;
+  position: absolute;
+  top: 12px;
+  width: 238px;
+}
+
+.spawn-status-panel header,
+.spawn-status-row {
+  align-items: center;
+  display: grid;
+}
+
+.spawn-status-panel header {
+  grid-template-columns: 1fr auto;
+  margin-bottom: 7px;
+}
+
+.spawn-status-panel header strong {
+  color: #e9fbff;
+  font-size: 12px;
+}
+
+.spawn-status-panel header span {
+  color: #80dacb;
+  font-size: 10px;
+  font-weight: 800;
+}
+
+.spawn-status-list {
+  display: grid;
+  gap: 3px;
+}
+
+.spawn-status-row {
+  border-bottom: 1px solid rgba(146, 205, 216, 0.09);
+  gap: 7px;
+  grid-template-columns: 25px minmax(0, 1fr) auto;
+  min-height: 30px;
+}
+
+.spawn-status-row > i {
+  align-items: center;
+  background: color-mix(in srgb, var(--spawn-color) 34%, #102b34);
+  border: 2px solid var(--spawn-color);
+  border-radius: 50%;
+  color: #f4ffff;
+  display: flex;
+  font-size: 11px;
+  font-style: normal;
+  font-weight: 900;
+  height: 23px;
+  justify-content: center;
+  width: 23px;
+}
+
+.spawn-status-row.own > i { border-color: #f4dc75; }
+.spawn-status-row.team > i { border-color: #64d9d0; }
+.spawn-status-row.enemy > i,
+.spawn-status-row.hidden > i { border-color: #e47a65; }
+
+.spawn-status-row > span {
+  color: #d7edf1;
+  font-size: 10px;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.spawn-status-row > span small {
+  color: #7faab2;
+  font-size: 7px;
+}
+
+.spawn-status-row > b {
+  color: #9ebdc3;
+  font-size: 8px;
+  font-weight: 800;
+}
+
+.spawn-status-row > b.confirmed { color: #72ddbd; }
+.spawn-status-row > b.reserved { color: #f0cf6b; }
+.spawn-status-row > b.disconnected { color: #e17870; }
+
+.spawn-legend {
+  border-top: 1px solid rgba(137, 224, 230, 0.15);
+  color: #9fc2c9;
+  margin-top: 7px;
+  padding-top: 6px;
+}
+
+.spawn-legend summary {
+  cursor: pointer;
+  font-size: 9px;
+  font-weight: 800;
+}
+
+.spawn-legend > div {
+  display: grid;
+  gap: 4px;
+  grid-template-columns: 1fr 1fr;
+  margin-top: 7px;
+}
+
+.spawn-legend span {
+  align-items: center;
+  display: flex;
+  font-size: 8px;
+  gap: 5px;
+}
+
+.spawn-legend i {
+  background: #63d6c1;
+  border: 1px solid #9ff3e4;
+  display: inline-block;
+  height: 9px;
+  width: 9px;
+}
+
+.spawn-legend i.own { background: #f0d567; border-color: #fff3a8; }
+.spawn-legend i.team { background: #4ac7c2; border-color: #8ff4ef; }
+.spawn-legend i.claimed { background: #c95d52; border-color: #ff9e88; }
+.spawn-legend i.blocked { background: #68787c; border-color: #8d9b9e; }
+
+.spawn-control-card {
+  background: rgba(4, 20, 29, 0.94);
+  border: 1px solid rgba(137, 224, 230, 0.3);
+  border-radius: 7px;
+  bottom: 14px;
+  box-shadow: 0 12px 30px rgba(2, 9, 14, 0.35);
+  display: grid;
+  gap: 4px;
+  left: 50%;
+  max-width: min(620px, calc(100% - 24px));
+  padding: 10px 12px;
+  pointer-events: auto;
+  position: absolute;
+  transform: translateX(-50%);
+  width: max-content;
+}
+
+.spawn-control-card > span {
+  color: #9ac1c9;
+  font-size: 11px;
+}
+
+.spawn-control-card > strong {
+  color: #e9fbff;
+  font-size: 13px;
+}
+
+.spawn-inspection {
+  background: rgba(211, 91, 78, 0.13);
+  border-left: 2px solid #e97966;
+  color: #ffd0c8;
+  font-size: 10px;
+  padding: 4px 7px;
+}
+
+.spawn-control-card > div {
+  display: flex;
+  gap: 7px;
+  margin-top: 4px;
+}
+
+.spawn-control-card .spawn-camera-actions {
+  justify-content: flex-end;
+  margin: 0;
+  position: absolute;
+  right: 10px;
+  top: 8px;
+}
+
+.spawn-control-card .spawn-camera-actions button {
+  min-height: 25px;
+  padding: 0 8px;
+}
+
+.spawn-control-card button {
+  min-height: 36px;
+  padding: 0 13px;
+}
+
+.spawn-control-card button.primary {
+  background: #2a9d8f;
+  color: #f5ffff;
+}
+
+.spawn-control-card button:disabled {
+  cursor: not-allowed;
+  opacity: 0.46;
+}
+
+.modified-match-badge {
+  background: rgba(205, 138, 71, 0.2);
+  border-color: rgba(247, 191, 114, 0.45);
+  color: #ffd49a;
+}
+
+body[data-match-phase="SPAWN_SELECTION"] .left-panel,
+body[data-match-phase="SPAWN_SELECTION"] .right-panel,
+body[data-match-phase="SPAWN_SELECTION"] .bottombar,
+body[data-match-phase="SPAWN_SELECTION"] .mobile-action-card,
+body[data-match-phase="SPAWN_SELECTION"] .lake-event-banner,
+body[data-match-phase="SPAWN_SELECTION"] #tutorial,
+body[data-match-phase="COUNTDOWN"] .left-panel,
+body[data-match-phase="COUNTDOWN"] .right-panel,
+body[data-match-phase="COUNTDOWN"] .bottombar,
+body[data-match-phase="COUNTDOWN"] .mobile-action-card,
+body[data-match-phase="COUNTDOWN"] .lake-event-banner,
+body[data-match-phase="COUNTDOWN"] #tutorial {
+  display: none !important;
+}
+
+body[data-match-phase="SPAWN_SELECTION"] .play-area,
+body[data-match-phase="COUNTDOWN"] .play-area {
+  grid-template-columns: 1fr;
+}
+
+@media (max-width: 720px) {
+  .modifier-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .spawn-top-banner {
+    max-width: calc(100% - 20px);
+    top: 8px;
+  }
+
+  .spawn-top-banner span {
+    font-size: 12px;
+  }
+
+  .spawn-status-panel {
+    left: 8px;
+    max-height: 31vh;
+    top: 68px;
+    width: min(196px, calc(100% - 106px));
+  }
+
+  .spawn-status-row {
+    grid-template-columns: 23px minmax(0, 1fr) auto;
+    min-height: 27px;
+  }
+
+  .spawn-status-row > i {
+    height: 20px;
+    width: 20px;
+  }
+
+  .spawn-control-card {
+    bottom: calc(8px + env(safe-area-inset-bottom, 0px));
+    max-width: calc(100% - 16px);
+    width: calc(100% - 16px);
+  }
+
+  .spawn-control-card .spawn-primary-actions {
+    display: grid;
+    grid-template-columns: 0.8fr 0.8fr 1.4fr;
+  }
+
+  .spawn-control-card .spawn-camera-actions {
+    display: flex;
+    position: static;
+  }
+
+  .spawn-control-card button {
+    min-width: 0;
+    padding: 0 7px;
+  }
+}
+
+/* OAuth accounts and brighter pond identity */
+.oauth-buttons {
+  display: grid;
+  gap: 7px;
+}
+
+.oauth-button {
+  display: grid;
+  grid-template-columns: 28px minmax(0, 1fr);
+  align-items: center;
+  min-height: 40px;
+  border-radius: 7px;
+  text-align: left;
+}
+
+.oauth-button > span,
+.connected-account-mark {
+  display: grid;
+  place-items: center;
+  width: 25px;
+  height: 25px;
+  border-radius: 6px;
+  color: #07141b;
+  background: #f8fbfc;
+  font-weight: 950;
+}
+
+.oauth-button.google {
+  border-color: rgba(110, 189, 255, 0.42);
+  background: linear-gradient(180deg, rgba(39, 94, 126, 0.9), rgba(18, 48, 69, 0.96));
+}
+
+.oauth-button.discord {
+  border-color: rgba(137, 153, 255, 0.48);
+  background: linear-gradient(180deg, rgba(76, 83, 151, 0.92), rgba(35, 40, 82, 0.96));
+}
+
+.oauth-buttons small,
+.account-action-message {
+  min-height: 1.2em;
+  color: rgba(232, 245, 248, 0.67);
+  line-height: 1.35;
+}
+
+.auth-divider {
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
+  gap: 8px;
+  align-items: center;
+  color: rgba(232, 245, 248, 0.52);
+  font-size: 0.68rem;
+  text-transform: uppercase;
+}
+
+.auth-divider::before,
+.auth-divider::after {
+  height: 1px;
+  content: "";
+  background: rgba(160, 216, 231, 0.16);
+}
+
+.profile-avatar {
+  width: 42px;
+  height: 42px;
+  flex: 0 0 42px;
+  border: 2px solid rgba(132, 225, 231, 0.5);
+  border-radius: 8px;
+  object-fit: cover;
+  background: #102b38;
+}
+
+.connected-account-intro {
+  display: flex;
+  justify-content: space-between;
+  gap: 18px;
+  margin-bottom: 12px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid rgba(160, 216, 231, 0.14);
+}
+
+.connected-account-intro h3,
+.connected-account-intro p {
+  margin: 2px 0 0;
+}
+
+.connected-account-intro p {
+  max-width: 470px;
+  color: rgba(232, 245, 248, 0.66);
+  font-size: 0.78rem;
+  line-height: 1.45;
+}
+
+.connected-account-list {
+  display: grid;
+  gap: 8px;
+}
+
+.connected-account-card {
+  display: grid;
+  grid-template-columns: 34px minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: center;
+  min-height: 62px;
+  padding: 9px 10px;
+  border: 1px solid rgba(160, 216, 231, 0.14);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.045);
+}
+
+.connected-account-card.google .connected-account-mark { background: #f8fbfc; }
+.connected-account-card.discord .connected-account-mark { color: #fff; background: #6675e8; }
+.connected-account-card.password .connected-account-mark { color: #063228; background: #73dda9; }
+.connected-account-card.connected { border-color: rgba(115, 221, 169, 0.34); }
+
+.connected-account-card strong,
+.connected-account-card small {
+  display: block;
+}
+
+.connected-account-card.pond-name label {
+  display: grid;
+  gap: 3px;
+}
+
+.connected-account-card.pond-name input {
+  width: min(340px, 100%);
+  min-height: 34px;
+  border: 1px solid rgba(115, 221, 169, 0.28);
+  border-radius: 6px;
+  color: #e8f5f8;
+  background: rgba(3, 17, 24, 0.72);
+  padding: 0 9px;
+}
+
+.connected-account-card small {
+  margin-top: 3px;
+  color: rgba(232, 245, 248, 0.62);
+}
+
+.connected-account-card button,
+.connection-state {
+  min-width: 88px;
+  padding: 7px 9px;
+  border-radius: 6px;
+  text-align: center;
+  font-size: 0.72rem;
+  font-weight: 900;
+}
+
+.connection-state {
+  color: #8fe5b5;
+  background: rgba(67, 163, 116, 0.12);
+}
+
+/* Clear command colors remain readable against the dark water HUD. */
+.action-row #expandButton { border-color: rgba(65, 222, 186, 0.58); background: linear-gradient(180deg, #237f70, #12493f); }
+.action-row #attackButton { border-color: rgba(255, 132, 119, 0.66); background: linear-gradient(180deg, #a5484e, #5c2731); }
+.action-row #currentPushButton { border-color: rgba(87, 197, 239, 0.56); background: linear-gradient(180deg, #236f91, #173e59); }
+.action-row #defendButton { border-color: rgba(113, 177, 255, 0.58); background: linear-gradient(180deg, #386da5, #213f6b); }
+.action-row #buildButton { border-color: rgba(167, 224, 112, 0.58); background: linear-gradient(180deg, #517c46, #2b4c31); }
+.action-row #specialButton { border-color: rgba(229, 174, 255, 0.58); background: linear-gradient(180deg, #71528b, #3c335c); }
+
+body[data-color-vision="deuteranopia"] { --success: #53b7e8; --ok: #53b7e8; --danger: #f0a72e; }
+body[data-color-vision="protanopia"] { --success: #4cc8d4; --ok: #4cc8d4; --danger: #e1b63e; }
+body[data-color-vision="tritanopia"] { --success: #4dcc94; --ok: #4dcc94; --danger: #ee668e; }
+
+@media (max-width: 620px) {
+  .connected-account-intro { display: grid; gap: 6px; }
+  .connected-account-card { grid-template-columns: 32px minmax(0, 1fr); }
+  .connected-account-card button,
+  .connected-account-card .connection-state { grid-column: 1 / -1; width: 100%; }
+}
+
+
 * {
   box-sizing: border-box;
 }
@@ -5931,6 +6456,18 @@ button:disabled {
   min-height: 30px;
 }
 
+.settings-actions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.settings-actions button {
+  min-height: 30px;
+  padding: 6px 8px;
+  font-size: 0.72rem;
+}
+
 .settings-section .range-setting {
   display: grid;
   grid-template-columns: 68px minmax(120px, 1fr);
@@ -6827,5 +7364,60 @@ button:not(:disabled):hover::before,
   button:not(:disabled)::before,
   .animal-choice:not(:disabled)::before {
     display: none;
+  }
+}
+
+body[data-match-phase="SPAWN_SELECTION"] .game-screen,
+body[data-match-phase="COUNTDOWN"] .game-screen {
+  grid-template-rows: auto minmax(0, 1fr) 0 !important;
+}
+
+body[data-match-phase="SPAWN_SELECTION"] .topbar,
+body[data-match-phase="COUNTDOWN"] .topbar {
+  display: flex;
+  gap: 8px;
+  min-height: 52px;
+  padding: 7px 9px;
+}
+
+body[data-match-phase="SPAWN_SELECTION"] .brand,
+body[data-match-phase="COUNTDOWN"] .brand {
+  min-width: 0;
+}
+
+body[data-match-phase="SPAWN_SELECTION"] .brand .help-button,
+body[data-match-phase="COUNTDOWN"] .brand .help-button,
+body[data-match-phase="SPAWN_SELECTION"] .brand .sandbox-badge,
+body[data-match-phase="COUNTDOWN"] .brand .sandbox-badge {
+  display: none !important;
+}
+
+body[data-match-phase="SPAWN_SELECTION"] .top-stats,
+body[data-match-phase="COUNTDOWN"] .top-stats {
+  display: block;
+  margin-left: auto;
+  width: auto;
+}
+
+body[data-match-phase="SPAWN_SELECTION"] .top-stats .stat,
+body[data-match-phase="COUNTDOWN"] .top-stats .stat {
+  display: none;
+}
+
+body[data-match-phase="SPAWN_SELECTION"] .top-stats .stat:last-child,
+body[data-match-phase="COUNTDOWN"] .top-stats .stat:last-child {
+  display: block;
+  padding: 5px 8px;
+}
+
+@media (max-width: 720px) {
+  body[data-match-phase="SPAWN_SELECTION"] .mobile-map-controls,
+  body[data-match-phase="COUNTDOWN"] .mobile-map-controls {
+    bottom: auto !important;
+    grid-template-columns: repeat(2, 40px);
+    left: auto !important;
+    right: 8px !important;
+    top: 72px !important;
+    width: 86px;
   }
 }

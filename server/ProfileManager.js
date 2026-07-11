@@ -9,7 +9,7 @@ class ProfileManager {
     this.matchHistory = matchHistoryManager;
   }
 
-  profile(userId) {
+  profile(userId, options = {}) {
     const user = this.db.findUserById(userId);
     if (!user) return null;
     console.log(`[PROFILE] loaded userId=${userId}`);
@@ -25,6 +25,8 @@ class ProfileManager {
       user: {
         id: user.id,
         username: user.username,
+        displayName: user.displayName || user.username,
+        avatarUrl: user.avatarUrl || "",
         createdAt: user.createdAt,
         lastLoginAt: user.lastLoginAt,
         level: user.level || levelInfo.level,
@@ -41,6 +43,22 @@ class ProfileManager {
         unlockedTitles: user.unlockedTitles || [progression.defaultTitle],
         unlockedCosmetics: user.unlockedCosmetics || [progression.defaultCosmetic],
         levelProgress: levelInfo,
+        connectedAccounts: options.private
+          ? this.db.oauthAccountsFor(userId).map((account) => ({
+              provider: account.provider,
+              displayName: account.providerDisplayName || "Connected account",
+              avatarUrl: account.avatarUrl || "",
+              emailVerified: Boolean(account.emailVerified),
+              connectedAt: account.createdAt,
+              lastLoginAt: account.lastLoginAt,
+            }))
+          : [],
+        signInMethods: options.private
+          ? {
+              hasPassword: String(user.passwordHash || "").startsWith("scrypt$"),
+              providers: options.providerStatus || [],
+            }
+          : undefined,
       },
       stats: {
         ...stats,
@@ -104,6 +122,17 @@ class ProfileManager {
     this.db.updateUser(userId, { selectedCosmetic: cosmeticId });
     console.log(`[PROFILE] selected cosmetic userId=${userId} cosmetic=${cosmeticId}`);
     return { ok: true, message: "Cosmetic selected.", profile: this.profile(userId) };
+  }
+
+  updateDisplayName(userId, displayName) {
+    const user = this.db.findUserById(userId);
+    if (!user) return { ok: false, status: 401, message: "Login required." };
+    const clean = String(displayName || "").trim().replace(/\s+/g, " ").slice(0, 24);
+    if (!/^[a-zA-Z0-9 _-]{3,24}$/.test(clean)) {
+      return { ok: false, status: 400, message: "Display name must be 3-24 letters, numbers, spaces, _ or -." };
+    }
+    this.db.updateUser(userId, { displayName: clean });
+    return { ok: true, status: 200, message: "Display name updated.", profile: this.profile(userId) };
   }
 
   leaderboard(category = "highestLevel", limit = 20) {

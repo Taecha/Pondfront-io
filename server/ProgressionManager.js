@@ -15,7 +15,7 @@ class ProgressionManager {
   }
 
   handleEvent(game, event) {
-    if (game.matchSettings?.sandbox?.enabled) return;
+    if (game.matchSettings?.sandbox?.enabled || game.matchSettings?.progressionDisabled || game.modifierManager?.shouldDisableProgression?.()) return;
     if (!event?.playerId) return;
     const player = game.getPlayer(event.playerId);
     if (!player || player.defeated) return;

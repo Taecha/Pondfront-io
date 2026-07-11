@@ -2,6 +2,9 @@ const crypto = require("crypto");
 const animals = require("../shared/animals");
 const teamConfig = require("../shared/teamConfig");
 const config = require("../shared/gameConfig");
+const gameModeConfig = require("../shared/gameModeConfig");
+const modifierConfig = require("../shared/modifierConfig");
+const spawnConfig = require("../shared/spawnConfig");
 
 const TEAM_IDS = new Set(teamConfig.teams.map((team) => `team-${team.id}`));
 const TEAM_ALIASES = new Map(teamConfig.teams.map((team) => [team.id, `team-${team.id}`]));
@@ -71,6 +74,10 @@ class LobbyManager {
     const player = this.validatePlayer(lobby.lobby, playerId, token);
     if (!player.ok) return player;
     this.touch(lobby.lobby, player.player);
+    if (lobby.lobby.match) {
+      const matchPlayer = lobby.lobby.match.getPlayer(player.player.id);
+      if (matchPlayer) matchPlayer.connected = true;
+    }
     return {
       ok: true,
       lobby: this.publicState(lobby.lobby, player.player.id),
@@ -138,6 +145,8 @@ class LobbyManager {
     const player = foundPlayer.player;
     if (lobby.status === "inGame") {
       player.connected = false;
+      const matchPlayer = lobby.match?.getPlayer(player.id);
+      if (matchPlayer) matchPlayer.connected = false;
       player.lastSeenAt = this.now() - this.cleanupSeconds;
       this.notice(lobby, `${player.name} left the match.`);
       this.assignHost(lobby);
@@ -203,6 +212,8 @@ class LobbyManager {
           playerName: humanPlayers[0]?.name || "Player",
           practice: false,
           lobbyRoomCode: lobby.roomCode,
+          privateMatch: true,
+          customMatch: Boolean(lobby.settings.customMatch || Object.keys(lobby.settings.modifiers || {}).length),
         },
       });
       lobby.status = "inGame";
@@ -231,6 +242,8 @@ class LobbyManager {
       if (lobby.status === "inGame" && lobby.match?.ended) lobby.status = "ended";
       lobby.players.forEach((player) => {
         if (now - (player.lastSeenAt || lobby.createdAt) > this.disconnectGraceSeconds) player.connected = false;
+        const matchPlayer = lobby.match?.getPlayer(player.id);
+        if (matchPlayer) matchPlayer.connected = player.connected;
       });
       if (lobby.status === "waiting") {
         const before = lobby.players.length;
@@ -306,7 +319,8 @@ class LobbyManager {
   }
 
   sanitizeSettings(settings = {}) {
-    const gameMode = ["solo", "coop", "teamBattle"].includes(settings.gameMode) ? settings.gameMode : "solo";
+    const gameMode = ["solo", "coop", "teamBattle"].includes(settings.gameMode || settings.teamMode) ? settings.gameMode || settings.teamMode : "solo";
+    const ruleMode = gameModeConfig.sanitize(settings.ruleMode, false);
     const mapIds = Object.keys(config.MAP_SIZES);
     const themedMapIds = mapIds.filter((id) => config.MAP_SIZES[id]?.theme);
     const requestedMap = String(settings.mapSize || "medium");
@@ -326,8 +340,16 @@ class LobbyManager {
     const allowBots = settings.allowBots !== false;
     const botCount = allowBots ? Math.max(0, Math.min(map.maxBots, Number(settings.botCount ?? map.defaultBots ?? config.BOT_COUNT ?? 8))) : 0;
     const surrenderMode = this.normalizeSurrenderMode(settings.surrenderMode ?? settings.allowSurrender);
+    const modifiers = modifierConfig.sanitize(settings.modifiers || {}, { privateMatch: true, customMatch: true });
+    const spawnSelectionSeconds = spawnConfig.sanitizeSeconds(
+      settings.spawnSelectionSeconds,
+      spawnConfig.defaultSeconds({ mapSize, privateMatch: true, teamMode: gameMode }),
+      true,
+    );
     return {
       gameMode,
+      teamMode: gameMode,
+      ruleMode,
       mapSize,
       botCount,
       botDifficulty,
@@ -341,6 +363,23 @@ class LobbyManager {
       coopTeammates: Math.max(0, Math.min(4, Number(settings.coopTeammates ?? 2))),
       teamBotDifficulty: ["normal", "smart", "aggressive"].includes(settings.teamBotDifficulty) ? settings.teamBotDifficulty : "normal",
       forceStart: Boolean(settings.forceStart),
+      spawnSelectionSeconds,
+      startEarlyWhenReady: settings.startEarlyWhenReady !== false,
+      lockSpawnOnConfirm: Boolean(settings.lockSpawnOnConfirm),
+      enemySpawnVisibility: spawnConfig.sanitizeVisibility(settings.enemySpawnVisibility ?? (settings.secretSpawns ? "hidden" : "visible")),
+      secretSpawns: spawnConfig.sanitizeVisibility(settings.enemySpawnVisibility ?? (settings.secretSpawns ? "hidden" : "visible")) === "hidden",
+      teamSpawnStyle: spawnConfig.TEAM_SPAWN_STYLES.includes(settings.teamSpawnStyle) ? settings.teamSpawnStyle : "nearby",
+      startingEnergy: Math.max(30, Math.min(500, Number(settings.startingEnergy || 64))),
+      eventFrequency: ["off", "low", "normal", "high"].includes(settings.eventFrequency) ? settings.eventFrequency : "normal",
+      objectiveFrequency: ["off", "low", "normal", "high"].includes(settings.objectiveFrequency) ? settings.objectiveFrequency : "normal",
+      sharedVision: settings.sharedVision !== false,
+      sharedVictory: settings.sharedVictory !== false,
+      friendlyFire: Boolean(settings.friendlyFire),
+      teamBuildingCapture: settings.teamBuildingCapture !== false,
+      teamRevives: ["off", "one", "pool"].includes(settings.teamRevives) ? settings.teamRevives : "off",
+      modifiers,
+      privateMatch: true,
+      customMatch: Boolean(settings.customMatch || Object.keys(modifiers).length),
     };
   }
 

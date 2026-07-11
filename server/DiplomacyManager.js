@@ -80,14 +80,15 @@ class DiplomacyManager {
     const actor = this.player(a);
     const target = this.player(b);
     const sameTeam = Boolean(actor?.teamId && target?.teamId && actor.teamId === target.teamId);
-    return Boolean(a && b && a !== b && (sameTeam || actor?.allies?.has(b)));
+    if (sameTeam) return !this.friendlyFire;
+    return Boolean(a && b && a !== b && actor?.allies?.has(b));
   }
 
   canAttack(attackerId, targetId, now = Date.now() / 1000) {
     if (!attackerId || !targetId || attackerId === targetId) return { ok: false, reason: "No combat target." };
     const attacker = this.player(attackerId);
     const target = this.player(targetId);
-    if (attacker?.teamId && target?.teamId && attacker.teamId === target.teamId) {
+    if (!this.friendlyFire && attacker?.teamId && target?.teamId && attacker.teamId === target.teamId) {
       return { ok: false, reason: "Cannot attack teammate." };
     }
     const relation = this.cleanup(this.peek(attackerId, targetId), now);

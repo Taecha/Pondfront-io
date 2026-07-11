@@ -1,6 +1,8 @@
 const config = require("../shared/gameConfig");
 const animals = require("../shared/animals");
 const objectiveConfig = require("../shared/objectives");
+const buildingRules = require("../shared/buildingRules");
+const spawnConfig = require("../shared/spawnConfig");
 const balance = config.BALANCE;
 
 class EconomyManager {
@@ -97,7 +99,7 @@ class EconomyManager {
       }
 
       this.applyBuilding(player, tile, now);
-      this.applyObjective(player, tile);
+      this.applyObjective(player, tile, game);
     });
 
     players.forEach((player) => {
@@ -131,6 +133,7 @@ class EconomyManager {
         player.flags.lastNestProtection = false;
       }
       player.income = Object.values(player.incomeBreakdown).reduce((sum, value) => sum + value, 0);
+      player.income *= (game?.modifierManager?.incomeMultiplier?.() || 1) * (game?.gameModeManager?.rules?.incomeMultiplier || 1);
       if (comebackActive) player.income = Math.max(player.income, balance.comebackIncomeFloor || 1.55);
       if (player.income > balance.empireIncomeSoftCap) {
         player.income =
@@ -142,7 +145,12 @@ class EconomyManager {
         player.maxEnergy = Math.max(player.maxEnergy, Number(player.flags.sandboxMaxEnergyOverride) || 0);
       }
       if (!(game?.sandbox?.enabled && game.sandbox.rules?.infiniteEnergy && !player.isBot)) player.energy = Math.min(player.energy, player.maxEnergy);
-      if (player.territory <= 0 && !player.defeated && !(game?.sandbox?.enabled && game.sandbox.rules?.elimination === false)) {
+      if (
+        game?.phase === spawnConfig.PHASES.PLAYING &&
+        player.territory <= 0 &&
+        !player.defeated &&
+        !(game?.sandbox?.enabled && game.sandbox.rules?.elimination === false)
+      ) {
         game?.eliminatePlayer?.(player, null, "no territory");
       }
     });
@@ -186,25 +194,36 @@ class EconomyManager {
     return balance.capturedBuildingEffectMultiplier || 0.5;
   }
 
-  applyObjective(player, tile) {
+  applyObjective(player, tile, game = null) {
     if (!tile.specialActive || !tile.objectiveId) return;
     const objective = objectiveConfig.LAKE_OBJECTIVES[tile.objectiveType || tile.objectiveId];
     if (!objective) return;
-    if (objective.incomeBonus) player.incomeBreakdown.objectives += objective.incomeBonus;
-    if (objective.maxEnergyBonus) player.maxEnergy += objective.maxEnergyBonus;
-    if (objective.defenseBonus) player.flags.objectiveDefenseBonus += objective.defenseBonus;
+    const finalTideMultiplier = game?.finalTideActive ? balance.finalTideObjectiveMultiplier || 1.28 : 1;
+    if (objective.incomeBonus) player.incomeBreakdown.objectives += objective.incomeBonus * finalTideMultiplier;
+    if (objective.maxEnergyBonus) player.maxEnergy += objective.maxEnergyBonus * (game?.finalTideActive ? 1.12 : 1);
+    if (objective.defenseBonus) player.flags.objectiveDefenseBonus += objective.defenseBonus * (game?.finalTideActive ? 1.12 : 1);
     if (objective.cooldownReduction) player.flags.abilityCooldownReduction += objective.cooldownReduction;
     if (objective.routePowerBonus) player.flags.routePowerBonus = Math.max(player.flags.routePowerBonus || 0, objective.routePowerBonus);
   }
 
+  buildingCostDetails(player, buildingType) {
+    return buildingRules.buildingCostDetails(player, buildingType, config, balance);
+  }
+
   buildingCost(player, buildingType) {
-    const building = config.BUILDINGS[buildingType];
-    if (!building) return Infinity;
-    const ownedCount = player.buildings?.[buildingType] || 0;
-    const growth = buildingType === "lilyFarm" ? balance.farmCostGrowth || balance.buildingCostGrowth || 0.35 : balance.buildingCostGrowth || 0.35;
-    const baseCost = buildingType === "lilyFarm" ? balance.farmBaseCost || building.cost : building.cost;
-    const carpDiscount = player.animal === "carp" && buildingType === "lilyFarm" ? balance.carpLilyFarmCostMultiplier || 0.9 : 1;
-    return Math.round(baseCost * (1 + ownedCount * growth) * carpDiscount);
+    return this.buildingCostDetails(player, buildingType).cost;
+  }
+
+  buildPreview(player, tile, buildingType, now = Date.now() / 1000, game = null) {
+    return buildingRules.previewBuild({
+      player,
+      tile,
+      buildingType,
+      gameConfig: config,
+      balance,
+      now,
+      instantBuild: Boolean(game?.sandbox?.enabled && game.sandbox.rules?.instantBuild),
+    });
   }
 
   farmEfficiency(player) {
@@ -214,17 +233,8 @@ class EconomyManager {
     return Math.max(0.45, 1 - over * (balance.farmSoftCapPenalty || 0.08));
   }
 
-  buildUnavailableReason(player, tile, buildingType, now = Date.now() / 1000) {
-    const building = config.BUILDINGS[buildingType];
-    if (!player || player.defeated) return "You are out of the pond.";
-    if (!building) return "Unknown building.";
-    if (!tile || tile.owner !== player.id) return "Choose one of your territory tiles.";
-    if (tile.building) return "That tile already has a building.";
-    if (building.animal && building.animal !== player.animal) return `${building.label} is for ${building.animal} only.`;
-    if (!building.validTiles.includes(tile.type)) return `Needs ${building.validTiles.map((type) => config.TILE_TYPES[type]?.label || type).join(", ")}.`;
-    const cost = this.buildingCost(player, buildingType);
-    if (player.energy < cost) return `Need ${cost} Animal Energy.`;
-    return "";
+  buildUnavailableReason(player, tile, buildingType, now = Date.now() / 1000, game = null) {
+    return this.buildPreview(player, tile, buildingType, now, game).reason;
   }
 
   canBuild(player, tile, buildingType, now = Date.now() / 1000) {
@@ -232,13 +242,11 @@ class EconomyManager {
   }
 
   build(player, tile, buildingType, now, game = null) {
-    const reason = this.buildUnavailableReason(player, tile, buildingType, now);
-    if (reason) {
-      return { ok: false, message: reason };
-    }
+    const preview = this.buildPreview(player, tile, buildingType, now, game);
+    if (!preview.canBuild) return { ok: false, message: preview.reason, buildPreview: preview };
     const building = config.BUILDINGS[buildingType];
-    const cost = this.buildingCost(player, buildingType);
-    const buildTime = game?.sandbox?.enabled && game.sandbox.rules?.instantBuild ? 0 : balance.buildTimeSeconds || 10;
+    const cost = preview.cost;
+    const buildTime = preview.buildTime;
     player.energy -= cost;
     tile.building = buildingType;
     tile.buildingLevel = 1;
@@ -256,19 +264,24 @@ class EconomyManager {
       buildTime,
       buildingActiveAt: tile.buildingActiveAt,
       nextCost: this.buildingCost(player, buildingType),
+      buildPreview: preview,
     };
   }
 
   upgradeBuilding(player, tile, now, game = null) {
-    if (!tile || tile.owner !== player.id || !tile.building) return { ok: false, message: "Choose one of your buildings." };
-    if (tile.buildingActiveAt && tile.buildingActiveAt > now) return { ok: false, message: `Building is still under construction. Wait ${Math.ceil(tile.buildingActiveAt - now)}s.` };
+    const preview = buildingRules.previewUpgrade({
+      player,
+      tile,
+      gameConfig: config,
+      balance,
+      now,
+      instantBuild: Boolean(game?.sandbox?.enabled && game.sandbox.rules?.instantBuild),
+    });
+    if (!preview.canUpgrade) return { ok: false, message: preview.reason, upgradePreview: preview };
     const building = config.BUILDINGS[tile.building];
-    const level = Math.max(1, Number(tile.buildingLevel) || 1);
-    if (level >= 3) return { ok: false, message: "Building is already max level." };
-    const ownedCount = player.buildings?.[tile.building] || 0;
-    const cost = Math.round((building?.cost || 40) * (0.78 + level * (balance.upgradeCostGrowth || 0.82)) * (1 + Math.max(0, ownedCount - 1) * 0.08));
-    if (player.energy < cost) return { ok: false, message: "Not enough Animal Energy." };
-    const upgradeTime = game?.sandbox?.enabled && game.sandbox.rules?.instantBuild ? 0 : balance.upgradeTimeSeconds || balance.buildTimeSeconds || 8;
+    const level = preview.level;
+    const cost = preview.cost;
+    const upgradeTime = preview.upgradeTime;
     player.energy -= cost;
     tile.buildingLevel = level + 1;
     tile.buildingActiveAt = now + upgradeTime;
@@ -285,6 +298,7 @@ class EconomyManager {
           : `${building?.label || "Building"} upgraded instantly to level ${tile.buildingLevel}.`,
       spentEnergy: cost,
       buildingActiveAt: tile.buildingActiveAt,
+      upgradePreview: preview,
     };
   }
 

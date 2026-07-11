@@ -4,6 +4,11 @@ class AuthManager {
   constructor(db) {
     this.db = db;
     this.cookieName = "pond_session";
+    this.sessionSecret = process.env.SESSION_SECRET || "pondfront-local-development-session-secret";
+    this.secureCookies = process.env.NODE_ENV === "production" || String(process.env.APP_BASE_URL || "").startsWith("https://");
+    if (process.env.NODE_ENV === "production" && !process.env.SESSION_SECRET) {
+      console.warn("[AUTH] SESSION_SECRET is missing. Set it before accepting production logins.");
+    }
   }
 
   publicUser(user) {
@@ -11,6 +16,8 @@ class AuthManager {
     return {
       id: user.id,
       username: user.username,
+      displayName: user.displayName || user.username,
+      avatarUrl: user.avatarUrl || "",
       createdAt: user.createdAt,
       lastLoginAt: user.lastLoginAt,
       level: user.level || 1,
@@ -22,6 +29,7 @@ class AuthManager {
       unlockedBadges: user.unlockedBadges || ["rookie"],
       unlockedTitles: user.unlockedTitles || ["pond_rookie"],
       unlockedCosmetics: user.unlockedCosmetics || ["clear_ripple"],
+      connectedProviders: this.db.oauthAccountsFor?.(user.id).map((account) => account.provider) || [],
     };
   }
 
@@ -33,8 +41,7 @@ class AuthManager {
     if (validation) return { ok: false, status: 400, message: validation };
     if (this.db.findUserByUsername(username)) return { ok: false, status: 409, message: "Username already taken." };
     const user = this.db.createUser({ username, passwordHash: this.hashPassword(password), email: body.email });
-    const session = this.db.addSession(user.id, req.headers["user-agent"]);
-    this.setSessionCookie(res, session.token);
+    const session = this.issueSession(user.id, req, res);
     console.log(`[AUTH] user created id=${user.id} username=${user.username}`);
     return { ok: true, status: 200, message: "Account created.", user: this.publicUser(user) };
   }
@@ -46,15 +53,18 @@ class AuthManager {
     if (!user || !this.verifyPassword(password, user.passwordHash)) {
       return { ok: false, status: 401, message: "Wrong username or password." };
     }
-    const session = this.db.addSession(user.id, req.headers["user-agent"]);
-    this.setSessionCookie(res, session.token);
+    this.deleteCurrentSession(req);
+    const session = this.issueSession(user.id, req, res);
     console.log(`[AUTH] login success id=${user.id} username=${user.username}`);
     return { ok: true, status: 200, message: "Logged in.", user: this.publicUser(user) };
   }
 
   logout(req, res) {
     const token = this.sessionToken(req);
-    if (token) this.db.deleteSession(token);
+    if (token) {
+      this.db.deleteSession(this.storedSessionToken(token));
+      this.db.deleteSession(token);
+    }
     this.clearSessionCookie(res);
     return { ok: true, status: 200, message: "Logged out." };
   }
@@ -62,7 +72,7 @@ class AuthManager {
   currentUser(req) {
     const token = this.sessionToken(req);
     if (!token) return null;
-    const session = this.db.getSession(token);
+    const session = this.db.getSession(this.storedSessionToken(token)) || this.db.getSession(token);
     if (!session) return null;
     return this.db.findUserById(session.userId);
   }
@@ -104,6 +114,24 @@ class AuthManager {
     return this.cookies(req)[this.cookieName] || "";
   }
 
+  storedSessionToken(rawToken) {
+    return `h2_${crypto.createHmac("sha256", this.sessionSecret).update(String(rawToken || "")).digest("hex")}`;
+  }
+
+  issueSession(userId, req, res) {
+    const rawToken = `pfs_${crypto.randomBytes(32).toString("base64url")}`;
+    const session = this.db.addSession(userId, req?.headers?.["user-agent"], this.storedSessionToken(rawToken));
+    this.setSessionCookie(res, rawToken);
+    return session;
+  }
+
+  deleteCurrentSession(req) {
+    const token = this.sessionToken(req);
+    if (!token) return;
+    this.db.deleteSession(this.storedSessionToken(token));
+    this.db.deleteSession(token);
+  }
+
   cookies(req) {
     return Object.fromEntries(
       String(req.headers.cookie || "")
@@ -118,11 +146,18 @@ class AuthManager {
   }
 
   setSessionCookie(res, token) {
-    res.setHeader("Set-Cookie", `${this.cookieName}=${encodeURIComponent(token)}; HttpOnly; SameSite=Lax; Path=/; Max-Age=2592000`);
+    const secure = this.secureCookies ? "; Secure" : "";
+    this.appendCookie(res, `${this.cookieName}=${encodeURIComponent(token)}; HttpOnly; SameSite=Lax; Path=/; Max-Age=2592000${secure}`);
   }
 
   clearSessionCookie(res) {
-    res.setHeader("Set-Cookie", `${this.cookieName}=; HttpOnly; SameSite=Lax; Path=/; Max-Age=0`);
+    const secure = this.secureCookies ? "; Secure" : "";
+    this.appendCookie(res, `${this.cookieName}=; HttpOnly; SameSite=Lax; Path=/; Max-Age=0${secure}`);
+  }
+
+  appendCookie(res, cookie) {
+    const current = res.getHeader?.("Set-Cookie");
+    res.setHeader("Set-Cookie", current ? (Array.isArray(current) ? [...current, cookie] : [current, cookie]) : cookie);
   }
 }
 

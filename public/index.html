@@ -45,6 +45,16 @@
                   <strong id="authFormTitle">Login</strong>
                   <button id="authCloseButton" class="icon-button" type="button">X</button>
                 </div>
+                <div class="oauth-buttons" aria-label="Social sign in">
+                  <button id="googleAuthButton" class="oauth-button google" type="button" disabled>
+                    <span aria-hidden="true">G</span><strong>Continue with Google</strong>
+                  </button>
+                  <button id="discordAuthButton" class="oauth-button discord" type="button" disabled>
+                    <span aria-hidden="true">D</span><strong>Continue with Discord</strong>
+                  </button>
+                  <small id="oauthAvailabilityHint">Checking provider availability...</small>
+                </div>
+                <div class="auth-divider"><span>or</span></div>
                 <label for="authUsername">Username<input id="authUsername" maxlength="18" autocomplete="username" /></label>
                 <label for="authPassword">Password<input id="authPassword" type="password" autocomplete="current-password" /></label>
                 <label id="authConfirmRow" class="hidden" for="authConfirmPassword">Confirm<input id="authConfirmPassword" type="password" autocomplete="new-password" /></label>
@@ -167,6 +177,18 @@
                 <option value="solo" selected>Solo</option>
                 <option value="coop">Co-Op Team</option>
                 <option value="teamBattle">Team Battle</option>
+              </select>
+              <label for="ruleMode">Rules</label>
+              <select id="ruleMode">
+                <option value="classic" selected>Classic Elimination</option>
+                <option value="goldenLily">Golden Lily Control</option>
+                <option value="riverDomination">River Domination</option>
+                <option value="floodSurvival">Flood Survival</option>
+                <option value="pondRush">Pond Rush</option>
+                <option value="lastNest">Last Nest</option>
+                <option value="migration">Migration</option>
+                <option value="animalKing">Animal King</option>
+                <option value="peacefulExpansion">Peaceful Expansion</option>
               </select>
               <label for="difficulty">Bot strategy</label>
               <select id="difficulty">
@@ -347,6 +369,17 @@
               <option value="coop">Co-Op Team</option>
               <option value="teamBattle">Team Battle</option>
             </select></label>
+            <label for="createRuleMode">Rules<select id="createRuleMode">
+              <option value="classic" selected>Classic Elimination</option>
+              <option value="goldenLily">Golden Lily Control</option>
+              <option value="riverDomination">River Domination</option>
+              <option value="floodSurvival">Flood Survival</option>
+              <option value="pondRush">Pond Rush</option>
+              <option value="lastNest">Last Nest</option>
+              <option value="migration">Migration</option>
+              <option value="animalKing">Animal King</option>
+              <option value="peacefulExpansion">Peaceful Expansion</option>
+            </select></label>
             <label for="createMapSize">Map<select id="createMapSize">
               <option value="amazon">Amazon River</option>
               <option value="mekong">Mekong Delta</option>
@@ -473,6 +506,17 @@
                   <option value="coop">Co-Op Team</option>
                   <option value="teamBattle">Team Battle</option>
                 </select></label>
+                <label for="lobbyRuleMode">Rules<select id="lobbyRuleMode">
+                  <option value="classic">Classic Elimination</option>
+                  <option value="goldenLily">Golden Lily Control</option>
+                  <option value="riverDomination">River Domination</option>
+                  <option value="floodSurvival">Flood Survival</option>
+                  <option value="pondRush">Pond Rush</option>
+                  <option value="lastNest">Last Nest</option>
+                  <option value="migration">Migration</option>
+                  <option value="animalKing">Animal King</option>
+                  <option value="peacefulExpansion">Peaceful Expansion</option>
+                </select></label>
                 <label for="lobbyMapSize">Map<select id="lobbyMapSize">
                   <option value="amazon">Amazon River</option>
                   <option value="mekong">Mekong Delta</option>
@@ -519,9 +563,69 @@
                   <option value="bots">Bots Only</option>
                   <option value="everyone">Everyone</option>
                 </select></label>
+                <label for="lobbySpawnTime">Spawn time<select id="lobbySpawnTime">
+                  <option value="10">10 seconds</option>
+                  <option value="20">20 seconds</option>
+                  <option value="30" selected>30 seconds</option>
+                  <option value="45">45 seconds</option>
+                  <option value="60">60 seconds</option>
+                  <option value="90">90 seconds</option>
+                  <option value="0">Unlimited</option>
+                </select></label>
+                <label for="lobbyTeamSpawnStyle">Team spawns<select id="lobbyTeamSpawnStyle">
+                  <option value="together">Together</option>
+                  <option value="nearby" selected>Nearby</option>
+                  <option value="spread">Spread Out</option>
+                  <option value="free">Free Choice</option>
+                </select></label>
+                <label for="lobbyStartingEnergy">Starting energy<select id="lobbyStartingEnergy">
+                  <option value="48">48</option>
+                  <option value="64" selected>64</option>
+                  <option value="90">90</option>
+                  <option value="120">120</option>
+                </select></label>
+                <label for="lobbyTeamRevives">Team revives<select id="lobbyTeamRevives">
+                  <option value="off" selected>Off</option>
+                  <option value="one">One Per Player</option>
+                  <option value="pool">Shared Pool</option>
+                  <option value="unlimited">Unlimited (Sandbox)</option>
+                </select></label>
+                <label class="check-row" for="lobbyStartEarly"><input id="lobbyStartEarly" type="checkbox" checked /> Start early when ready</label>
+                <label class="check-row" for="lobbyLockSpawn"><input id="lobbyLockSpawn" type="checkbox" /> Lock confirmed spawns</label>
+                <label for="lobbyEnemySpawnVisibility">Enemy spawn visibility<select id="lobbyEnemySpawnVisibility">
+                  <option value="visible" selected>Visible</option>
+                  <option value="teamOnly">Team Only</option>
+                  <option value="hidden">Hidden Until Start</option>
+                </select></label>
+                <label class="check-row" for="lobbySharedVision"><input id="lobbySharedVision" type="checkbox" checked /> Shared vision</label>
+                <label class="check-row" for="lobbyFriendlyFire"><input id="lobbyFriendlyFire" type="checkbox" /> Friendly fire</label>
                 <label class="check-row" for="lobbyAllowBots"><input id="lobbyAllowBots" type="checkbox" checked /> Allow bots</label>
                 <label class="check-row" for="lobbyForceStart"><input id="lobbyForceStart" type="checkbox" /> Force start</label>
               </div>
+              <details class="modifier-settings">
+                <summary>Match Modifiers</summary>
+                <div class="modifier-grid">
+                  <label><input data-lobby-modifier="doubleIncome" type="checkbox" /> Double income</label>
+                  <label><input data-lobby-modifier="tripleIncome" type="checkbox" /> Triple income</label>
+                  <label><input data-lobby-modifier="cheapBuildings" type="checkbox" /> Cheap buildings</label>
+                  <label><input data-lobby-modifier="fastBuildings" type="checkbox" /> Fast building</label>
+                  <label><input data-lobby-modifier="fastAbilities" type="checkbox" /> Fast abilities</label>
+                  <label><input data-lobby-modifier="unlimitedCurrentPush" type="checkbox" /> Unlimited Current Push</label>
+                  <label><input data-lobby-modifier="strongerAbilities" type="checkbox" /> Stronger abilities</label>
+                  <label><input data-lobby-modifier="extraTerritory" type="checkbox" /> Extra territory</label>
+                  <label><input data-lobby-modifier="reviveTeammates" type="checkbox" /> Revive teammates</label>
+                  <label><input data-lobby-modifier="sharedTeamEnergy" type="checkbox" /> Shared team energy</label>
+                  <label><input data-lobby-modifier="suddenEvents" type="checkbox" /> Sudden events</label>
+                  <label><input data-lobby-modifier="giantBotArmy" type="checkbox" /> Giant bot army</label>
+                  <label><input data-lobby-modifier="bossAnimal" type="checkbox" /> Boss animal</label>
+                  <label><input data-lobby-modifier="noSpecials" type="checkbox" /> No specials</label>
+                  <label><input data-lobby-modifier="noBuildings" type="checkbox" /> No buildings</label>
+                  <label><input data-lobby-modifier="noObjectives" type="checkbox" /> No objectives</label>
+                  <label><input data-lobby-modifier="permanentFog" type="checkbox" /> Permanent fog</label>
+                  <label><input data-lobby-modifier="fastMatch" type="checkbox" /> Fast match</label>
+                  <label><input data-lobby-modifier="longMatch" type="checkbox" /> Long match</label>
+                </div>
+              </details>
               <button id="lobbyStartMatch" class="primary" type="button">Start Match</button>
             </section>
           </div>
@@ -554,6 +658,7 @@
             <span class="brand-mark">P</span>
             <strong>PondFront.io</strong>
             <span id="sandboxBadge" class="sandbox-badge hidden">Sandbox Mode - stats disabled</span>
+            <span id="modifiedMatchBadge" class="sandbox-badge modified-match-badge hidden">Modified Match - Progression Disabled</span>
             <button id="sandboxOpenButton" class="help-button sandbox-open hidden" type="button">Sandbox</button>
             <button id="helpButton" class="help-button" data-tip="Open the in-game guide.">Help</button>
             <button id="togglePanelsButton" class="help-button panel-toggle-button" type="button" title="Collapse or restore side panels">Panels</button>
@@ -568,13 +673,49 @@
             </div>
             <div class="stat"><span>Animal</span><strong id="animalStat">Duck</strong></div>
             <div class="stat team-stat"><span>Team</span><strong id="teamStat">Solo</strong></div>
-            <div class="stat"><span>Elapsed <button class="info-button" data-tip-key="win" aria-label="Win condition info">?</button></span><strong id="timerStat">00:00</strong></div>
+            <div class="stat"><span>Time <button class="info-button" data-tip-key="win" aria-label="Win condition info">?</button></span><strong id="timerStat">00:00</strong></div>
           </div>
         </header>
         <div id="winDebugPanel" class="win-debug-panel hidden"></div>
 
         <section class="play-area">
           <canvas id="mapCanvas" aria-label="PondFront strategy map"></canvas>
+          <section id="spawnSelectionOverlay" class="spawn-selection-overlay hidden" aria-live="polite">
+            <div class="spawn-top-banner">
+              <span id="spawnPhaseLabel">Choose Your Starting Nest</span>
+              <strong id="spawnTimer">20s</strong>
+              <small id="spawnReadyCount">Players Ready: 0/1</small>
+            </div>
+            <aside id="spawnStatusPanel" class="spawn-status-panel">
+              <header><strong>Spawn Status</strong><span id="spawnStatusSummary">0 / 1 ready</span></header>
+              <div id="spawnStatusList" class="spawn-status-list"></div>
+              <details id="spawnLegend" class="spawn-legend">
+                <summary>Spawn Map Legend</summary>
+                <div>
+                  <span><i class="available"></i>Available</span>
+                  <span><i class="own"></i>Your selection</span>
+                  <span><i class="team"></i>Teammate</span>
+                  <span><i class="claimed"></i>Claimed / too close</span>
+                  <span><i class="blocked"></i>Blocked land</span>
+                  <span><b>✓</b>Confirmed</span>
+                </div>
+              </details>
+            </aside>
+            <div class="spawn-control-card">
+              <span id="spawnLocationStatus">Tap open water to preview your starting territory.</span>
+              <strong id="spawnLocationDetails">No location selected</strong>
+              <small id="spawnInspection" class="spawn-inspection hidden"></small>
+              <div class="spawn-camera-actions">
+                <button id="spawnViewButton" type="button">View My Spawn</button>
+                <button id="spawnFitButton" type="button">Fit Map</button>
+              </div>
+              <div class="spawn-primary-actions">
+                <button id="spawnRandomButton" type="button">Random</button>
+                <button id="spawnChangeButton" type="button">Change</button>
+                <button id="spawnConfirmButton" class="primary" type="button">Confirm Spawn</button>
+              </div>
+            </div>
+          </section>
           <div id="lakeEventBanner" class="lake-event-banner hidden">
             <strong id="lakeEventTitle">Lake Event</strong>
             <span id="lakeEventDetails">Strategic shift active.</span>
@@ -868,6 +1009,15 @@
                     </select>
                   </label>
                   <label>
+                    Color vision
+                    <select id="colorVisionMode" aria-label="Color vision mode">
+                      <option value="standard" selected>Standard</option>
+                      <option value="deuteranopia">Green-red support</option>
+                      <option value="protanopia">Red-green support</option>
+                      <option value="tritanopia">Blue-yellow support</option>
+                    </select>
+                  </label>
+                  <label>
                     Visual quality
                     <select id="visualQuality" aria-label="Visual quality">
                       <option value="ultra">Ultra</option>
@@ -876,6 +1026,10 @@
                       <option value="low">Low</option>
                     </select>
                   </label>
+                  <div class="settings-actions">
+                    <button id="resetVisualsButton" class="secondary-button" type="button">Reset Visuals</button>
+                    <button id="restoreBalancedButton" class="secondary-button" type="button">Restore Balanced</button>
+                  </div>
                   <label><input id="floatingText" type="checkbox" checked /> Floating text</label>
                   <label><input id="attackArrows" type="checkbox" checked /> Attack arrows</label>
                   <label><input id="abilityEffects" type="checkbox" checked /> Ability markers</label>
@@ -1042,6 +1196,7 @@
         <div class="profile-card">
           <header class="profile-header">
             <div class="profile-identity">
+              <img id="profileAvatar" class="profile-avatar hidden" alt="Player avatar" referrerpolicy="no-referrer" />
               <span id="profileBadgeIcon" class="profile-badge-icon">R</span>
               <div>
                 <span class="label">Player Profile</span>
@@ -1068,6 +1223,7 @@
               <button data-profile-tab="achievements" type="button">Achievements</button>
               <button data-profile-tab="history" type="button">History</button>
               <button data-profile-tab="cosmetics" type="button">Cosmetics</button>
+              <button data-profile-tab="accounts" type="button">Accounts</button>
             </nav>
             <div id="profileTabContent" class="profile-tab-content"></div>
           </div>
@@ -1078,6 +1234,10 @@
     <script src="/shared/balanceConfig.js"></script>
     <script src="/shared/mapConfig.js"></script>
     <script src="/shared/gameConfig.js"></script>
+    <script src="/shared/buildingRules.js"></script>
+    <script src="/shared/spawnConfig.js"></script>
+    <script src="/shared/gameModeConfig.js"></script>
+    <script src="/shared/modifierConfig.js"></script>
     <script src="/shared/diplomacyConfig.js"></script>
     <script src="/shared/combatConfig.js"></script>
     <script src="/shared/botDifficultyConfig.js"></script>

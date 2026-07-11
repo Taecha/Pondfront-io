@@ -77,7 +77,7 @@ class SpecialManager {
     if (type === "dragonflyGuard") {
       if (!tile.owner) return { ok: false, resultType: "invalidTarget", message: "Dragonfly Guard needs your or allied territory." };
       const owner = game.getPlayer(tile.owner);
-      const sameTeam = Boolean(player.teamId && owner?.teamId && player.teamId === owner.teamId);
+      const sameTeam = Boolean(!game.matchSettings?.friendlyFire && player.teamId && owner?.teamId && player.teamId === owner.teamId);
       if (tile.owner !== player.id && !game.diplomacy.areAllied(player.id, tile.owner) && !sameTeam) {
         return { ok: false, resultType: "invalidTarget", message: "Dragonfly Guard can protect only your territory or allies." };
       }

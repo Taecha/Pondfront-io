@@ -143,6 +143,7 @@
     aggressionTime: 300,
     lateGameTime: 480,
     finalSurgeTime: 660,
+    finalTideObjectiveMultiplier: 1.28,
     maxMatchTime: 1500,
 
     coreHealth: 140,

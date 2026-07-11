@@ -155,7 +155,7 @@
     },
     lilyFarm: {
       label: "Lily Farm",
-      cost: 42,
+      cost: 40,
       animal: null,
       validTiles: ["lily", "water"],
       stat: "income",

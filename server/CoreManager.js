@@ -95,6 +95,12 @@ class CoreManager {
     const tile = candidate.tile;
     if (!tile?.isCore || tile.coreOwnerId !== defender.id || tile.owner !== defender.id) return { blocked: false };
 
+    const nestProtection = game.matchSettings?.ruleMode === "lastNest" ? game.gameModeManager?.rules?.coreProtectionSeconds || 45 : 0;
+    if (nestProtection > 0 && game.elapsed() < nestProtection) {
+      wave.remainingPower = Math.max(0, wave.remainingPower - Math.min(wave.remainingPower, cost * 0.35));
+      return { blocked: true, reason: `Core Nest protection lasts ${Math.ceil(nestProtection - game.elapsed())}s.` };
+    }
+
     const now = game.now();
     const damage = Math.max(8, Math.min(cost, wave.remainingPower) * 0.82);
     tile.coreHealth = Math.max(0, (tile.coreHealth || balance.coreHealth || 125) - damage);

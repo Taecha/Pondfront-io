@@ -14,7 +14,10 @@
       this.pendingActions = new Map();
       this.lastMiniMapDrawAt = 0;
       this.miniMapDirty = true;
+      this.visualCacheVersion = 0;
+      this.lastEffectiveOptions = null;
       this.lastVisibleTileCount = 0;
+      this.activeColorVisionMode = "standard";
       this.vfx = root.PondVFX ? new root.PondVFX(this) : null;
       this.fitted = false;
       this.resize();
@@ -33,6 +36,15 @@
       this.miniCtx.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
       this.miniMapDirty = true;
       if (this.state) this.fit(false);
+    }
+
+    invalidateVisualCaches(reason = "visual settings changed") {
+      this.visualCacheVersion += 1;
+      this.lastEffectiveOptions = null;
+      this.miniMapDirty = true;
+      this.eventAnims = this.eventAnims.slice(-80);
+      this.vfx?.trim?.();
+      this.lastVisualInvalidateReason = reason;
     }
 
     setState(state, options = {}) {
@@ -247,6 +259,7 @@
 
     draw(options) {
       const drawOptions = this.effectiveOptions(options);
+      this.activeColorVisionMode = drawOptions.colorVisionMode || "standard";
       this.vfx?.configure({
         ...(drawOptions.effects || {}),
         visualQuality: drawOptions.visualQuality,
@@ -272,8 +285,13 @@
     effectiveOptions(options = {}) {
       const effects = { ...(options.effects || {}) };
       const mobile = Boolean(options.isMobile);
-      const autoStrategic = Boolean(options.autoStrategicView) && this.camera.zoom < (mobile ? 0.78 : 0.48);
-      const lowPower = Boolean(effects.autoLowPerformance) && (options.performanceLow || mobile || this.camera.zoom < 0.5);
+      const performanceLevel = Math.max(0, Math.min(2, Number(options.performanceLevel || 0)));
+      const autoStrategic = Boolean(options.autoStrategicView) && (this.camera.zoom < (mobile ? 0.78 : 0.48) || performanceLevel >= 2);
+      if (options.runtimeVisualState) {
+        options.runtimeVisualState.autoStrategicActive = Boolean(autoStrategic && !options.strategicView);
+        options.runtimeVisualState.effectivePerformanceLevel = performanceLevel;
+      }
+      const lowPower = Boolean(effects.autoLowPerformance) && performanceLevel > 0;
       let visualQuality = options.visualQuality || "high";
       const next = {
         ...options,
@@ -287,18 +305,17 @@
         effects,
       };
       if (lowPower) {
-        next.strategicView = true;
-        next.showIcons = false;
-        next.mapDecorations = false;
-        if (effects.level === "ultra") effects.level = mobile || this.camera.zoom < 0.5 ? "medium" : "high";
-        else if (effects.level === "high") effects.level = mobile || this.camera.zoom < 0.5 ? "low" : "medium";
-        if (effects.particles === "ultra") effects.particles = mobile || this.camera.zoom < 0.5 ? "medium" : "high";
-        else if (effects.particles === "high") effects.particles = mobile || this.camera.zoom < 0.5 ? "low" : "medium";
+        const effectSteps = performanceLevel + (mobile ? 1 : 0);
+        effects.level = this.downgradeQuality(effects.level, effectSteps);
+        effects.particles = this.downgradeQuality(effects.particles, effectSteps + 1);
+        if (performanceLevel >= 2) {
+          next.showIcons = false;
+          next.mapDecorations = false;
+          visualQuality = this.downgradeQuality(visualQuality, 1);
+        }
         if (mobile && this.camera.zoom < 0.72) effects.floatingText = false;
         if (mobile && this.camera.zoom < 0.72) next.showAnimalAnimations = false;
         if (mobile && this.camera.zoom < 0.58) next.showAnimalSprites = false;
-        if (visualQuality === "ultra") visualQuality = mobile || this.camera.zoom < 0.5 ? "medium" : "high";
-        else if (visualQuality === "high") visualQuality = mobile || this.camera.zoom < 0.5 ? "low" : "medium";
         next.visualQuality = visualQuality;
       }
       if (effects.reducedMotion) {
@@ -309,12 +326,64 @@
       return next;
     }
 
+    downgradeQuality(value = "medium", steps = 1) {
+      const order = ["low", "medium", "high", "ultra"];
+      const index = Math.max(0, order.indexOf(value));
+      return order[Math.max(0, index - Math.max(0, steps))] || "low";
+    }
+
+    themePalette() {
+      const theme = this.state?.matchSettings?.map?.theme || "pond";
+      return {
+        amazon: { outer: ["#061b20", "#12545a", "#0a3b43", "#05171d"], lake: ["#1f6d70", "#32908a", "#164f5c"], water: "#297982" },
+        mekong: { outer: ["#071c23", "#17606a", "#184a52", "#081a22"], lake: ["#2b7781", "#4a9990", "#245c6d"], water: "#387f85" },
+        everglades: { outer: ["#061b25", "#14606a", "#1c5053", "#071820"], lake: ["#257b86", "#49988e", "#285e69"], water: "#3a8790" },
+        nile: { outer: ["#071c2b", "#185c79", "#174b66", "#071925"], lake: ["#247aa1", "#43a6ba", "#225f85"], water: "#358bab" },
+        pond: { outer: ["#061924", "#145164", "#0c3748", "#061620"], lake: ["#236d7f", "#3a8f9d", "#1a5269"], water: "#347f8e" },
+      }[theme] || { outer: ["#061924", "#145164", "#0c3748", "#061620"], lake: ["#236d7f", "#3a8f9d", "#1a5269"], water: "#347f8e" };
+    }
+
+    playerColor(player) {
+      if (!player) return "#718089";
+      const mode = this.activeColorVisionMode || "standard";
+      if (mode === "standard") return player.color || "#718089";
+      const palettes = {
+        deuteranopia: ["#2687d8", "#f2a620", "#7a65d5", "#35b7c4", "#e46357", "#d7e4eb", "#9b72b6", "#5c7d3d"],
+        protanopia: ["#2d91d1", "#d9b32d", "#775fd0", "#38bfc6", "#de7956", "#d9e6ec", "#9b7abe", "#568b77"],
+        tritanopia: ["#d95b72", "#32a887", "#7c6ae2", "#dc9f35", "#3e91d0", "#e3e8eb", "#a765a2", "#61a35e"],
+      };
+      const palette = palettes[mode] || palettes.deuteranopia;
+      const index = Math.max(0, this.state?.players?.findIndex((entry) => entry.id === player.id) ?? 0);
+      return palette[index % palette.length];
+    }
+
+    neutralTileColor(tile, type) {
+      const palette = this.themePalette();
+      const terrain = {
+        lily: "#4f9a73",
+        reeds: "#668c58",
+        mud: "#8b7359",
+        nest: "#a09158",
+        rock: "#657078",
+        jungleIsland: "#315b3f",
+        grassIsland: "#5f7f4b",
+        riceField: "#7d9650",
+        desert: "#a58d62",
+        log: "#806348",
+        bridge: "#a77f52",
+        village: "#8f755b",
+      };
+      if (tile?.type === "water") return palette.water;
+      return terrain[tile?.type] || type?.neutralColor || type?.color || palette.water;
+    }
+
     drawWater(ctx, rect, options = {}) {
+      const palette = this.themePalette();
       const gradient = ctx.createLinearGradient(0, 0, rect.width, rect.height);
-      gradient.addColorStop(0, "#061724");
-      gradient.addColorStop(0.42, "#123f52");
-      gradient.addColorStop(0.78, "#0c2a3b");
-      gradient.addColorStop(1, "#05121d");
+      gradient.addColorStop(0, palette.outer[0]);
+      gradient.addColorStop(0.42, palette.outer[1]);
+      gradient.addColorStop(0.78, palette.outer[2]);
+      gradient.addColorStop(1, palette.outer[3]);
       ctx.fillStyle = gradient;
       ctx.fillRect(0, 0, rect.width, rect.height);
       const now = performance.now();
@@ -354,8 +423,12 @@
       this.drawLakeEventOverlay(ctx, rect);
     }
 
-    drawLakeEventOverlay(ctx, rect) {
-      const event = this.state?.lakeEvent?.active || this.state?.lakeEvent?.upcoming;
+  drawLakeEventOverlay(ctx, rect) {
+      const permanentFog = this.state?.modifiers?.active?.some((modifier) => modifier.id === "permanentFog");
+      const event =
+        this.state?.lakeEvent?.active ||
+        this.state?.lakeEvent?.upcoming ||
+        (permanentFog ? { type: "permanentFog", visual: "fog", color: "#b8dce2" } : null);
       if (!event) return;
       ctx.save();
       const now = performance.now();
@@ -409,9 +482,10 @@
       ctx.shadowColor = "transparent";
       ctx.shadowOffsetY = 0;
       const lake = ctx.createLinearGradient(topLeft.x, topLeft.y, topLeft.x + mapW, topLeft.y + mapH);
-      lake.addColorStop(0, "#1a4c5f");
-      lake.addColorStop(0.5, "#286477");
-      lake.addColorStop(1, "#12384b");
+      const palette = this.themePalette();
+      lake.addColorStop(0, palette.lake[0]);
+      lake.addColorStop(0.5, palette.lake[1]);
+      lake.addColorStop(1, palette.lake[2]);
       ctx.fillStyle = lake;
       this.roundRect(ctx, topLeft.x, topLeft.y, mapW, mapH, radius);
       ctx.fill();
@@ -436,6 +510,7 @@
       this.drawPendingActions(ctx);
       this.drawPreview(ctx, options);
       this.drawSelection(ctx, options);
+      this.drawSpawnSelection(ctx, options);
       this.drawActiveExpansions(ctx);
       this.drawActiveAttacks(ctx);
       this.drawSpecialOverlays(ctx);
@@ -969,7 +1044,7 @@
       if (owner) {
         const alpha = tile.owner === this.state.humanId ? 0.84 : 0.78;
         const overlap = Math.max(0.35, size * 0.018);
-        ctx.fillStyle = this.withAlpha(owner.color, alpha);
+        ctx.fillStyle = this.withAlpha(this.playerColor(owner), alpha);
         ctx.fillRect(p.x - overlap, p.y - overlap, size + overlap * 2, size + overlap * 2);
         if (this.camera.zoom > 0.38) {
           const glowAlpha = tile.owner === this.state.humanId ? 0.13 : 0.08;
@@ -993,11 +1068,11 @@
           this.drawSpecialWash(ctx, tile, p.x, p.y, size, true);
         }
       } else if (!isSpecial) {
-        ctx.fillStyle = type.neutralColor;
+        ctx.fillStyle = this.neutralTileColor(tile, type);
         this.roundRect(ctx, p.x + 0.6, p.y + 0.6, size - 1.2, size - 1.2, Math.max(2, size * 0.12));
         ctx.fill();
       } else {
-        ctx.fillStyle = type.blocks ? type.neutralColor || type.color || "#55636c" : type.neutralColor;
+        ctx.fillStyle = this.neutralTileColor(tile, type);
         const inset = Math.max(0.6, Math.min(3.2, size * 0.08));
         this.roundRect(ctx, p.x + inset, p.y + inset, size - inset * 2, size - inset * 2, Math.max(2, size * 0.18));
         ctx.fill();
@@ -1439,7 +1514,7 @@
       if (!player) return;
       const size = this.baseTile * this.camera.zoom;
       const p = this.worldToScreen(tile.x * this.baseTile, tile.y * this.baseTile);
-      const color = tile.owner === this.state.humanId ? "#edf8fb" : this.withAlpha(player.color, 0.98);
+      const color = tile.owner === this.state.humanId ? "#edf8fb" : this.withAlpha(this.playerColor(player), 0.98);
       const width = Math.max(1, size * (tile.owner === this.state.humanId ? 0.044 : 0.036));
       this.neighbors(tile).forEach((neighbor, index) => {
         if (neighbor && neighbor.owner === tile.owner) return;
@@ -1808,6 +1883,168 @@
       ctx.restore();
     }
 
+    drawSpawnSelection(ctx, options = {}) {
+      const spawn = options.spawnSelection;
+      if (!spawn) return;
+      const size = this.baseTile * this.camera.zoom;
+      const focusId = spawn.hoverTileId ?? spawn.selectedTileId ?? spawn.ownReservation?.tileId;
+      const focus = this.tileMap.get(focusId);
+      const focusReservation = (spawn.reservations || []).find((reservation) => reservation.tileId === focusId);
+      const isCandidate = Boolean(focus && spawn.candidateIds?.has?.(focus.id));
+      const tooClose = Boolean(focus && spawn.unavailableCandidateIds?.has?.(focus.id));
+      const valid = isCandidate && !tooClose;
+      const pulse = 0.55 + Math.sin(performance.now() * 0.006) * 0.2;
+      ctx.save();
+
+      if (spawn.phase === "SPAWN_SELECTION") {
+        const claimedIds = new Set((spawn.reservations || []).map((reservation) => reservation.tileId).filter((id) => id != null));
+        const candidateStride = this.camera.zoom < 0.3 ? 3 : 1;
+        let candidateIndex = 0;
+        ctx.fillStyle = "#72dcca";
+        ctx.globalAlpha = 0.28;
+        spawn.candidateIds?.forEach?.((id) => {
+          candidateIndex += 1;
+          if (candidateIndex % candidateStride !== 0 || spawn.unavailableCandidateIds?.has?.(id) || claimedIds.has(id)) return;
+          const tile = this.tileMap.get(id);
+          if (!tile) return;
+          const point = this.tileCenter(tile);
+          ctx.beginPath();
+          ctx.arc(point.x, point.y, Math.max(1.2, Math.min(3.2, size * 0.12)), 0, Math.PI * 2);
+          ctx.fill();
+        });
+      }
+
+      if (focus && !focusReservation) {
+        const color = valid ? "#70e0c5" : "#ef746d";
+        const point = this.tileCenter(focus);
+        const innerRadius = Math.max(8, (Number(spawn.startRadius || 2) + 0.65) * size);
+        const outerRadius = Math.max(innerRadius + 5, Number(spawn.minimumDistanceRadius || 6) * size);
+        ctx.globalAlpha = valid ? 0.16 + pulse * 0.12 : 0.2;
+        ctx.fillStyle = color;
+        ctx.beginPath();
+        ctx.arc(point.x, point.y, innerRadius, 0, Math.PI * 2);
+        ctx.fill();
+        if (!valid) {
+          ctx.save();
+          ctx.beginPath();
+          ctx.arc(point.x, point.y, innerRadius, 0, Math.PI * 2);
+          ctx.clip();
+          ctx.strokeStyle = "rgba(255, 190, 178, 0.65)";
+          ctx.lineWidth = Math.max(1.4, size * 0.07);
+          const stripeStep = Math.max(7, size * 0.42);
+          for (let offset = -innerRadius * 2; offset <= innerRadius * 2; offset += stripeStep) {
+            ctx.beginPath();
+            ctx.moveTo(point.x - innerRadius + offset, point.y + innerRadius);
+            ctx.lineTo(point.x + innerRadius + offset, point.y - innerRadius);
+            ctx.stroke();
+          }
+          ctx.restore();
+        }
+        ctx.globalAlpha = 0.95;
+        ctx.strokeStyle = color;
+        ctx.lineWidth = Math.max(2, size * 0.07);
+        ctx.setLineDash([]);
+        ctx.beginPath();
+        ctx.arc(point.x, point.y, innerRadius, 0, Math.PI * 2);
+        ctx.stroke();
+        ctx.setLineDash([Math.max(4, size * 0.28), Math.max(4, size * 0.22)]);
+        ctx.globalAlpha = 0.75;
+        ctx.beginPath();
+        ctx.arc(point.x, point.y, outerRadius, 0, Math.PI * 2);
+        ctx.stroke();
+        ctx.setLineDash([]);
+        if (!valid) {
+          ctx.globalAlpha = 1;
+          ctx.fillStyle = "#fff1ed";
+          ctx.font = "800 11px Inter, sans-serif";
+          ctx.textAlign = "center";
+          ctx.fillText(tooClose ? "Too Close" : "Unavailable", point.x, point.y - innerRadius - 7);
+        }
+      }
+
+      (spawn.reservations || []).forEach((reservation) => {
+        const tile = this.tileMap.get(reservation.tileId);
+        const x = tile?.x ?? reservation.x;
+        const y = tile?.y ?? reservation.y;
+        if (!Number.isFinite(x) || !Number.isFinite(y)) return;
+        const point = tile
+          ? this.tileCenter(tile)
+          : this.worldToScreen((x + 0.5) * this.baseTile, (y + 0.5) * this.baseTile);
+        const innerRadius = Math.max(9, (Number(reservation.reservationRadius || spawn.startRadius || 2) + 0.65) * size);
+        const outerRadius = Math.max(innerRadius + 5, Number(reservation.minimumDistanceRadius || spawn.minimumDistanceRadius || 6) * size);
+        const ringColor =
+          reservation.relation === "own"
+            ? reservation.confirmed
+              ? reservation.color || "#f1d96f"
+              : "#ffe87b"
+            : reservation.relation === "teammate"
+              ? "#55d6ce"
+              : reservation.relation === "bot" && !reservation.anonymous
+                ? reservation.color || "#d87965"
+                : "#df705e";
+        ctx.globalAlpha = reservation.masked ? 0.12 : reservation.confirmed ? 0.17 : 0.12 + pulse * 0.08;
+        ctx.fillStyle = ringColor;
+        ctx.beginPath();
+        ctx.arc(point.x, point.y, innerRadius, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.globalAlpha = reservation.confirmed ? 0.92 : 0.62 + pulse * 0.28;
+        ctx.strokeStyle = ringColor;
+        ctx.lineWidth = Math.max(2, size * 0.075);
+        ctx.setLineDash(reservation.confirmed ? [] : [Math.max(4, size * 0.24), Math.max(3, size * 0.17)]);
+        ctx.beginPath();
+        ctx.arc(point.x, point.y, innerRadius, 0, Math.PI * 2);
+        ctx.stroke();
+        ctx.setLineDash([Math.max(4, size * 0.24), Math.max(4, size * 0.2)]);
+        ctx.globalAlpha = reservation.masked ? 0.34 : 0.52;
+        ctx.beginPath();
+        ctx.arc(point.x, point.y, outerRadius, 0, Math.PI * 2);
+        ctx.stroke();
+        ctx.setLineDash([]);
+
+        const badgeRadius = Math.max(8, Math.min(15, size * 0.46));
+        ctx.globalAlpha = 1;
+        if (reservation.animal) {
+          this.drawAnimalBadge(ctx, reservation.animal, point.x, point.y, badgeRadius, reservation.color || ringColor, { compact: true });
+        } else {
+          ctx.fillStyle = "rgba(18, 42, 48, 0.95)";
+          ctx.strokeStyle = ringColor;
+          ctx.lineWidth = 2;
+          ctx.beginPath();
+          ctx.arc(point.x, point.y, badgeRadius, 0, Math.PI * 2);
+          ctx.fill();
+          ctx.stroke();
+          ctx.fillStyle = "#f7ffff";
+          ctx.font = "900 11px Inter, sans-serif";
+          ctx.textAlign = "center";
+          ctx.textBaseline = "middle";
+          ctx.fillText("?", point.x, point.y + 0.5);
+        }
+        if (reservation.confirmed) {
+          ctx.fillStyle = "#dffff6";
+          ctx.font = "900 10px Inter, sans-serif";
+          ctx.textAlign = "center";
+          ctx.textBaseline = "middle";
+          ctx.fillText("✓", point.x + badgeRadius * 0.72, point.y - badgeRadius * 0.72);
+        }
+        if (this.camera.zoom >= 0.42 || reservation.relation === "own") {
+          const name = reservation.relation === "own" ? "Your Spawn" : reservation.playerName || "Claimed Area";
+          const status = reservation.confirmed ? "CONFIRMED" : "RESERVED";
+          ctx.textAlign = "center";
+          ctx.textBaseline = "alphabetic";
+          ctx.lineWidth = 3;
+          ctx.strokeStyle = "rgba(2, 12, 17, 0.86)";
+          ctx.fillStyle = "#f0fbfd";
+          ctx.font = "800 10px Inter, sans-serif";
+          ctx.strokeText(name, point.x, point.y - badgeRadius - 8);
+          ctx.fillText(name, point.x, point.y - badgeRadius - 8);
+          ctx.fillStyle = reservation.confirmed ? "#78e3c3" : "#f3d875";
+          ctx.font = "900 7px Inter, sans-serif";
+          ctx.fillText(status, point.x, point.y + badgeRadius + 13);
+        }
+      });
+      ctx.restore();
+    }
+
     drawActiveExpansions(ctx) {
       const expansions = this.state.activeExpansions || [];
       if (!expansions.length) return;
@@ -1818,7 +2055,7 @@
       expansions.forEach((wave) => {
         const player = this.playerMap.get(wave.playerId);
         if (!player) return;
-        const color = player.color || "#77d99e";
+        const color = this.playerColor(player);
         const source = this.tileMap.get(wave.sourceTile);
         const target = this.tileMap.get(wave.targetStartTile || wave.startTileId);
         if (source && target) {
@@ -2163,8 +2400,8 @@
         const x = p.x + offsetX;
         const y = p.y + offsetY;
         const animate = options.showAnimalAnimations && !options.effects?.reducedMotion;
-        if (spriteAllowed) this.drawAnimalSprite(ctx, player.animal, x, y, radius, player.color, { animate, seed: tile.id + index * 17, player });
-        else this.drawAnimalBadge(ctx, player.animal, x, y, radius, player.color, { compact: true });
+        if (spriteAllowed) this.drawAnimalSprite(ctx, player.animal, x, y, radius, this.playerColor(player), { animate, seed: tile.id + index * 17, player });
+        else this.drawAnimalBadge(ctx, player.animal, x, y, radius, this.playerColor(player), { compact: true });
       });
       ctx.restore();
     }
@@ -2544,7 +2781,7 @@
           ctx.beginPath();
           ctx.arc(x, y, r + 1.6, 0, Math.PI * 2);
           ctx.fill();
-          ctx.fillStyle = visual.badge || player.color;
+          ctx.fillStyle = visual.badge || this.playerColor(player);
           ctx.beginPath();
           ctx.arc(x, y, r, 0, Math.PI * 2);
           ctx.fill();
@@ -2595,7 +2832,7 @@
         ctx.fillStyle = "rgba(3, 12, 19, 0.58)";
         this.roundRect(ctx, left, top, plateW, plateH, 8);
         ctx.fill();
-        ctx.strokeStyle = this.withAlpha(player.color, id === this.state.humanId ? 0.92 : 0.62);
+        ctx.strokeStyle = this.withAlpha(this.playerColor(player), id === this.state.humanId ? 0.92 : 0.62);
         ctx.lineWidth = id === this.state.humanId ? 1.6 : 1;
         this.roundRect(ctx, left, top, plateW, plateH, 8);
         ctx.stroke();
@@ -2607,7 +2844,7 @@
           ctx.lineTo(left + plateW - 6, top + plateH - 3);
           ctx.stroke();
         }
-        this.drawAnimalBadge(ctx, player.animal, left + badgeR + 6, p.y, badgeR, player.color, { compact: true });
+        this.drawAnimalBadge(ctx, player.animal, left + badgeR + 6, p.y, badgeR, this.playerColor(player), { compact: true });
         ctx.restore();
         ctx.textAlign = "left";
         ctx.lineWidth = 3;
@@ -2728,7 +2965,7 @@
       this.state.tiles.forEach((tile) => {
         const type = this.state.config.tileTypes[tile.type];
         const owner = tile.owner ? this.playerMap.get(tile.owner) : null;
-        ctx.fillStyle = owner ? owner.color : type.blocks ? type.neutralColor || type.color || "#66717a" : "#276072";
+        ctx.fillStyle = owner ? this.playerColor(owner) : this.neutralTileColor(tile, type);
         ctx.globalAlpha = owner ? 0.94 : type.blocks ? 0.68 : type.strategic ? 0.32 : 0.18;
         ctx.fillRect(tile.x * cellW, tile.y * cellH, Math.ceil(cellW), Math.ceil(cellH));
         if (tile.owner === this.state.humanId) humanBounds = includeBounds(humanBounds, tile);
@@ -2863,13 +3100,13 @@
         const to = this.tileMap.get(wave.targetStartTile);
         const player = this.playerMap.get(wave.attackerId);
         if (!from || !to || !player) return;
-        ctx.strokeStyle = player.color;
+        ctx.strokeStyle = this.playerColor(player);
         ctx.globalAlpha = wave.expansion ? 0.48 : 0.76;
         ctx.beginPath();
         ctx.moveTo((from.x + 0.5) * cellW, (from.y + 0.5) * cellH);
         ctx.lineTo((to.x + 0.5) * cellW, (to.y + 0.5) * cellH);
         ctx.stroke();
-        ctx.fillStyle = player.color;
+        ctx.fillStyle = this.playerColor(player);
         ctx.beginPath();
         ctx.arc((to.x + 0.5) * cellW, (to.y + 0.5) * cellH, 2.2, 0, Math.PI * 2);
         ctx.fill();

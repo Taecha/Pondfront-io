@@ -25,6 +25,9 @@
       this.selectedTileId = null;
       this.selectedPlayerId = null;
       this.hoverTileId = null;
+      this.spawnCandidateIds = new Set();
+      this.spawnUnavailableCandidateIds = new Set();
+      this.spawnInspection = null;
       this.sourceIds = [];
       this.preview = null;
       this.rallyTileId = null;
@@ -66,6 +69,16 @@
       this.lastPerfUiAt = 0;
       this.performanceLowSince = 0;
       this.performanceAutoLow = false;
+      this.runtimeVisualState = {
+        temporaryPerformanceLevel: 0,
+        autoReducedEffects: false,
+        autoStrategicActive: false,
+        fpsLowReason: "",
+        lastAutoChangeTime: 0,
+        stableFpsSince: 0,
+        lastNoticeAt: 0,
+        renderCacheVersion: 0,
+      };
       this.stateVersion = 0;
       this.legalCache = { key: "", ids: [] };
       this.humanBordersCache = { key: "", borders: [] };
@@ -83,13 +96,15 @@
       this.ui.on("lobbyReady", (payload) => this.setLobbyReady(payload.ready));
       this.ui.on("lobbyStart", () => this.startLobbyMatch());
       this.ui.on("lobbyLeave", () => this.leaveLobby());
+      this.ui.on("spawnAction", (payload) => this.handleSpawnAction(payload));
       this.ui.on("openProfile", () => this.profileView?.open("overview"));
       this.ui.on("home", () => this.returnHome());
       this.ui.on("action", (payload) => this.handleAction(payload));
       this.ui.on("camera", (payload) => this.handleCamera(payload));
       this.ui.on("diplomacy", (command) => this.handleDiplomacy(command));
       this.ui.on("teamCommand", (command) => this.handleTeamCommand(command));
-      this.ui.on("viewChanged", () => this.updateUi());
+      this.ui.on("viewChanged", () => this.handleViewChanged());
+      this.ui.on("restoreVisuals", (payload) => this.restoreVisuals(payload));
       this.contextMenu?.on("action", (payload) => this.handleContextAction(payload));
       this.contextMenu?.on("preview", (payload) => this.setActionPreview(payload));
       this.contextMenu?.on("close", () => {
@@ -116,7 +131,7 @@
       this.miniMap.addEventListener("pointercancel", (event) => this.handleMiniMapPointer(event));
       this.canvas.addEventListener("contextmenu", (event) => {
         event.preventDefault();
-        if (!this.state) return;
+        if (!this.state || this.isSpawnPhase()) return;
         const tile = this.renderer.screenToTile(event.clientX, event.clientY);
         this.openContextMenu(tile, event.clientX, event.clientY);
       });
@@ -144,6 +159,8 @@
             practice: Boolean(payload.practice),
             beginnerCombat: Boolean(payload.beginnerCombat),
             gameMode: payload.gameMode,
+            ruleMode: payload.ruleMode,
+            spawnSelectionSeconds: payload.spawnSelectionSeconds,
             coopTeammates: payload.coopTeammates,
             teamBotDifficulty: payload.teamBotDifficulty,
             teamCount: payload.teamCount,
@@ -161,7 +178,7 @@
         this.ui.showGame();
         this.sandboxPanel?.closeAll();
         this.setState(state, { silent: true });
-        this.ui.toast(payload.sandbox ? "Sandbox started. Open the Sandbox panel to test tools." : "Match started. Click a glowing border target, then send energy.");
+        this.ui.toast(payload.sandbox ? "Sandbox map ready. Choose a starting nest." : "Map ready. Choose your starting nest.");
         this.startPolling();
         requestAnimationFrame(() => this.renderer.resize());
       } catch (error) {
@@ -333,7 +350,7 @@
       this.ui.showGame();
       this.sandboxPanel?.closeAll();
       this.setState(data.matchState, { silent: true });
-      this.ui.toast("Lobby match started. Expand from your border.");
+      this.ui.toast("Map ready. Choose and confirm your starting nest.");
       this.startPolling();
       requestAnimationFrame(() => this.renderer.resize());
     }
@@ -408,7 +425,13 @@
     }
 
     setState(state, options = {}) {
+      const previousPhase = this.state?.phase;
+      const currentSpawnVersion = Number(this.state?.spawn?.version ?? -1);
+      const incomingSpawnVersion = Number(state?.spawn?.version ?? -1);
+      if (options.delta && currentSpawnVersion > incomingSpawnVersion) state = { ...state, spawn: this.state.spawn };
       this.state = state;
+      this.spawnCandidateIds = new Set(state.spawn?.candidateIds || this.spawnCandidateIds || []);
+      this.spawnUnavailableCandidateIds = new Set(state.spawn?.unavailableCandidateIds || []);
       this.stateVersion += 1;
       this.legalCache.key = "";
       this.humanBordersCache.key = "";
@@ -419,6 +442,8 @@
         delta: Boolean(options.delta),
         changedTiles: options.changedTiles || [],
       });
+      if (state.phase === "SPAWN_SELECTION" && previousPhase !== "SPAWN_SELECTION") this.renderer.fit(true);
+      if (state.phase !== "SPAWN_SELECTION" && state.phase !== "COUNTDOWN") this.spawnInspection = null;
       const newEvents = state.events.filter((event) => !this.seenEventIds.has(event.id));
       state.events.forEach((event) => this.seenEventIds.add(event.id));
       this.audio?.addEvents(newEvents, state);
@@ -428,6 +453,33 @@
       this.updateBuildOptions();
       this.updateUi();
       this.sandboxPanel?.setState(state);
+    }
+
+    handleViewChanged() {
+      this.clearRuntimeVisualReduction("settings changed", { silent: true });
+      this.renderer.invalidateVisualCaches?.("settings changed");
+      this.updateUi();
+    }
+
+    restoreVisuals(payload = {}) {
+      if (payload?.preset === "balanced") this.ui.applyVisualPreset?.("balanced");
+      this.clearRuntimeVisualReduction(payload?.preset === "balanced" ? "balanced preset restored" : "visual reset");
+      this.renderer.invalidateVisualCaches?.("visual reset");
+      this.updateUi();
+      this.ui.toast(payload?.preset === "balanced" ? "Balanced visuals restored." : "Visuals reset.");
+    }
+
+    clearRuntimeVisualReduction(reason = "manual reset", options = {}) {
+      this.performanceLowSince = 0;
+      this.performanceAutoLow = false;
+      this.runtimeVisualState.temporaryPerformanceLevel = 0;
+      this.runtimeVisualState.autoReducedEffects = false;
+      this.runtimeVisualState.autoStrategicActive = false;
+      this.runtimeVisualState.fpsLowReason = "";
+      this.runtimeVisualState.stableFpsSince = 0;
+      this.runtimeVisualState.renderCacheVersion += 1;
+      if (!options.silent) this.runtimeVisualState.lastAutoChangeTime = performance.now();
+      this.renderer.invalidateVisualCaches?.(reason);
     }
 
     showEventToasts(events) {
@@ -589,7 +641,7 @@
     updateUi() {
       if (!this.state) return;
       const tile = this.selectedTile() || this.hoverTile();
-      this.ui.update(this.state, tile, this.selectedPlayerId, this.tileContext(tile));
+      this.ui.update(this.state, tile, this.selectedPlayerId, { ...this.tileContext(tile), spawnInspection: this.spawnInspection });
       this.sandboxPanel?.setState(this.state, { selectedTile: tile, selectedPlayerId: this.selectedPlayerId });
     }
 
@@ -600,6 +652,10 @@
       [...select.options].forEach((option) => {
         const building = this.state.config.buildings[option.value];
         option.disabled = Boolean(building?.animal && building.animal !== human.animal);
+        const preview = this.buildPreview(option.value, this.selectedTile(), human);
+        const label = building?.label || option.value;
+        option.textContent = Number.isFinite(preview.cost) ? `${label} (${preview.cost})` : label;
+        option.title = preview.reason || `${label}: ${preview.cost} Animal Energy`;
       });
       if (select.selectedOptions[0]?.disabled) {
         const next = [...select.options].find((option) => !option.disabled);
@@ -620,6 +676,14 @@
       }
       const tile = this.selectedTile();
       const human = this.human();
+      if (type === "teamRevive") {
+        if (!tile || tile.owner !== human?.id || !this.isBorder(tile, human.id)) {
+          this.ui.toast("Select one of your safe border tiles for the revive.", true);
+          return;
+        }
+        await this.postAction({ type: "teamRevive", targetId: payload.targetId, tileId: tile.id });
+        return;
+      }
       if (type === "build" && this.shouldWaitForBuildTarget(payload.buildingType, tile, human)) {
         this.pendingBuildType = payload.buildingType || this.ui.nodes.buildSelect.value;
         this.pendingAbilityTarget = false;
@@ -830,10 +894,67 @@
       });
     }
 
+    isSpawnPhase() {
+      return this.state?.phase === "SPAWN_SELECTION" || this.state?.phase === "COUNTDOWN";
+    }
+
+    async handleSpawnAction(payload = {}) {
+      if (!this.isSpawnPhase()) return;
+      const body = { type: payload.type || "spawnConfirm" };
+      if (payload.tileId != null) body.tileId = payload.tileId;
+      if (body.type === "spawnRelease" || body.type === "spawnRandom") this.spawnInspection = null;
+      await this.postAction(body);
+    }
+
+    spawnReservationAt(tile) {
+      if (!tile || !this.state?.spawn) return null;
+      let nearest = null;
+      let nearestDistance = Infinity;
+      (this.state.spawn.reservations || []).forEach((reservation) => {
+        const centerTile = reservation.tileId != null ? this.tileMap.get(reservation.tileId) : null;
+        const x = centerTile?.x ?? reservation.x;
+        const y = centerTile?.y ?? reservation.y;
+        if (!Number.isFinite(x) || !Number.isFinite(y)) return;
+        const distance = Math.hypot(tile.x - x, tile.y - y);
+        const radius = Math.max(2, Number(reservation.reservationRadius || this.state.spawn.startRadius || 2) + 1.2);
+        if (distance <= radius && distance < nearestDistance) {
+          nearest = reservation;
+          nearestDistance = distance;
+        }
+      });
+      return nearest;
+    }
+
+    async handleSpawnTap(tile) {
+      if (!tile || this.state?.phase !== "SPAWN_SELECTION") return;
+      this.selectTile(tile);
+      const claimed = this.spawnReservationAt(tile);
+      if (claimed) {
+        this.spawnInspection = claimed;
+        this.updateUi();
+        return;
+      }
+      if (!this.spawnCandidateIds?.has(tile.id) || this.spawnUnavailableCandidateIds?.has(tile.id)) {
+        this.spawnInspection = this.spawnUnavailableCandidateIds?.has(tile.id)
+          ? { playerName: "Claimed Area", animal: null, confirmed: true, anonymous: true }
+          : null;
+        this.updateUi();
+        const message = this.spawnUnavailableCandidateIds?.has(tile.id)
+          ? "Too close to a claimed spawn. Choose water outside the dotted boundary."
+          : "Choose open water with enough room to expand.";
+        this.ui.toast(message, true);
+        this.renderer.vfx?.spawnBlockedEffect(tile.id, "Invalid Spawn");
+        return;
+      }
+      this.spawnInspection = null;
+      await this.handleSpawnAction({ type: "spawnReserve", tileId: tile.id });
+    }
+
     async postAction(body, options = {}) {
       const started = options.pendingAction?.startedAt || performance.now();
       const clientActionId = options.pendingAction?.id || `action-${Date.now()}-${this.pendingActionSeq++}`;
-      const wantsDelta = Boolean(options.pendingAction && ["expand", "attack", "defend", "waterRoute"].includes(body.type));
+      const fullSyncActions = new Set(["restartTutorial"]);
+      const wantsDelta = !fullSyncActions.has(body.type);
       try {
         const basePayload = {
           ...body,
@@ -861,10 +982,12 @@
         else if (payload.type === "ability") this.ui.pulseAbility(false);
         if (!response.ok || !wantsDelta) this.ui.toast(data.message || (response.ok ? "Command sent." : "Command failed."), !response.ok);
         this.finishPendingAction(options.pendingAction, response.ok, data.message || "");
+        return data;
       } catch (error) {
         this.recordActionLatency(body.type, Math.round(performance.now() - started), 0);
         this.finishPendingAction(options.pendingAction, false, "Server did not receive the command.");
         this.ui.toast("Server did not receive the command.", true);
+        return null;
       }
     }
 
@@ -888,9 +1011,16 @@
       const currentEvents = this.state.events || [];
       const eventIds = new Set(currentEvents.map((event) => event.id));
       const mergedEvents = currentEvents.concat((delta.events || []).filter((event) => !eventIds.has(event.id))).slice(-((this.state.config?.maxEvents || 80) + 20));
+      const nextConfig = delta.buildingCosts ? { ...this.state.config, buildingCosts: delta.buildingCosts } : this.state.config;
       const nextState = {
         ...this.state,
         serverTime: delta.serverTime ?? this.state.serverTime,
+        phase: delta.phase ?? this.state.phase,
+        spawn: delta.spawn && Number(delta.spawn.version ?? 0) >= Number(this.state.spawn?.version ?? 0)
+          ? { ...(this.state.spawn || {}), ...delta.spawn, candidateIds: delta.spawn.candidateIds || this.state.spawn?.candidateIds }
+          : this.state.spawn,
+        gameModeState: delta.gameModeState || this.state.gameModeState,
+        modifiers: delta.modifiers || this.state.modifiers,
         timeLeft: delta.timeLeft ?? this.state.timeLeft,
         elapsed: delta.elapsed ?? this.state.elapsed,
         animalsLeft: delta.animalsLeft ?? this.state.animalsLeft,
@@ -901,6 +1031,7 @@
         objectives: delta.objectives || this.state.objectives,
         camps: delta.camps || this.state.camps,
         lakeEvent: delta.lakeEvent || this.state.lakeEvent,
+        finalTide: delta.finalTide || this.state.finalTide,
         missions: delta.missions || this.state.missions,
         relationships: delta.relationships || this.state.relationships,
         matchSettings: delta.matchSettings || this.state.matchSettings,
@@ -914,6 +1045,7 @@
         specials: delta.specials || this.state.specials,
         metrics: { ...(this.state.metrics || {}), ...(delta.metrics || {}) },
         events: mergedEvents,
+        config: nextConfig,
       };
       this.setState(nextState, { silent: true, delta: true, changedTiles });
     }
@@ -1079,6 +1211,7 @@
 
       if (event.button === 2) {
         event.preventDefault();
+        if (this.isSpawnPhase()) return;
         this.openContextMenu(tile, event.clientX, event.clientY);
         return;
       }
@@ -1179,6 +1312,10 @@
       this.clearLongPress();
 
       if (wasClick) {
+        if (this.isSpawnPhase()) {
+          await this.handleSpawnTap(tile);
+          return;
+        }
         this.selectTile(tile);
         if (await this.handlePendingTap(tile)) return;
         this.handleTap(tile);
@@ -1362,7 +1499,7 @@
     }
 
     openContextMenu(tile, x, y) {
-      if (!this.contextMenu || !this.state || !tile) return;
+      if (!this.contextMenu || !this.state || !tile || this.isSpawnPhase()) return;
       this.selectTile(tile, { preserveSources: true });
       this.renderer.vfx?.spawnPulse(tile.id, "#87d7ea", 0.92);
       const menu = this.buildContextMenu(tile);
@@ -1498,20 +1635,14 @@
 
     buildingMenuItems(human, tile) {
       return Object.entries(this.state.config.buildings).map(([buildingType, building]) => {
-        const wrongAnimal = building.animal && building.animal !== human.animal;
-        const badTerrain = !building.validTiles.includes(tile.type);
-        const cost = this.buildingCost(buildingType, human);
-        const noEnergy = human.energy < cost;
-        const disabled = wrongAnimal || badTerrain || noEnergy;
-        const reason = wrongAnimal
-          ? "Wrong animal"
-          : badTerrain
-            ? "Invalid terrain"
-            : noEnergy
-              ? "Not enough energy"
-              : `${cost} energy. Finishes in ${this.state.config.balance?.buildTimeSeconds || 10}s.`;
+        const preview = this.buildPreview(buildingType, tile, human);
+        const cost = preview.cost;
+        const disabled = !preview.canBuild;
+        const reason = preview.canBuild
+          ? `${cost} energy. Finishes in ${preview.buildTime || 0}s.`
+          : preview.reason || "Cannot build here.";
         return {
-          label: `Build ${building.label}`,
+          label: `Build ${building.label} - ${cost} Energy`,
           icon: "B",
           disabled,
           hint: reason,
@@ -1854,13 +1985,7 @@
     }
 
     canBuildHere(human, tile, buildingType) {
-      if (!human || !tile) return false;
-      const building = this.state.config.buildings[buildingType];
-      if (!building || tile.owner !== human.id || tile.building) return false;
-      if (building.animal && building.animal !== human.animal) return false;
-      if (!building.validTiles.includes(tile.type)) return false;
-      if (human.energy < this.buildingCost(buildingType, human)) return false;
-      return true;
+      return Boolean(this.buildPreview(buildingType, tile, human).canBuild);
     }
 
     specialTargetIds(specialType) {
@@ -1940,8 +2065,8 @@
     loop() {
       const draw = () => {
         const now = performance.now();
-        this.recordFrame(now);
         const view = this.ui.viewOptions();
+        this.recordFrame(now, view);
         this.renderer.draw({
           ...view,
           selectedTileId: this.selectedTileId,
@@ -1952,6 +2077,9 @@
           rallyTileId: this.rallyTileId,
           mode: this.mode,
           performanceLow: this.performanceAutoLow,
+          performanceLevel: this.runtimeVisualState.temporaryPerformanceLevel,
+          runtimeVisualState: this.runtimeVisualState,
+          spawnSelection: this.spawnRenderOptions(),
         });
         if (this.state && view.showDebugStats && now - this.lastPerfUiAt > 500) {
           this.lastPerfUiAt = now;
@@ -1962,7 +2090,23 @@
       requestAnimationFrame(draw);
     }
 
-    recordFrame(now = performance.now()) {
+    spawnRenderOptions() {
+      if (!this.isSpawnPhase()) return null;
+      return {
+        phase: this.state.phase,
+        candidateIds: this.spawnCandidateIds || new Set(),
+        unavailableCandidateIds: this.spawnUnavailableCandidateIds || new Set(),
+        hoverTileId: this.hoverTileId,
+        selectedTileId: this.selectedTileId,
+        startRadius: this.state.spawn?.startRadius || 2,
+        reservations: this.state.spawn?.reservations || [],
+        ownReservation: this.state.spawn?.ownReservation || null,
+        minimumDistanceRadius: this.state.spawn?.minimumDistanceRadius || 6,
+        inspection: this.spawnInspection,
+      };
+    }
+
+    recordFrame(now = performance.now(), view = null) {
       if (!this.frameSample.lastAt) {
         this.frameSample.lastAt = now;
         return;
@@ -1979,15 +2123,53 @@
         this.performanceStats.lowestFps = Math.min(this.performanceStats.lowestFps || fps, fps);
         this.performanceStats.frameMs = Number(avgFrame.toFixed(1));
         this.performanceStats.worstFrameMs = Number(this.frameSample.worstMs.toFixed(1));
-        if (fps < 45) {
-          this.performanceLowSince = this.performanceLowSince || now;
-          if (now - this.performanceLowSince > 3000) this.performanceAutoLow = true;
-        } else if (fps > 56 && this.performanceAutoLow) {
-          this.performanceLowSince = 0;
-        } else if (fps >= 45) {
-          this.performanceLowSince = 0;
-        }
+        this.updateRuntimeVisualPerformance(fps, now, view);
         this.frameSample = { frames: 0, totalMs: 0, worstMs: 0, since: now, lastAt: now };
+      }
+    }
+
+    updateRuntimeVisualPerformance(fps, now, view = null) {
+      const autoEnabled = view?.effects?.autoLowPerformance !== false;
+      const runtime = this.runtimeVisualState;
+      if (!autoEnabled) {
+        if (runtime.temporaryPerformanceLevel > 0 || this.performanceAutoLow) this.clearRuntimeVisualReduction("auto performance disabled", { silent: true });
+        return;
+      }
+      const cooldownReady = now - (runtime.lastAutoChangeTime || 0) > 10000;
+      if (fps < 45) {
+        this.performanceLowSince = this.performanceLowSince || now;
+        runtime.stableFpsSince = 0;
+        if (now - this.performanceLowSince > 3000 && cooldownReady && runtime.temporaryPerformanceLevel < 2) {
+          runtime.temporaryPerformanceLevel += 1;
+          runtime.autoReducedEffects = true;
+          runtime.fpsLowReason = `FPS ${fps} below 45`;
+          runtime.lastAutoChangeTime = now;
+          runtime.renderCacheVersion += 1;
+          this.performanceAutoLow = runtime.temporaryPerformanceLevel > 0;
+          this.renderer.invalidateVisualCaches?.("auto performance reduce");
+          if (now - (runtime.lastNoticeAt || 0) > 15000) {
+            runtime.lastNoticeAt = now;
+            this.ui.toast("Performance mode reduced visuals temporarily.");
+          }
+        }
+        return;
+      }
+      this.performanceLowSince = 0;
+      if (fps >= 50) runtime.stableFpsSince = runtime.stableFpsSince || now;
+      else runtime.stableFpsSince = 0;
+      if (runtime.temporaryPerformanceLevel > 0 && runtime.stableFpsSince && now - runtime.stableFpsSince > 15000 && cooldownReady) {
+        runtime.temporaryPerformanceLevel -= 1;
+        runtime.lastAutoChangeTime = now;
+        runtime.renderCacheVersion += 1;
+        runtime.fpsLowReason = runtime.temporaryPerformanceLevel > 0 ? "Restoring visuals gradually" : "";
+        runtime.autoReducedEffects = runtime.temporaryPerformanceLevel > 0;
+        this.performanceAutoLow = runtime.temporaryPerformanceLevel > 0;
+        if (!this.performanceAutoLow) runtime.stableFpsSince = 0;
+        this.renderer.invalidateVisualCaches?.("auto performance restore");
+        if (!this.performanceAutoLow && now - (runtime.lastNoticeAt || 0) > 12000) {
+          runtime.lastNoticeAt = now;
+          this.ui.toast("Visuals restored.");
+        }
       }
     }
 
@@ -2070,16 +2252,39 @@
     }
 
     buildingCost(buildingType, human = this.human()) {
+      const details = root.PondBuildingRules?.buildingCostDetails?.(
+        human,
+        buildingType,
+        this.state?.config || {},
+        this.state?.config?.balance || root.PondBalance || {},
+      );
+      if (details && Number.isFinite(details.cost)) return details.cost;
       const configured = this.state?.config?.buildingCosts?.[buildingType];
       if (configured != null) return configured;
       const building = this.state?.config?.buildings?.[buildingType];
-      if (!building) return Infinity;
-      const balance = this.state.config.balance || root.PondBalance || {};
-      const ownedCount = human?.buildings?.[buildingType] || 0;
-      const growth = buildingType === "lilyFarm" ? balance.farmCostGrowth || balance.buildingCostGrowth || 0.35 : balance.buildingCostGrowth || 0.35;
-      const baseCost = buildingType === "lilyFarm" ? balance.farmBaseCost || building.cost : building.cost;
-      const carpDiscount = human?.animal === "carp" && buildingType === "lilyFarm" ? balance.carpLilyFarmCostMultiplier || 0.9 : 1;
-      return Math.round(baseCost * (1 + ownedCount * growth) * carpDiscount);
+      return building?.cost ?? Infinity;
+    }
+
+    buildPreview(buildingType, tile = this.selectedTile(), human = this.human()) {
+      const preview = root.PondBuildingRules?.previewBuild?.({
+        player: human,
+        tile,
+        buildingType,
+        gameConfig: this.state?.config || {},
+        balance: this.state?.config?.balance || root.PondBalance || {},
+        now: this.state?.serverTime || 0,
+        instantBuild: Boolean(this.state?.sandbox?.rules?.instantBuild),
+      });
+      if (preview) return preview;
+      const cost = this.buildingCost(buildingType, human);
+      return {
+        buildingType,
+        cost,
+        canBuild: Boolean(human && tile && tile.owner === human.id && !tile.building && human.energy >= cost),
+        reason: "",
+        buildTime: this.state?.config?.balance?.buildTimeSeconds || 10,
+        energyRequired: Math.max(0, cost - Math.round(human?.energy || 0)),
+      };
     }
 
     constructionLeft(tile) {

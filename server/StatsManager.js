@@ -8,7 +8,7 @@ class StatsManager {
 
   recordMatch(game) {
     if (!game || !game.ended || game.accountRewardsRecorded) return [];
-    if (game.matchSettings?.sandbox?.enabled) return [];
+    if (game.matchSettings?.sandbox?.enabled || game.matchSettings?.progressionDisabled || game.modifierManager?.shouldDisableProgression?.()) return [];
     game.accountRewardsRecorded = true;
     game.accountRewardsByPlayer = game.accountRewardsByPlayer || {};
     const playable = Math.max(1, game.tileManager?.playable?.().length || game.playable || 1);

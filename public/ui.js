@@ -73,6 +73,7 @@
         createNameInput: document.querySelector("#createNameInput"),
         createAnimalSelect: document.querySelector("#createAnimalSelect"),
         createGameMode: document.querySelector("#createGameMode"),
+        createRuleMode: document.querySelector("#createRuleMode"),
         createMapSize: document.querySelector("#createMapSize"),
         createBotDifficulty: document.querySelector("#createBotDifficulty"),
         createBotCount: document.querySelector("#createBotCount"),
@@ -103,18 +104,30 @@
         lobbyReadyButton: document.querySelector("#lobbyReadyButton"),
         lobbyHostControls: document.querySelector("#lobbyHostControls"),
         lobbyGameMode: document.querySelector("#lobbyGameMode"),
+        lobbyRuleMode: document.querySelector("#lobbyRuleMode"),
         lobbyMapSize: document.querySelector("#lobbyMapSize"),
         lobbyBotCount: document.querySelector("#lobbyBotCount"),
         lobbyBotDifficulty: document.querySelector("#lobbyBotDifficulty"),
         lobbyTeamCount: document.querySelector("#lobbyTeamCount"),
         lobbyBotsPerTeam: document.querySelector("#lobbyBotsPerTeam"),
         lobbySurrenderMode: document.querySelector("#lobbySurrenderMode"),
+        lobbySpawnTime: document.querySelector("#lobbySpawnTime"),
+        lobbyTeamSpawnStyle: document.querySelector("#lobbyTeamSpawnStyle"),
+        lobbyStartingEnergy: document.querySelector("#lobbyStartingEnergy"),
+        lobbyTeamRevives: document.querySelector("#lobbyTeamRevives"),
+        lobbyStartEarly: document.querySelector("#lobbyStartEarly"),
+        lobbyLockSpawn: document.querySelector("#lobbyLockSpawn"),
+        lobbyEnemySpawnVisibility: document.querySelector("#lobbyEnemySpawnVisibility"),
+        lobbySharedVision: document.querySelector("#lobbySharedVision"),
+        lobbyFriendlyFire: document.querySelector("#lobbyFriendlyFire"),
+        lobbyModifierInputs: [...document.querySelectorAll("[data-lobby-modifier]")],
         lobbyAllowBots: document.querySelector("#lobbyAllowBots"),
         lobbyForceStart: document.querySelector("#lobbyForceStart"),
         lobbyStartMatch: document.querySelector("#lobbyStartMatch"),
         leaveLobbyButton: document.querySelector("#leaveLobbyButton"),
         playerName: document.querySelector("#playerName"),
         gameMode: document.querySelector("#gameMode"),
+        ruleMode: document.querySelector("#ruleMode"),
         beginnerCombat: document.querySelector("#beginnerCombat"),
         mapSize: document.querySelector("#mapSize"),
         mapInfoCard: document.querySelector("#mapInfoCard"),
@@ -147,6 +160,21 @@
         animalStat: document.querySelector("#animalStat"),
         teamStat: document.querySelector("#teamStat"),
         timerStat: document.querySelector("#timerStat"),
+        modifiedMatchBadge: document.querySelector("#modifiedMatchBadge"),
+        spawnSelectionOverlay: document.querySelector("#spawnSelectionOverlay"),
+        spawnPhaseLabel: document.querySelector("#spawnPhaseLabel"),
+        spawnTimer: document.querySelector("#spawnTimer"),
+        spawnReadyCount: document.querySelector("#spawnReadyCount"),
+        spawnLocationStatus: document.querySelector("#spawnLocationStatus"),
+        spawnLocationDetails: document.querySelector("#spawnLocationDetails"),
+        spawnInspection: document.querySelector("#spawnInspection"),
+        spawnStatusSummary: document.querySelector("#spawnStatusSummary"),
+        spawnStatusList: document.querySelector("#spawnStatusList"),
+        spawnRandomButton: document.querySelector("#spawnRandomButton"),
+        spawnChangeButton: document.querySelector("#spawnChangeButton"),
+        spawnConfirmButton: document.querySelector("#spawnConfirmButton"),
+        spawnViewButton: document.querySelector("#spawnViewButton"),
+        spawnFitButton: document.querySelector("#spawnFitButton"),
         winDebugPanel: document.querySelector("#winDebugPanel"),
         controlMeter: document.querySelector("#controlMeter"),
         lakeEventBanner: document.querySelector("#lakeEventBanner"),
@@ -230,8 +258,11 @@
         showBorderStatus: document.querySelector("#showBorderStatus"),
         uiScale: document.querySelector("#uiScale"),
         visualPreset: document.querySelector("#visualPreset"),
+        colorVisionMode: document.querySelector("#colorVisionMode"),
         effectsLevel: document.querySelector("#effectsLevel"),
         visualQuality: document.querySelector("#visualQuality"),
+        resetVisualsButton: document.querySelector("#resetVisualsButton"),
+        restoreBalancedButton: document.querySelector("#restoreBalancedButton"),
         particlesLevel: document.querySelector("#particlesLevel"),
         mapDecorations: document.querySelector("#mapDecorations"),
         floatingText: document.querySelector("#floatingText"),
@@ -281,6 +312,7 @@
       this.rightPanelTab = "leaderboard";
       this.lastDebugFrameAt = 0;
       this.lastLeaderboardRenderAt = 0;
+      this.lastWorldPanelRenderAt = 0;
       this.debugMode = new URLSearchParams(window.location.search).has("debug") || localStorage.getItem("pondfront:debug") === "1";
       document.body.classList.toggle("debug-open", this.debugMode);
       this.nodes.strategicView.checked = true;
@@ -298,6 +330,13 @@
       const defaultPreset = savedPreset || (this.isMobile() ? "simple" : "balanced");
       if (this.nodes.visualPreset) this.nodes.visualPreset.value = defaultPreset;
       this.applyVisualPreset(defaultPreset, { store: false });
+      if (this.nodes.colorVisionMode) {
+        const savedColorVision = localStorage.getItem("pondfront:color-vision") || "standard";
+        this.nodes.colorVisionMode.value = ["standard", "deuteranopia", "protanopia", "tritanopia"].includes(savedColorVision)
+          ? savedColorVision
+          : "standard";
+        document.body.dataset.colorVision = this.nodes.colorVisionMode.value;
+      }
       if (this.isMobile()) {
         if (this.nodes.screenShake) this.nodes.screenShake.checked = false;
         if (this.nodes.showAnimalAnimations) this.nodes.showAnimalAnimations.checked = false;
@@ -372,18 +411,42 @@
       });
       this.nodes.lobbyStartMatch?.addEventListener("click", () => this.emit("lobbyStart"));
       this.nodes.leaveLobbyButton?.addEventListener("click", () => this.emit("lobbyLeave"));
+      this.nodes.spawnRandomButton?.addEventListener("click", () => this.emit("spawnAction", { type: "spawnRandom" }));
+      this.nodes.spawnChangeButton?.addEventListener("click", () => this.emit("spawnAction", { type: "spawnRelease" }));
+      this.nodes.spawnViewButton?.addEventListener("click", () => {
+        const tileId = this.lastState?.spawn?.ownReservation?.tileId;
+        if (tileId != null) this.emit("camera", { type: "focusTile", tileId });
+        else this.toast("Choose a starting location first.", true);
+      });
+      this.nodes.spawnFitButton?.addEventListener("click", () => this.emit("camera", { type: "reset" }));
+      this.nodes.spawnConfirmButton?.addEventListener("click", () => {
+        const action = this.nodes.spawnConfirmButton?.dataset.action || "spawnConfirm";
+        this.emit("spawnAction", { type: action });
+      });
       [this.nodes.lobbyPlayerName, this.nodes.lobbyAnimalSelect, this.nodes.lobbyTeamSelect].forEach((node) =>
         node?.addEventListener("change", () => this.emit("lobbyUpdatePlayer", this.lobbyPlayerPayload())),
       );
       [
         this.nodes.lobbyGameMode,
+        this.nodes.lobbyRuleMode,
         this.nodes.lobbyMapSize,
         this.nodes.lobbyBotCount,
         this.nodes.lobbyBotDifficulty,
         this.nodes.lobbyTeamCount,
         this.nodes.lobbyBotsPerTeam,
+        this.nodes.lobbySurrenderMode,
+        this.nodes.lobbySpawnTime,
+        this.nodes.lobbyTeamSpawnStyle,
+        this.nodes.lobbyStartingEnergy,
+        this.nodes.lobbyTeamRevives,
+        this.nodes.lobbyStartEarly,
+        this.nodes.lobbyLockSpawn,
+        this.nodes.lobbyEnemySpawnVisibility,
+        this.nodes.lobbySharedVision,
+        this.nodes.lobbyFriendlyFire,
         this.nodes.lobbyAllowBots,
         this.nodes.lobbyForceStart,
+        ...this.nodes.lobbyModifierInputs,
       ].forEach((node) =>
         node?.addEventListener("change", () => {
           this.emit("lobbyUpdateSettings", this.lobbySettingsPayload());
@@ -392,7 +455,10 @@
       this.nodes.practiceButton?.addEventListener("click", () => {
         this.audio?.unlock();
         this.audio?.play("start");
-        this.emit("start", this.startPayload({ difficulty: "easy", mapSize: "small", botCount: 4, matchLength: "quick", practice: true }));
+        this.emit(
+          "start",
+          this.startPayload({ difficulty: "easy", mapSize: "small", botCount: 4, matchLength: "quick", practice: true, spawnSelectionSeconds: 45 }),
+        );
       });
       this.nodes.gameMode?.addEventListener("change", () => {
         this.updateLobbyMode();
@@ -493,6 +559,17 @@
       this.nodes.visualPreset?.addEventListener("change", () => {
         this.applyVisualPreset(this.nodes.visualPreset.value);
         this.emit("viewChanged");
+      });
+      this.nodes.colorVisionMode?.addEventListener("change", () => {
+        const mode = this.nodes.colorVisionMode.value || "standard";
+        localStorage.setItem("pondfront:color-vision", mode);
+        document.body.dataset.colorVision = mode;
+        this.emit("viewChanged");
+      });
+      this.nodes.resetVisualsButton?.addEventListener("click", () => this.emit("restoreVisuals", { preset: null }));
+      this.nodes.restoreBalancedButton?.addEventListener("click", () => {
+        this.applyVisualPreset("balanced");
+        this.emit("restoreVisuals", { preset: "balanced" });
       });
       this.nodes.effectsLevel.addEventListener("change", () => this.emit("viewChanged"));
       this.nodes.visualQuality?.addEventListener("change", () => this.emit("viewChanged"));
@@ -611,6 +688,12 @@
       this.nodes.closeTeamSheet?.addEventListener("click", () => this.nodes.teamSheet.classList.add("hidden"));
       this.nodes.teamSheet?.addEventListener("click", (event) => {
         if (event.target === this.nodes.teamSheet) this.nodes.teamSheet.classList.add("hidden");
+        const reviveButton = event.target.closest("[data-team-revive]");
+        if (reviveButton) {
+          this.nodes.teamSheet.classList.add("hidden");
+          this.emit("action", { type: "teamRevive", targetId: reviveButton.dataset.teamRevive });
+          return;
+        }
         const button = event.target.closest("[data-team-command]");
         if (!button) return;
         this.nodes.teamSheet.classList.add("hidden");
@@ -745,6 +828,7 @@
         difficulty: this.nodes.difficulty.value,
         beginnerCombat: this.nodes.beginnerCombat?.checked || this.nodes.difficulty.value === "easy",
         gameMode: this.nodes.gameMode?.value || "solo",
+        ruleMode: this.nodes.ruleMode?.value || "classic",
         mapSize: this.nodes.mapSize?.value || "large",
         botCount: Number(this.nodes.botCount?.value || 12),
         matchLength: this.nodes.matchLength?.value || "standard",
@@ -763,6 +847,7 @@
         playerName: (this.nodes.createNameInput?.value || fallback.playerName).trim().slice(0, 18) || "Player",
         animal: this.nodes.createAnimalSelect?.value || fallback.animal,
         gameMode: this.nodes.createGameMode?.value || fallback.gameMode,
+        ruleMode: this.nodes.createRuleMode?.value || fallback.ruleMode || "classic",
         mapSize: this.nodes.createMapSize?.value || fallback.mapSize,
         botDifficulty: this.nodes.createBotDifficulty?.value || fallback.difficulty,
         difficulty: this.nodes.createBotDifficulty?.value || fallback.difficulty,
@@ -794,8 +879,10 @@
     }
 
     lobbySettingsPayload() {
+      const modifiers = Object.fromEntries(this.nodes.lobbyModifierInputs.map((input) => [input.dataset.lobbyModifier, Boolean(input.checked)]));
       return {
         gameMode: this.nodes.lobbyGameMode?.value || "solo",
+        ruleMode: this.nodes.lobbyRuleMode?.value || "classic",
         mapSize: this.nodes.lobbyMapSize?.value || "medium",
         botCount: Number(this.nodes.lobbyBotCount?.value || 0),
         botDifficulty: this.nodes.lobbyBotDifficulty?.value || "normal",
@@ -803,6 +890,16 @@
         teamCount: Number(this.nodes.lobbyTeamCount?.value || 2),
         botsPerTeam: Number(this.nodes.lobbyBotsPerTeam?.value || 0),
         surrenderMode: this.nodes.lobbySurrenderMode?.value || "off",
+        spawnSelectionSeconds: Number(this.nodes.lobbySpawnTime?.value ?? 30),
+        teamSpawnStyle: this.nodes.lobbyTeamSpawnStyle?.value || "nearby",
+        startingEnergy: Number(this.nodes.lobbyStartingEnergy?.value || 64),
+        teamRevives: this.nodes.lobbyTeamRevives?.value || "off",
+        startEarlyWhenReady: this.nodes.lobbyStartEarly?.checked !== false,
+        lockSpawnOnConfirm: Boolean(this.nodes.lobbyLockSpawn?.checked),
+        enemySpawnVisibility: this.nodes.lobbyEnemySpawnVisibility?.value || "visible",
+        sharedVision: this.nodes.lobbySharedVision?.checked !== false,
+        friendlyFire: Boolean(this.nodes.lobbyFriendlyFire?.checked),
+        modifiers,
         allowBots: this.nodes.lobbyAllowBots?.checked !== false,
         forceStart: Boolean(this.nodes.lobbyForceStart?.checked),
       };
@@ -821,6 +918,7 @@
       if (this.nodes.createNameInput) this.nodes.createNameInput.value = payload.playerName;
       this.setSelectValue(this.nodes.createAnimalSelect, payload.animal);
       this.setSelectValue(this.nodes.createGameMode, payload.gameMode === "solo" ? "solo" : payload.gameMode);
+      this.setSelectValue(this.nodes.createRuleMode, payload.ruleMode || "classic");
       this.setSelectValue(this.nodes.createMapSize, payload.mapSize);
       this.setSelectValue(this.nodes.createBotDifficulty, payload.difficulty);
       this.setSelectValue(this.nodes.createBotCount, String(payload.botCount || 8));
@@ -930,12 +1028,28 @@
     syncHostControls(lobby) {
       const settings = lobby.settings || {};
       this.setSelectValue(this.nodes.lobbyGameMode, settings.gameMode || "solo");
+      this.setSelectValue(this.nodes.lobbyRuleMode, settings.ruleMode || "classic");
       this.setSelectValue(this.nodes.lobbyMapSize, settings.mapSize || "medium");
       this.setSelectValue(this.nodes.lobbyBotCount, String(settings.botCount ?? 8));
       this.setSelectValue(this.nodes.lobbyBotDifficulty, settings.botDifficulty || settings.difficulty || "normal");
       this.setSelectValue(this.nodes.lobbyTeamCount, String(settings.teamCount || 2));
       this.setSelectValue(this.nodes.lobbyBotsPerTeam, String(settings.botsPerTeam ?? 4));
       this.setSelectValue(this.nodes.lobbySurrenderMode, settings.surrenderMode || "off");
+      this.setSelectValue(this.nodes.lobbySpawnTime, String(settings.spawnSelectionSeconds ?? 30));
+      this.setSelectValue(this.nodes.lobbyTeamSpawnStyle, settings.teamSpawnStyle || "nearby");
+      this.setSelectValue(this.nodes.lobbyStartingEnergy, String(settings.startingEnergy || 64));
+      this.setSelectValue(this.nodes.lobbyTeamRevives, settings.teamRevives || "off");
+      if (this.nodes.lobbyStartEarly) this.nodes.lobbyStartEarly.checked = settings.startEarlyWhenReady !== false;
+      if (this.nodes.lobbyLockSpawn) this.nodes.lobbyLockSpawn.checked = Boolean(settings.lockSpawnOnConfirm);
+      this.setSelectValue(
+        this.nodes.lobbyEnemySpawnVisibility,
+        settings.enemySpawnVisibility || (settings.secretSpawns ? "hidden" : "visible"),
+      );
+      if (this.nodes.lobbySharedVision) this.nodes.lobbySharedVision.checked = settings.sharedVision !== false;
+      if (this.nodes.lobbyFriendlyFire) this.nodes.lobbyFriendlyFire.checked = Boolean(settings.friendlyFire);
+      this.nodes.lobbyModifierInputs.forEach((input) => {
+        input.checked = Boolean(settings.modifiers?.[input.dataset.lobbyModifier]);
+      });
       if (this.nodes.lobbyAllowBots) this.nodes.lobbyAllowBots.checked = settings.allowBots !== false;
       if (this.nodes.lobbyForceStart) this.nodes.lobbyForceStart.checked = Boolean(settings.forceStart);
     }
@@ -1232,6 +1346,12 @@
       this.lastContext = context;
       this.lastHuman = human;
       document.body.dataset.animal = human.animal;
+      document.body.dataset.matchPhase = state.phase || "PLAYING";
+      this.updateSpawnSelection(state, human, selectedTile, context);
+      if (this.nodes.modifiedMatchBadge) {
+        this.nodes.modifiedMatchBadge.classList.toggle("hidden", !state.modifiers?.modified);
+        this.nodes.modifiedMatchBadge.textContent = state.modifiers?.label || "Modified Match - Progression Disabled";
+      }
       this.nodes.energyStat.textContent = `${human.energy} / ${human.maxEnergy}`;
       this.nodes.incomeStat.textContent = `+${human.income}/s`;
       this.nodes.territoryStat.textContent = `${Math.round(human.territoryPct * 100)}%`;
@@ -1241,12 +1361,19 @@
         this.nodes.teamStat.textContent = humanTeam ? `${humanTeam.name.replace(" Team", "")} ${Math.round(humanTeam.territoryPct * 100)}%` : "Solo";
         this.nodes.teamStat.style.color = humanTeam?.color || "";
       }
-      this.nodes.timerStat.textContent = `${this.formatTime(state.elapsed || 0)} | ${state.teamState?.active ? `${state.teamsLeft || 0} teams` : `${state.animalsLeft || 0} left`}`;
+      const timeLeft = Number.isFinite(Number(state.timeLeft)) ? Number(state.timeLeft) : 0;
+      this.nodes.timerStat.textContent =
+        state.phase === "SPAWN_SELECTION" || state.phase === "COUNTDOWN"
+          ? `${state.spawn?.timeLeft == null ? "No limit" : `${Math.ceil(state.spawn.timeLeft)}s`} | ${state.spawn?.readyCount || 0}/${state.spawn?.totalPlayers || 1} ready`
+          : `${this.formatTime(timeLeft)} left | ${state.teamState?.active ? `${state.teamsLeft || 0} teams` : `${state.animalsLeft || 0} left`}`;
       if (this.nodes.matchRulesSummary) {
         const surrender = state.matchSettings?.surrenderMode || "off";
         const label = surrender === "bots" ? "Bots Only" : surrender === "everyone" ? "Everyone" : "Off";
         const lastStand = human.flags?.lastStandUntil > state.serverTime ? ` | Last Stand ${Math.ceil(human.flags.lastStandUntil - state.serverTime)}s` : "";
-        this.nodes.matchRulesSummary.textContent = `Surrender: ${label}${lastStand}`;
+        const mode = state.gameModeState;
+        const leadScore = mode?.scores?.[0]?.score;
+        const modeProgress = mode?.scoreTarget ? ` ${leadScore || 0}/${mode.scoreTarget}` : mode?.tideTarget ? ` Tide ${mode.tide || 0}/${mode.tideTarget}` : mode?.combatLocked ? ` Combat in ${mode.peaceLeft}s` : "";
+        this.nodes.matchRulesSummary.textContent = `${mode?.label || "Classic Elimination"}${modeProgress} | Surrender: ${label}${lastStand}`;
       }
       this.nodes.controlMeter.style.transform = `scaleX(${Math.max(0, Math.min(1, human.territoryPct))})`;
       this.updateWinDebug(state);
@@ -1288,9 +1415,20 @@
       this.updateSelectedTile(state, selectedTile, context);
       this.updatePlayerPanel(state, selectedPlayerId);
       this.updateProgression(human);
-      this.updateObjectives(state);
-      this.updateMissions(state);
-      this.updateLakeEvent(state);
+      const now = performance.now();
+      const refreshWorldPanels =
+        state.ended ||
+        state.finalTide?.active ||
+        !this.lastWorldPanelRenderAt ||
+        now - this.lastWorldPanelRenderAt > 900 ||
+        this.rightPanelTab === "objectives" ||
+        this.rightPanelTab === "missions";
+      if (refreshWorldPanels) {
+        this.lastWorldPanelRenderAt = now;
+        this.updateObjectives(state);
+        this.updateMissions(state);
+        this.updateLakeEvent(state);
+      }
       this.updateCurrentPushWarning(state, human);
       this.updateLeaderboard(state);
       this.updateActionLabels(human);
@@ -1301,6 +1439,68 @@
       if (!this.nodes.specialSheet?.classList.contains("hidden")) this.openSpecialSheet();
       if (!this.nodes.teamSheet?.classList.contains("hidden")) this.renderTeamSheet();
       if (state.ended) this.showResult(state, human);
+    }
+
+    updateSpawnSelection(state, human, selectedTile, context = {}) {
+      const spawn = state.spawn;
+      const active = state.phase === "SPAWN_SELECTION" || state.phase === "COUNTDOWN";
+      this.nodes.spawnSelectionOverlay?.classList.toggle("hidden", !active);
+      if (!active || !spawn) return;
+      const reservation = spawn.ownReservation;
+      const reservedTile = reservation ? state.tiles[reservation.tileId] : null;
+      const phaseLabel = state.phase === "COUNTDOWN" ? "Starting Territory Bloom" : spawn.label || "Choose Your Starting Nest";
+      if (this.nodes.spawnPhaseLabel) this.nodes.spawnPhaseLabel.textContent = phaseLabel;
+      if (this.nodes.spawnTimer) this.nodes.spawnTimer.textContent = spawn.timeLeft == null ? "No limit" : `${Math.ceil(spawn.timeLeft)}s`;
+      if (this.nodes.spawnReadyCount) this.nodes.spawnReadyCount.textContent = `Players Ready: ${spawn.readyCount || 0}/${spawn.totalPlayers || 1}`;
+      if (this.nodes.spawnStatusSummary) this.nodes.spawnStatusSummary.textContent = `${spawn.readyCount || 0} / ${spawn.totalPlayers || 1} ready`;
+      if (this.nodes.spawnStatusList) {
+        this.nodes.spawnStatusList.innerHTML = (spawn.statusRows || [])
+          .map((row) => {
+            const visual = row.animal ? this.visualFor(row.animal) : null;
+            const icon = visual?.short || (row.anonymous ? "?" : "A");
+            const relation = row.isOwn ? "own" : row.isTeammate ? "team" : row.isBot ? "bot" : row.anonymous ? "hidden" : "enemy";
+            const statusClass = String(row.status || "Choosing").toLowerCase().replace(/\s+/g, "-");
+            return `<div class="spawn-status-row ${relation}"><i style="--spawn-color:${this.escape(row.color || "#d96b61")}">${this.escape(icon)}</i><span>${this.escape(row.playerName || "Claimed Area")}${row.isBot ? " <small>BOT</small>" : ""}</span><b class="${statusClass}">${this.escape(row.status || "Choosing")}</b></div>`;
+          })
+          .join("");
+      }
+      if (this.nodes.spawnLocationStatus) {
+        this.nodes.spawnLocationStatus.textContent =
+          state.phase === "COUNTDOWN"
+            ? "Starting locations are locked. Pan and zoom while the pond opens."
+            : reservation?.confirmed
+              ? spawn.lockOnConfirm
+                ? "Starting nest confirmed and locked."
+                : "Starting nest confirmed. You may still change it before time ends."
+              : reservation
+                ? "Location reserved. Confirm when ready."
+                : "Click or tap open water to preview your starting territory.";
+      }
+      if (this.nodes.spawnLocationDetails) {
+        const focus = reservedTile || selectedTile;
+        const terrain = focus ? state.config.tileTypes?.[focus.type]?.label || focus.type : "No location selected";
+        this.nodes.spawnLocationDetails.textContent = reservedTile ? `${terrain} at ${reservedTile.x + 1}, ${reservedTile.y + 1}` : terrain;
+      }
+      if (this.nodes.spawnInspection) {
+        const inspected = context.spawnInspection;
+        this.nodes.spawnInspection.classList.toggle("hidden", !inspected);
+        if (inspected) {
+          const owner = inspected.playerName || "Claimed Area";
+          const animal = inspected.animal ? this.visualFor(inspected.animal).label || inspected.animal : "Hidden";
+          const status = inspected.confirmed ? "Confirmed" : "Reserved";
+          this.nodes.spawnInspection.textContent = `${owner} | ${animal} | ${status}. You must spawn outside the dotted boundary.`;
+        }
+      }
+      const locked = state.phase === "COUNTDOWN";
+      if (this.nodes.spawnRandomButton) this.nodes.spawnRandomButton.disabled = locked;
+      if (this.nodes.spawnViewButton) this.nodes.spawnViewButton.disabled = !reservation;
+      if (this.nodes.spawnChangeButton) this.nodes.spawnChangeButton.disabled = locked || !reservation || (reservation.confirmed && spawn.lockOnConfirm);
+      if (this.nodes.spawnConfirmButton) {
+        const hostCanStart = state.phase === "SPAWN_SELECTION" && reservation?.confirmed && human.isHost && spawn.timeLeft == null && !state.matchSettings?.startEarlyWhenReady;
+        this.nodes.spawnConfirmButton.dataset.action = hostCanStart ? "spawnStartCountdown" : "spawnConfirm";
+        this.nodes.spawnConfirmButton.textContent = locked ? `Starting in ${Math.ceil(spawn.timeLeft || 0)}s` : hostCanStart ? "Start Countdown" : reservation?.confirmed ? "Spawn Confirmed" : "Confirm Spawn";
+        this.nodes.spawnConfirmButton.disabled = locked || (!reservation && !hostCanStart) || (reservation?.confirmed && !hostCanStart);
+      }
     }
 
     updateWinDebug(state) {
@@ -1362,9 +1562,13 @@
       const game = root.pondFrontGame;
       const vfx = game?.renderer?.vfx;
       const perf = game?.performanceStats || {};
+      const runtime = game?.runtimeVisualState || {};
       const visibleTiles = game?.renderer?.lastVisibleTileCount || 0;
       const activeBots = (state.players || []).filter((player) => player.isBot && !player.defeated).length;
       const serverTick = state.metrics?.lastTickMs || state.serverTickMs || "live";
+      const autoLevel = Number(runtime.temporaryPerformanceLevel || 0);
+      const manualStrategic = this.nodes.strategicView?.checked === true;
+      const autoStrategic = runtime.autoStrategicActive === true;
       panel.innerHTML = `
         <strong>Debug</strong>
         <span>${perf.fps || "-"} FPS</span>
@@ -1372,7 +1576,12 @@
         <span>${perf.serverPingMs || "-"}ms ping</span>
         <span>${perf.expansionLatencyMs || "-"}ms expand</span>
         <span>${perf.expandServerProcessMs || perf.serverProcessMs || "-"}ms server</span>
-        <span>${game?.performanceAutoLow ? "auto low" : "normal"} gfx</span>
+        <span>${game?.performanceAutoLow ? `auto L${autoLevel}` : "normal"} gfx</span>
+        <span>preset ${this.escape(this.nodes.visualPreset?.value || "-")}</span>
+        <span>strategy ${manualStrategic ? "manual" : autoStrategic ? "auto" : "off"}</span>
+        <span>quality ${this.escape(this.nodes.visualQuality?.value || "-")}</span>
+        <span>cache ${game?.renderer?.visualCacheVersion || 0}</span>
+        <span>${this.escape(runtime.fpsLowReason || "visual stable")}</span>
         <span>${vfx?.particles?.length || 0}/${vfx?.maxParticles || 0} particles</span>
         <span>${state.activeAttacks?.length || 0} attacks</span>
         <span>${activeBots} bots</span>
@@ -1691,10 +1900,18 @@
       const active = state.lakeEvent?.active;
       const upcoming = !active ? state.lakeEvent?.upcoming : null;
       const event = active || upcoming;
-      this.nodes.lakeEventBanner.classList.toggle("hidden", !event);
+      const finalTide = !event && state.finalTide?.active ? state.finalTide : null;
+      this.nodes.lakeEventBanner.classList.toggle("hidden", !event && !finalTide);
       this.nodes.lakeEventBanner.classList.remove("danger");
       this.nodes.lakeEventBanner.dataset.focusTileId = "";
       this.nodes.lakeEventBanner.classList.toggle("warning", Boolean(upcoming));
+      if (finalTide) {
+        this.nodes.lakeEventBanner.style.setProperty("--event-color", "#f2d87a");
+        this.nodes.lakeEventTitle.textContent = finalTide.label || "Final Tide";
+        this.nodes.lakeEventDetails.textContent = `${finalTide.description || "The endgame has begun."} ${finalTide.remaining || 0} contenders remain.`;
+        this.nodes.lakeEventTimer.textContent = `${Math.round(((finalTide.objectiveMultiplier || 1) - 1) * 100)}%`;
+        return;
+      }
       if (!event) return;
       const area = event.area?.label ? ` Area: ${event.area.label}.` : "";
       this.nodes.lakeEventBanner.style.setProperty("--event-color", event.color || "#83dced");
@@ -1790,9 +2007,22 @@
             : "Current Push: special delayed long-range water route attack with cooldown. Border attacks have no cooldown and only cost energy.";
       }
       this.nodes.defendButton.textContent = `Defend ${Math.round(energy * 0.75)}`;
-      this.nodes.buildButton.textContent = construction > 0 ? `Building ${construction}s` : "Build";
+      const selectedBuildType = this.nodes.buildSelect?.value || "nest";
+      const buildPreview = this.buildPreview(selectedBuildType, this.lastTile, human, this.lastState);
+      this.nodes.buildButton.textContent =
+        construction > 0
+          ? `Building ${construction}s`
+          : this.lastTile?.building
+            ? "Building"
+            : Number.isFinite(buildPreview.cost)
+              ? `Build ${buildPreview.cost}`
+              : "Build";
       this.nodes.buildButton.classList.toggle("cooldown", construction > 0);
       this.nodes.buildButton.classList.toggle("ready", construction <= 0 && Boolean(human));
+      this.nodes.buildButton.dataset.tip =
+        construction > 0
+          ? `Build cooldown: ${construction}s until this structure finishes.`
+          : buildPreview.reason || `Build ${buildPreview.label || "structure"} for ${buildPreview.cost} Animal Energy.`;
       if (this.nodes.abilityButton && human) {
         this.nodes.abilityButton.dataset.animal = human.animal;
         this.nodes.abilityButton.innerHTML = `${this.abilityInline(human.animal, "Ability")}`;
@@ -1841,8 +2071,13 @@
       if (this.nodes.buildButton) {
         const construction = this.constructionLeft(tile, state);
         const canManageBuilding = ownsTile && Boolean(tile?.building);
+        const buildPreview = this.buildPreview(this.nodes.buildSelect?.value || "nest", tile, human, state);
         const canBuildHere = Boolean(context.canBuild || context.canUpgradeBuilding || canManageBuilding);
         this.nodes.buildButton.disabled = !human || human.defeated || !canBuildHere;
+        if (ownsTile && !canManageBuilding && !buildPreview.canBuild) {
+          this.nodes.buildButton.disabled = true;
+          this.nodes.buildButton.dataset.tip = buildPreview.reason || "Cannot build here.";
+        }
         if (canManageBuilding && construction <= 0) this.nodes.buildButton.textContent = context.canUpgradeBuilding ? "Upgrade" : "Building";
       }
       if (this.nodes.attackButton) this.nodes.attackButton.disabled = this.nodes.attackButton.disabled || !context.canAttack;
@@ -1900,6 +2135,7 @@
         showBorderStatus: this.nodes.showBorderStatus?.checked !== false,
         showDebugStats: this.debugMode || this.nodes.showDebugStats?.checked === true,
         visualPreset: this.nodes.visualPreset?.value || "balanced",
+        colorVisionMode: this.nodes.colorVisionMode?.value || "standard",
         visualQuality: this.nodes.visualQuality?.value || "high",
         mapDecorations: this.nodes.mapDecorations?.checked !== false,
         isMobile: this.isMobile(),
@@ -1952,10 +2188,11 @@
           .map((player) => {
             const animal = state.config.animals[player.animal] || {};
             const visual = this.visualFor(player.animal);
+            const canRevive = player.defeated && state.matchSettings?.teamRevives && state.matchSettings.teamRevives !== "off";
             return `<div class="team-member-row">
               ${this.animalDisc(player.animal, visual.label, "team-mini")}
               <span><b>${this.escape(player.name)}</b><small>${player.defeated ? "Out | " : ""}${this.escape(animal.label || player.animal)} | ${this.escape(this.roleLabel(player.role))} | ${Math.round(player.territoryPct * 100)}%</small></span>
-              <strong>${player.energy}</strong>
+              ${canRevive ? `<button data-team-revive="${this.escape(player.id)}" type="button">Revive</button>` : `<strong>${player.energy}</strong>`}
             </div>`;
           })
           .join("") || `<p class="empty-list">No teammates in this mode.</p>`;
@@ -2034,9 +2271,10 @@
         const building = state.config.buildings[tile.building] || {};
         const buildingVisual = this.buildingVisual(tile.building);
         const level = tile.buildingLevel || 1;
-        const upgradeCost = this.upgradeCost(tile.building, level, human, state);
+        const upgradePreview = this.upgradePreview(tile, human, state);
+        const upgradeCost = upgradePreview.cost;
         const construction = this.constructionLeft(tile, state);
-        const canUpgrade = level < 3 && human.energy >= upgradeCost && construction <= 0;
+        const canUpgrade = upgradePreview.canUpgrade;
         const defendEnergy = Math.round(human.energy * this.percent * 0.75);
         this.nodes.buildSheetList.innerHTML = `
           <div class="building-sheet-card">
@@ -2048,7 +2286,7 @@
           <button data-building-action="upgradeBuilding" ${canUpgrade ? "" : "disabled"}>
             <strong>Upgrade Building</strong>
             <span>Level ${Math.min(3, level + 1)} improves this building and adds border defense.</span>
-            <small>${level >= 3 ? "Already max level" : construction > 0 ? `Finish construction first: ${construction}s` : human.energy < upgradeCost ? `Need ${upgradeCost} energy` : `Cost ${upgradeCost}`}</small>
+            <small>${upgradePreview.canUpgrade ? `Cost ${upgradeCost}` : this.escape(upgradePreview.reason || "Cannot upgrade right now.")}</small>
           </button>
           <button data-building-action="defend" ${defendEnergy >= 3 ? "" : "disabled"}>
             <strong>Defend Building</strong>
@@ -2067,21 +2305,12 @@
       this.nodes.buildSheetList.innerHTML = Object.entries(state.config.buildings)
         .map(([id, building]) => {
           const buildingVisual = this.buildingVisual(id);
-          const cost = this.buildingCost(id, human, state);
-          const animalLocked = building.animal && building.animal !== human.animal;
-          const occupiedLocked = Boolean(tile?.building);
-          const terrainLocked = tile && !building.validTiles.includes(tile.type);
-          const energyLocked = human.energy < cost;
-          const disabled = animalLocked || occupiedLocked || terrainLocked || energyLocked;
-          const reason = animalLocked
-            ? `${building.animal} only`
-            : occupiedLocked
-              ? "Tile already has a building"
-            : terrainLocked
-              ? `Needs ${building.validTiles.join(", ")}`
-                  : energyLocked
-                    ? `Need ${cost} energy`
-                    : `Ready. Takes ${state.config.balance?.buildTimeSeconds || 10}s to finish.`;
+          const preview = this.buildPreview(id, tile, human, state);
+          const cost = preview.cost;
+          const disabled = !preview.canBuild;
+          const reason = preview.canBuild
+            ? `Ready. Takes ${preview.buildTime || 0}s to finish.`
+            : preview.reason || "Cannot build here.";
           return `<button data-build-choice="${this.escape(id)}" ${disabled ? "disabled" : ""}>
             <strong>${this.buildingIcon(id)} ${this.escape(building.label)}</strong>
             <span>Cost ${cost} | ${this.escape(this.buildingEffect(id))}</span>
@@ -2093,9 +2322,33 @@
     }
 
     buildingCost(id, human, state) {
+      const details = root.PondBuildingRules?.buildingCostDetails?.(human, id, state?.config || {}, state?.config?.balance || root.PondBalance || {});
+      if (details && Number.isFinite(details.cost)) return details.cost;
       const configured = state.config.buildingCosts?.[id];
       if (configured != null) return configured;
       return state.config.buildings?.[id]?.cost || 0;
+    }
+
+    buildPreview(id, tile, human, state) {
+      const preview = root.PondBuildingRules?.previewBuild?.({
+        player: human,
+        tile,
+        buildingType: id,
+        gameConfig: state?.config || {},
+        balance: state?.config?.balance || root.PondBalance || {},
+        now: state?.serverTime || 0,
+        instantBuild: Boolean(state?.sandbox?.rules?.instantBuild),
+      });
+      if (preview) return preview;
+      const cost = this.buildingCost(id, human, state);
+      return {
+        buildingType: id,
+        label: state?.config?.buildings?.[id]?.label || id,
+        cost,
+        canBuild: Boolean(human && tile && tile.owner === human.id && !tile.building && human.energy >= cost),
+        reason: "",
+        buildTime: state?.config?.balance?.buildTimeSeconds || 10,
+      };
     }
 
     buildingEffect(id) {
@@ -2109,10 +2362,29 @@
     }
 
     upgradeCost(id, level, human, state) {
+      const tile = { building: id, buildingLevel: level, owner: human?.id };
+      const details = root.PondBuildingRules?.upgradeCostDetails?.(human, tile, state?.config || {}, state?.config?.balance || root.PondBalance || {});
+      if (details && Number.isFinite(details.cost)) return details.cost;
       const building = state.config.buildings?.[id] || {};
-      const balance = state.config.balance || root.PondBalance || {};
-      const ownedCount = human?.buildings?.[id] || 0;
-      return Math.round((building.cost || 40) * (0.78 + level * (balance.upgradeCostGrowth || 0.82)) * (1 + Math.max(0, ownedCount - 1) * 0.08));
+      return building.cost || 0;
+    }
+
+    upgradePreview(tile, human, state) {
+      const preview = root.PondBuildingRules?.previewUpgrade?.({
+        player: human,
+        tile,
+        gameConfig: state?.config || {},
+        balance: state?.config?.balance || root.PondBalance || {},
+        now: state?.serverTime || 0,
+        instantBuild: Boolean(state?.sandbox?.rules?.instantBuild),
+      });
+      if (preview) return preview;
+      const cost = this.upgradeCost(tile?.building, tile?.buildingLevel || 1, human, state);
+      return {
+        cost,
+        canUpgrade: Boolean(human && tile?.owner === human.id && tile?.building && human.energy >= cost),
+        reason: "",
+      };
     }
 
     constructionLeft(tile, state = this.lastState) {
