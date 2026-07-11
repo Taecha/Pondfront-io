@@ -8,6 +8,8 @@
     "dev": "node server.js",
     "test:spawn": "node scripts/spawnModesTest.js",
     "test:spawn-visibility": "node scripts/spawnVisibilityTest.js",
+    "test:pointer-spawn": "node scripts/pointerSpawnTest.js",
+    "test:modes": "node scripts/realGameModesTest.js",
     "test:accounts": "node scripts/accountPersistenceTest.js",
     "test:oauth": "node scripts/oauthSecurityTest.js",
     "check:oauth": "node --check server/OAuthManager.js && node --check scripts/oauthSecurityTest.js",

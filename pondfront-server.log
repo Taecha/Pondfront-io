@@ -1,0 +1,13 @@
+Map size selected: Medium | Grid: 90 x 54 | Bot count: 9 | Mode: solo | Spawn points: valid (26)
+PondFront.io server running at http://localhost:5173/
+Map size selected: Medium | Grid: 90 x 54 | Bot count: 9 | Mode: solo | Spawn points: valid (26)
+Map size selected: Medium | Grid: 90 x 54 | Bot count: 9 | Mode: coop | Spawn points: valid (26)
+[LAST STAND] player=Player trigger="core under attack" duration=28
+[ELIMINATION CHECK] player=Player ownedTiles=9 hasCore=false lastStandUsed=true eliminated=true reason="core captured"
+[ELIMINATION] player=Player id=p0 reason="core captured" ownedTilesBefore=9 hasCore=false killer=b1 territoryTransferred=0 matchMode=coop
+[MAP GEN] Nile River water=65% reeds=7.1% mud=4.6% lily=2.7% blocked=20.6% nests=0% objectives=8 spawns=20 defaultBots=16
+Map size selected: Nile River | Grid: 92 x 142 | Bot count: 20 | Mode: solo | Spawn points: short (20)
+[LAST STAND] player=Baikal Leap trigger="core under attack" duration=28
+[LAST STAND] player=Rivergold trigger="low territory" duration=28
+[ELIMINATION CHECK] player=Baikal Leap ownedTiles=0 hasCore=false lastStandUsed=true eliminated=true reason="no territory"
+[ELIMINATION] player=Baikal Leap id=b18 reason="no territory" ownedTilesBefore=0 hasCore=false killer=b1 territoryTransferred=0 matchMode=solo

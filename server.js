@@ -78,6 +78,8 @@ class PondFrontServerGame {
     this.ended = false;
     this.winnerId = null;
     this.winnerTeamId = null;
+    this.endReason = null;
+    this.endMessage = "";
     this.events = [];
     this.eventId = 1;
     this.finalTideAnnounced = false;
@@ -159,8 +161,11 @@ class PondFrontServerGame {
           ? difficultyValue
           : "normal";
     const legacyTeamMode = ["solo", "coop", "teamBattle"].includes(settings.gameMode) ? settings.gameMode : null;
-    const teamMode = sandboxEnabled ? "solo" : ["solo", "coop", "teamBattle"].includes(settings.teamMode) ? settings.teamMode : legacyTeamMode || "solo";
-    const ruleMode = gameModeConfig.sanitize(settings.ruleMode || (legacyTeamMode ? "classic" : settings.gameMode), sandboxEnabled);
+    const requestedRuleMode = settings.ruleMode || (legacyTeamMode ? "classic" : settings.gameMode) || "classic";
+    const ruleMode = gameModeConfig.sanitize(requestedRuleMode, sandboxEnabled);
+    if (!ruleMode) throw new Error(`Game mode "${String(requestedRuleMode)}" is not available yet.`);
+    let teamMode = sandboxEnabled ? "solo" : ["solo", "coop", "teamBattle"].includes(settings.teamMode) ? settings.teamMode : legacyTeamMode || "solo";
+    if (ruleMode === "floodSurvival") teamMode = "coop";
     const mapIds = Object.keys(config.MAP_SIZES);
     const themedMapIds = mapIds.filter((id) => config.MAP_SIZES[id]?.theme);
     const requestedMap = String(settings.mapSize || "medium");
@@ -195,7 +200,7 @@ class PondFrontServerGame {
       : [];
     const humanCount = Math.max(1, humanPlayers.length || 1);
     const allowBots = settings.allowBots !== false;
-    const coopTeammates = Math.max(0, Math.min(4, Number(settings.coopTeammates ?? 2)));
+    const coopTeammates = ruleMode === "floodSurvival" ? 0 : Math.max(0, Math.min(4, Number(settings.coopTeammates ?? 2)));
     const teamCount = Math.max(2, Math.min(4, Number(settings.teamCount || 2)));
     const botsPerTeam = Math.max(0, Math.min(6, Number(settings.botsPerTeam ?? 4)));
     const requestedBots = Number(settings.botCount ?? map.defaultBots ?? config.BOT_COUNT ?? 9);
@@ -214,6 +219,13 @@ class PondFrontServerGame {
     const botCap = sandboxEnabled || modifiers.giantBotArmy ? Math.max(map.maxBots, 26) : teamMode === "teamBattle" ? Math.min(map.maxBots, teamCount * botsPerTeam + 2) : map.maxBots;
     const botCount = allowBots ? (sandboxEnabled ? Math.max(0, Math.min(botCap, modeBotCount)) : Math.max(map.minBots, Math.min(botCap, modeBotCount))) : 0;
     const matchLength = ["quick", "standard", "long"].includes(settings.matchLength) ? settings.matchLength : "standard";
+    const goldenLilyScoreTarget = [250, 500, 750].includes(Number(settings.goldenLilyScoreTarget))
+      ? Number(settings.goldenLilyScoreTarget)
+      : gameModeConfig.scoreTarget("goldenLily", matchLength);
+    const floodWaveCount = [8, 10, 15].includes(Number(settings.floodWaveCount))
+      ? Number(settings.floodWaveCount)
+      : gameModeConfig.waveTarget("floodSurvival", matchLength);
+    const lastNestProtectionSeconds = [60, 75, 90].includes(Number(settings.lastNestProtectionSeconds)) ? Number(settings.lastNestProtectionSeconds) : 75;
     const lengthMultiplier = matchLength === "quick" ? 0.8 : matchLength === "long" ? 1.2 : 1;
     const matchSeconds =
       sandboxEnabled ? Math.max(map.matchSeconds, 7200) : settings.practice && mapSize === "small" ? Math.round(map.matchSeconds * 0.75) : Math.round(map.matchSeconds * lengthMultiplier);
@@ -235,6 +247,9 @@ class PondFrontServerGame {
       teamCount,
       botsPerTeam,
       matchLength,
+      goldenLilyScoreTarget,
+      floodWaveCount,
+      lastNestProtectionSeconds,
       matchSeconds,
       winCondition,
       mapSize,
@@ -256,7 +271,7 @@ class PondFrontServerGame {
       lockSpawnOnConfirm: Boolean(settings.lockSpawnOnConfirm),
       enemySpawnVisibility: spawnConfig.sanitizeVisibility(settings.enemySpawnVisibility ?? (settings.secretSpawns ? "hidden" : "visible")),
       secretSpawns: spawnConfig.sanitizeVisibility(settings.enemySpawnVisibility ?? (settings.secretSpawns ? "hidden" : "visible")) === "hidden",
-      teamSpawnStyle: spawnConfig.TEAM_SPAWN_STYLES.includes(settings.teamSpawnStyle) ? settings.teamSpawnStyle : "nearby",
+      teamSpawnStyle: ruleMode === "floodSurvival" ? "together" : spawnConfig.TEAM_SPAWN_STYLES.includes(settings.teamSpawnStyle) ? settings.teamSpawnStyle : "nearby",
       sharedVision: settings.sharedVision !== false,
       sharedVictory: settings.sharedVictory !== false,
       friendlyFire: Boolean(settings.friendlyFire),
@@ -501,7 +516,7 @@ class PondFrontServerGame {
       const tile = this.tileManager.getById(objective.tileId);
       if (tile) tile.specialActive = false;
     });
-    if (this.modifierManager?.enabled?.noObjectives || this.matchSettings.objectiveFrequency === "off") {
+    if (this.matchSettings.ruleMode !== "goldenLily" && (this.modifierManager?.enabled?.noObjectives || this.matchSettings.objectiveFrequency === "off")) {
       this.objectives.objectives.forEach((objective) => {
         const tile = this.tileManager.getById(objective.tileId);
         if (tile) {
@@ -511,7 +526,7 @@ class PondFrontServerGame {
         }
       });
       this.objectives.objectives = [];
-    } else if (this.matchSettings.objectiveFrequency === "low") {
+    } else if (this.matchSettings.ruleMode !== "goldenLily" && this.matchSettings.objectiveFrequency === "low") {
       const keep = Math.max(1, Math.ceil(this.objectives.objectives.length * 0.55));
       this.objectives.objectives.slice(keep).forEach((objective) => {
         const tile = this.tileManager.getById(objective.tileId);
@@ -549,14 +564,14 @@ class PondFrontServerGame {
       this.diplomacy.update(this);
       this.teamManager.update(this);
       this.objectives.update(this);
-      this.eventsManager.update(this);
+      if (this.modeRules?.eventRules?.standardLakeEvents !== false) this.eventsManager.update(this);
       this.specials?.update(this);
       this.core.update(this);
       this.economy.update(this.players, effectiveDt, this.now(), this);
       this.modifierManager?.update(effectiveDt);
       this.gameModeManager?.update(effectiveDt);
       this.updateLastStandStates();
-      this.updateFinalTideState();
+      if (this.matchSettings.ruleMode === "classic") this.updateFinalTideState();
       this.players.forEach((player) => {
         player.stats.incomePeak = Math.max(player.stats.incomePeak || 0, player.income || 0);
       });
@@ -574,7 +589,7 @@ class PondFrontServerGame {
     if (!player || player.defeated) return { ok: false, message: "You are out of the pond." };
     if (player.isBot) return { ok: false, message: "Bots cannot be controlled by this client." };
     if (this.phase !== spawnConfig.PHASES.PLAYING) return this.spawnManager?.handleAction(player, body) || { ok: false, message: "The match has not started." };
-    if (["spawnReserve", "spawnConfirm", "spawnRandom", "spawnRelease", "spawnStartCountdown"].includes(body.type)) {
+    if (["spawnReserve", "spawnConfirm", "spawnRandom", "spawnFind", "spawnRelease", "spawnStartCountdown"].includes(body.type)) {
       return { ok: false, message: "Starting locations are locked." };
     }
     const percent = Math.max(0.01, Math.min(1, Number(body.percent) || 0.25));
@@ -724,48 +739,20 @@ class PondFrontServerGame {
       this.end(modeWinner.winnerId, modeWinner.winnerTeamId, modeWinner.reason, state);
       return;
     }
-    const timerExpired = this.timeLeft() <= 0 && !this.matchSettings?.sandbox?.enabled;
-    if (!state.canEnd && !timerExpired) return;
-
-    if (timerExpired) {
+    if (this.timeLeft() <= 0 && !this.matchSettings?.sandbox?.enabled) {
       const modeTimerWinner = this.gameModeManager?.timerWinner();
       if (modeTimerWinner) {
         this.end(modeTimerWinner.winnerId, modeTimerWinner.winnerTeamId, modeTimerWinner.reason, state);
-        return;
       }
-      if (this.teamManager?.active()) {
-        const leaderTeam = state.teamStats.slice().sort((a, b) => b.territory - a.territory)[0];
-        const leadMember = this.players
-          .filter((player) => player.teamId === leaderTeam?.id && this.isPlayerAlive(player))
-          .sort((a, b) => this.ownedTileCount(b) - this.ownedTileCount(a))[0];
-        this.end(leadMember?.id || null, leaderTeam?.id || null, "timer", state);
-        return;
-      }
-      const leader = state.alivePlayers.slice().sort((a, b) => this.ownedTileCount(b) - this.ownedTileCount(a))[0];
-      this.end(leader?.id || null, null, "timer", state);
-      return;
     }
-
-    if (this.teamManager?.active()) {
-      if (state.aliveTeams.length === 1) {
-        const aliveTeamId = state.aliveTeams[0].id;
-        const leadMember = this.players
-          .filter((player) => player.teamId === aliveTeamId && this.isPlayerAlive(player))
-          .sort((a, b) => this.ownedTileCount(b) - this.ownedTileCount(a))[0];
-        this.end(leadMember?.id || null, aliveTeamId, "teamElimination", state);
-      }
-      return;
-    }
-
-    if (state.alivePlayers.length <= 1) this.end(state.alivePlayers[0]?.id || null, null, "elimination", state);
   }
 
   winCheckState() {
     const alivePlayers = this.players.filter((player) => this.isPlayerAlive(player));
     const teamStats = this.teamManager?.active() ? this.teamManager.territoryStats(this.players, this.tileManager.playable().length) : [];
     const aliveTeams = this.teamManager?.active() ? teamStats.filter((team) => this.isTeamAlive(team.id)) : [];
-    let canEnd = true;
-    let reason = "Waiting for a valid win condition.";
+    let canEnd = false;
+    let reason = this.gameModeManager?.winStatus()?.reason || "Waiting for a valid mode win condition.";
     let blockedReason = "";
 
     if (this.phase !== spawnConfig.PHASES.PLAYING) {
@@ -775,21 +762,11 @@ class PondFrontServerGame {
     }
 
     if (this.phase !== spawnConfig.PHASES.PLAYING) {
-      // Phase gate above is authoritative for every mode.
+      // The phase gate above remains authoritative.
     } else if (this.sandbox?.enabled && this.sandbox.rules?.elimination === false) {
       canEnd = false;
       reason = "Sandbox Mode - match ending disabled.";
       blockedReason = reason;
-    } else if (this.teamManager?.active()) {
-      reason = aliveTeams.length === 1 ? "One active team remains." : "More than one active team remains.";
-      canEnd = aliveTeams.length <= 1;
-    } else {
-      reason = alivePlayers.length <= 1 ? "One active animal remains." : "More than one active animal remains.";
-      canEnd = alivePlayers.length <= 1;
-    }
-    if (!this.matchSettings?.sandbox?.enabled && this.timeLeft() <= 0) {
-      reason = "Timer ended. Highest territory wins.";
-      canEnd = true;
     }
 
     const aliveBots = alivePlayers.filter((player) => player.isBot);
@@ -829,9 +806,11 @@ class PondFrontServerGame {
     this.phase = spawnConfig.PHASES.ENDED;
     this.winnerId = winnerId;
     this.winnerTeamId = winnerTeamId;
+    this.endReason = reason;
     const winner = this.getPlayer(winnerId);
     const winnerTeam = this.teamManager?.territoryStats(this.players, this.tileManager.playable().length).find((team) => team.id === winnerTeamId);
     const finalState = state || this.winCheckState();
+    this.endMessage = this.gameModeManager?.endMessage({ winnerId, winnerTeamId, reason }, winner, winnerTeam) || "The match ended.";
     this.pushEvent({
       kind: "ended",
       eventType: "matchEnded",
@@ -841,7 +820,7 @@ class PondFrontServerGame {
       remainingPlayers: finalState.alivePlayers?.length || 0,
       remainingTeams: finalState.aliveTeams?.length || 0,
       finalStats: this.finalStatsSnapshot(finalState),
-      message: winnerTeam ? `${winnerTeam.name} is the last team standing.` : winner ? `${winner.name} is the last animal standing.` : "The match ended.",
+      message: this.endMessage,
       elapsed: Math.round(this.elapsed()),
       at: this.now(),
     });
@@ -1076,6 +1055,8 @@ class PondFrontServerGame {
       ended: this.ended,
       winnerId: this.winnerId,
       winnerTeamId: this.winnerTeamId || null,
+      endReason: this.endReason,
+      endMessage: this.endMessage,
       winControl: config.WIN_CONTROL,
       cols: this.tileManager.cols,
       rows: this.tileManager.rows,
@@ -1261,9 +1242,7 @@ class PondFrontServerGame {
     const teamId = typeof teamOrId === "string" ? teamOrId : teamOrId?.id;
     if (!teamId) return false;
     const members = this.players.filter((player) => player.teamId === teamId);
-    if (!members.some((player) => this.isPlayerAlive(player))) return false;
-    if (this.phase !== spawnConfig.PHASES.PLAYING && this.phase !== spawnConfig.PHASES.ENDED) return true;
-    return members.some((player) => this.ownedTileCount(player) > 0);
+    return members.some((player) => this.isPlayerAlive(player));
   }
 
   roundIncomeBreakdown(breakdown = {}) {
@@ -1595,6 +1574,8 @@ function stateResponse(match, viewerId, query = {}) {
       ended: match.ended,
       winnerId: match.winnerId,
       winnerTeamId: match.winnerTeamId || null,
+      endReason: match.endReason,
+      endMessage: match.endMessage,
       changedTiles: changedTiles.map((tile) => tileDelta(match, tile.id)).filter(Boolean),
       players: match.players.map((player) => playerDelta(player)).filter(Boolean),
       activeAttacks: match.combat.snapshot(now),
@@ -1642,6 +1623,8 @@ function actionDelta(match, body, result, events, timing, viewerId = config.HUMA
     ended: match.ended,
     winnerId: match.winnerId,
     winnerTeamId: match.winnerTeamId || null,
+    endReason: match.endReason,
+    endMessage: match.endMessage,
     changedTiles: [...changedTileIds].map((id) => tileDelta(match, id)).filter(Boolean),
     players: [...playerIds].map((id) => playerDelta(match.getPlayer(id))).filter(Boolean),
     activeAttacks: match.combat.snapshot(match.now()),
@@ -1928,30 +1911,38 @@ const server = http.createServer(async (req, res) => {
   if (req.method === "POST" && url.pathname === "/api/start") {
     const body = await readJson(req);
     const accountUser = accountPayload(req);
-    game.reset(body.animal || "duck", body.difficulty || "normal", {
-      playerName: body.playerName,
-      accountUser,
-      botCount: body.botCount,
-      mapSize: body.mapSize,
-      matchLength: body.matchLength,
-      surrenderMode: body.surrenderMode,
-      practice: body.practice,
-      beginnerCombat: body.beginnerCombat,
-      gameMode: body.gameMode,
-      ruleMode: body.ruleMode,
-      spawnSelectionSeconds: body.spawnSelectionSeconds,
-      privateMatch: true,
-      coopTeammates: body.coopTeammates,
-      teamBotDifficulty: body.teamBotDifficulty,
-      teamCount: body.teamCount,
-      botsPerTeam: body.botsPerTeam,
-      allowBots: body.allowBots,
-      sandbox: body.sandbox,
-      sandboxRules: body.sandboxRules,
-      sandboxBotDifficulty: body.sandboxBotDifficulty,
-      sandboxBotPersonality: body.sandboxBotPersonality,
-      sandboxSpeed: body.sandboxSpeed,
-    });
+    try {
+      game.reset(body.animal || "duck", body.difficulty || "normal", {
+        playerName: body.playerName,
+        accountUser,
+        botCount: body.botCount,
+        mapSize: body.mapSize,
+        matchLength: body.matchLength,
+        surrenderMode: body.surrenderMode,
+        practice: body.practice,
+        beginnerCombat: body.beginnerCombat,
+        gameMode: body.gameMode,
+        ruleMode: body.ruleMode,
+        goldenLilyScoreTarget: body.goldenLilyScoreTarget,
+        floodWaveCount: body.floodWaveCount,
+        lastNestProtectionSeconds: body.lastNestProtectionSeconds,
+        spawnSelectionSeconds: body.spawnSelectionSeconds,
+        privateMatch: true,
+        coopTeammates: body.coopTeammates,
+        teamBotDifficulty: body.teamBotDifficulty,
+        teamCount: body.teamCount,
+        botsPerTeam: body.botsPerTeam,
+        allowBots: body.allowBots,
+        sandbox: body.sandbox,
+        sandboxRules: body.sandboxRules,
+        sandboxBotDifficulty: body.sandboxBotDifficulty,
+        sandboxBotPersonality: body.sandboxBotPersonality,
+        sandboxSpeed: body.sandboxSpeed,
+      });
+    } catch (error) {
+      sendJson(res, 400, { ok: false, message: error.message || "The selected game mode could not start." });
+      return;
+    }
     sendJson(res, 200, game.snapshot(config.HUMAN_ID));
     return;
   }
