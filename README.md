@@ -16,7 +16,7 @@ The game is inspired by the broad strategy-game idea of territory expansion, bor
 - Frontline combat, weakened borders, reinforcement, terrain defense, contested waves, Current Push, and bot attacks.
 - Diplomacy with alliances, peace, enemy marking, warnings, support, betrayal timers, and team/co-op modes.
 - Lobby system with solo, practice, sandbox, private lobbies, map size, bot difficulty, and team settings.
-- Player accounts, profiles, XP, badges, achievements, match history, missions, and local persistence.
+- Player accounts, Google/Discord sign-in, linked accounts, profiles, XP, badges, achievements, match history, missions, and local persistence.
 - Pond specials: Lily Barrage, Dragonfly Guard, and Reed Shield, with server-side costs, cooldowns, targeting, and counterplay.
 - Smarter bot personalities, including Expander, Defender, Fighter, Objective Hunter, Leader Hunter, and Supporter behavior.
 - First-match tutorial and compact coach hints for expansion, attacking, building, defense, objectives, and specials.
@@ -98,6 +98,38 @@ http://localhost:5173/
 
 If `localhost refused to connect`, the server is not running. Start it again with `npm start` from this folder.
 
+## Google And Discord Sign-In
+
+PondFront uses server-side OAuth authorization-code flows. Players authenticate on Google or Discord; PondFront never receives provider passwords and does not retain provider access tokens.
+
+1. Duplicate `.env.example` as `.env` for local development.
+2. Generate a long random `SESSION_SECRET`.
+3. In Google Cloud, create an OAuth 2.0 **Web application** and add this exact authorized redirect URI:
+
+```text
+http://localhost:5173/api/auth/oauth/google/callback
+```
+
+4. In the Discord Developer Portal, create an application, open OAuth2, and add this exact redirect URI:
+
+```text
+http://localhost:5173/api/auth/oauth/discord/callback
+```
+
+5. Put the client IDs and secrets in `.env`, then restart `npm start`.
+
+Only basic identity scopes are requested: Google `openid email profile`, and Discord `identify email`. Missing credentials leave that provider button disabled without stopping the game. Never commit `.env`; it is ignored by Git.
+
+For Render, set the same variables in **Environment** and replace every localhost value with the service's exact HTTPS origin. For example:
+
+```text
+APP_BASE_URL=https://your-pondfront.onrender.com
+GOOGLE_CALLBACK_URL=https://your-pondfront.onrender.com/api/auth/oauth/google/callback
+DISCORD_CALLBACK_URL=https://your-pondfront.onrender.com/api/auth/oauth/discord/callback
+```
+
+Register those exact production callback URLs with Google and Discord too. Callback origins that differ from `APP_BASE_URL` are rejected.
+
 ## Deploy From GitHub
 
 GitHub Pages cannot run the full game because PondFront.io needs a Node server for matchmaking, bots, combat, and accounts.
@@ -153,6 +185,8 @@ Add screenshots to `docs/screenshots/` when you want a visual README.
 
 ```bash
 npm run check
+npm run test:accounts
+npm run test:oauth
 npm run simulate:balance
 ```
 

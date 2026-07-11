@@ -1,4 +1,10 @@
 const http = require("http");
+
+try {
+  process.loadEnvFile?.();
+} catch (error) {
+  if (error?.code !== "ENOENT") console.warn(`[ENV] Could not load .env: ${String(error.message || error)}`);
+}
 const fs = require("fs");
 const path = require("path");
 const crypto = require("crypto");
@@ -24,11 +30,15 @@ const ProgressionManager = require("./server/ProgressionManager");
 const MissionManager = require("./server/MissionManager");
 const PondDatabase = require("./server/db");
 const AuthManager = require("./server/AuthManager");
+const OAuthManager = require("./server/OAuthManager");
 const AchievementManager = require("./server/AchievementManager");
 const MatchHistoryManager = require("./server/MatchHistoryManager");
 const ProfileManager = require("./server/ProfileManager");
 const StatsManager = require("./server/StatsManager");
 const SandboxManager = require("./server/SandboxManager");
+const SpawnManager = require("./server/SpawnManager");
+const GameModeManager = require("./server/GameModeManager");
+const ModifierManager = require("./server/ModifierManager");
 const objectives = require("./shared/objectives");
 const lakeEvents = require("./shared/lakeEvents");
 const diplomacyConfig = require("./shared/diplomacyConfig");
@@ -37,6 +47,9 @@ const teamConfig = require("./shared/teamConfig");
 const botDifficultyConfig = require("./shared/botDifficultyConfig");
 const sandboxConfig = require("./shared/sandboxConfig");
 const specialConfig = require("./shared/specialConfig");
+const spawnConfig = require("./shared/spawnConfig");
+const gameModeConfig = require("./shared/gameModeConfig");
+const modifierConfig = require("./shared/modifierConfig");
 
 const ROOT = __dirname;
 const PUBLIC = path.join(ROOT, "public");
@@ -53,10 +66,12 @@ class PondFrontServerGame {
     this.matchId = settings.matchId || `match_${Date.now().toString(36)}_${crypto.randomBytes(4).toString("hex")}`;
     this.accountRewardsRecorded = false;
     this.accountRewardsByPlayer = {};
-    this.startedAt = this.now();
+    this.preparedAt = this.now();
+    this.startedAt = null;
+    this.phase = spawnConfig.PHASES.LOBBY;
     this.matchSettings = this.sanitizeMatchSettings({ difficulty, ...settings });
     if (this.matchSettings.sandbox?.enabled) {
-      this.simTime = this.startedAt;
+      this.simTime = this.preparedAt;
       this.matchSettings.accountUser = this.matchSettings.accountUser || null;
     }
     this.matchSeconds = this.matchSettings.matchSeconds;
@@ -65,6 +80,9 @@ class PondFrontServerGame {
     this.winnerTeamId = null;
     this.events = [];
     this.eventId = 1;
+    this.finalTideAnnounced = false;
+    this.finalTideActive = false;
+    this.finalTideStartedAt = 0;
     this.metrics = {
       attacks: 0,
       waveCaptures: 0,
@@ -97,17 +115,36 @@ class PondFrontServerGame {
     this.specials = new SpecialManager(this.tileManager, (event) => this.pushEvent(event));
     this.sandbox = this.matchSettings.sandbox?.enabled ? new SandboxManager(this, this.matchSettings.sandbox) : null;
     this.players = this.createPlayers(animal, this.matchSettings.difficulty);
+    this.players.forEach((player) => {
+      player.energy = this.matchSettings.startingEnergy * (player.isBot ? 0.82 : 1);
+      player.maxEnergy = Math.max(player.maxEnergy, player.energy);
+    });
     this.teamManager.setup(this.players, this.matchSettings);
+    this.modifierManager = new ModifierManager(this);
+    this.gameModeManager = new GameModeManager(this);
+    this.gameModeManager.applySettings();
+    this.modifierManager.applySettings();
+    this.players.forEach((player) => this.modifierManager.applyPlayerSetup(player));
     this.progression.setup(this.players);
     this.missions.setup(this.players);
     this.diplomacy.attach(this.players);
-    this.players.forEach((player, index) => this.tileManager.claimStart(player, player.spawnIndex ?? index, this.now()));
-    this.core.setup(this.players, this.now());
-    this.economy.recalculate(this.players, this.now(), this);
+    this.diplomacy.friendlyFire = Boolean(this.matchSettings.friendlyFire);
     this.botManager = new BotManager(this);
+    this.spawnManager = new SpawnManager(this);
+    if (this.matchSettings.skipSpawnSelection) {
+      this.players.forEach((player, index) => this.tileManager.claimStart(player, player.spawnIndex ?? index, this.now()));
+      this.phase = spawnConfig.PHASES.COUNTDOWN;
+      this.activatePlayingPhase();
+    } else {
+      this.spawnManager.prepare(this.now());
+    }
     this.sandbox?.afterReset(this);
     this.logMatchStart();
-    this.pushEvent({ kind: "notice", message: "Match started. Expand from your border.", at: this.now() });
+    this.pushEvent({
+      kind: "notice",
+      message: this.phase === spawnConfig.PHASES.PLAYING ? "Match started. Expand from your border." : "Choose your starting nest on open water.",
+      at: this.now(),
+    });
   }
 
   sanitizeMatchSettings(settings = {}) {
@@ -121,7 +158,9 @@ class PondFrontServerGame {
         : ["easy", "normal", "smart", "chaos"].includes(difficultyValue)
           ? difficultyValue
           : "normal";
-    const gameMode = sandboxEnabled ? "sandbox" : ["solo", "coop", "teamBattle"].includes(settings.gameMode) ? settings.gameMode : "solo";
+    const legacyTeamMode = ["solo", "coop", "teamBattle"].includes(settings.gameMode) ? settings.gameMode : null;
+    const teamMode = sandboxEnabled ? "solo" : ["solo", "coop", "teamBattle"].includes(settings.teamMode) ? settings.teamMode : legacyTeamMode || "solo";
+    const ruleMode = gameModeConfig.sanitize(settings.ruleMode || (legacyTeamMode ? "classic" : settings.gameMode), sandboxEnabled);
     const mapIds = Object.keys(config.MAP_SIZES);
     const themedMapIds = mapIds.filter((id) => config.MAP_SIZES[id]?.theme);
     const requestedMap = String(settings.mapSize || "medium");
@@ -160,23 +199,36 @@ class PondFrontServerGame {
     const teamCount = Math.max(2, Math.min(4, Number(settings.teamCount || 2)));
     const botsPerTeam = Math.max(0, Math.min(6, Number(settings.botsPerTeam ?? 4)));
     const requestedBots = Number(settings.botCount ?? map.defaultBots ?? config.BOT_COUNT ?? 9);
+    const privateMatch = Boolean(settings.privateMatch || settings.lobbyRoomCode || settings.customMatch || sandboxEnabled);
+    const customMatch = Boolean(settings.customMatch || sandboxEnabled || settings.lobbyRoomCode);
+    const modifiers = modifierConfig.sanitize(settings.modifiers || {}, {
+      privateMatch,
+      customMatch,
+      sandbox: sandboxEnabled,
+      publicMatch: Boolean(settings.publicMatch),
+      ranked: Boolean(settings.ranked),
+    });
     const teamBattleBots = Math.max(teamCount * botsPerTeam - humanCount, teamCount);
     const coopBots = Math.max(requestedBots, coopTeammates + Math.max(4, map.minBots));
-    const modeBotCount = gameMode === "teamBattle" ? teamBattleBots : gameMode === "coop" ? coopBots : requestedBots;
-    const botCap = sandboxEnabled ? Math.max(map.maxBots, 16) : gameMode === "teamBattle" ? Math.min(map.maxBots, teamCount * botsPerTeam + 2) : map.maxBots;
+    const modeBotCount = (teamMode === "teamBattle" ? teamBattleBots : teamMode === "coop" ? coopBots : requestedBots) + (modifiers.giantBotArmy ? 6 : 0);
+    const botCap = sandboxEnabled || modifiers.giantBotArmy ? Math.max(map.maxBots, 26) : teamMode === "teamBattle" ? Math.min(map.maxBots, teamCount * botsPerTeam + 2) : map.maxBots;
     const botCount = allowBots ? (sandboxEnabled ? Math.max(0, Math.min(botCap, modeBotCount)) : Math.max(map.minBots, Math.min(botCap, modeBotCount))) : 0;
     const matchLength = ["quick", "standard", "long"].includes(settings.matchLength) ? settings.matchLength : "standard";
     const lengthMultiplier = matchLength === "quick" ? 0.8 : matchLength === "long" ? 1.2 : 1;
     const matchSeconds =
       sandboxEnabled ? Math.max(map.matchSeconds, 7200) : settings.practice && mapSize === "small" ? Math.round(map.matchSeconds * 0.75) : Math.round(map.matchSeconds * lengthMultiplier);
     const sandboxRules = settings.sandboxRules || settings.rules || {};
-    const winCondition = sandboxEnabled ? "sandbox" : "elimination";
+    const winCondition = gameModeConfig.modes[ruleMode]?.win || "elimination";
     const surrenderMode = this.normalizeSurrenderMode(settings.surrenderMode ?? settings.allowSurrender);
+    const defaultSpawnSeconds = spawnConfig.defaultSeconds({ mapSize, privateMatch, teamMode });
+    const spawnSelectionSeconds = spawnConfig.sanitizeSeconds(settings.spawnSelectionSeconds, defaultSpawnSeconds, privateMatch || sandboxEnabled);
     return {
       difficulty,
       botCount,
       allowBots,
-      gameMode,
+      gameMode: teamMode,
+      teamMode,
+      ruleMode,
       humanPlayers,
       coopTeammates,
       teamBotDifficulty: ["normal", "smart", "aggressive"].includes(settings.teamBotDifficulty) ? settings.teamBotDifficulty : "normal",
@@ -193,6 +245,34 @@ class PondFrontServerGame {
       beginnerCombat: Boolean(settings.beginnerCombat || settings.practice || difficulty === "easy"),
       coreCaptureBehavior: ["transfer", "eliminate", "neutralize"].includes(settings.coreCaptureBehavior) ? settings.coreCaptureBehavior : "transfer",
       surrenderMode,
+      privateMatch,
+      customMatch,
+      publicMatch: Boolean(settings.publicMatch),
+      ranked: Boolean(settings.ranked),
+      modifiers,
+      progressionDisabled: sandboxEnabled || Object.keys(modifiers).length > 0,
+      spawnSelectionSeconds,
+      startEarlyWhenReady: settings.startEarlyWhenReady !== false,
+      lockSpawnOnConfirm: Boolean(settings.lockSpawnOnConfirm),
+      enemySpawnVisibility: spawnConfig.sanitizeVisibility(settings.enemySpawnVisibility ?? (settings.secretSpawns ? "hidden" : "visible")),
+      secretSpawns: spawnConfig.sanitizeVisibility(settings.enemySpawnVisibility ?? (settings.secretSpawns ? "hidden" : "visible")) === "hidden",
+      teamSpawnStyle: spawnConfig.TEAM_SPAWN_STYLES.includes(settings.teamSpawnStyle) ? settings.teamSpawnStyle : "nearby",
+      sharedVision: settings.sharedVision !== false,
+      sharedVictory: settings.sharedVictory !== false,
+      friendlyFire: Boolean(settings.friendlyFire),
+      teamBuildingCapture: settings.teamBuildingCapture !== false,
+      teamRevives:
+        settings.teamRevives === "unlimited" && sandboxEnabled
+          ? "unlimited"
+          : ["off", "one", "pool"].includes(settings.teamRevives)
+            ? settings.teamRevives
+            : modifiers.reviveTeammates
+              ? "one"
+              : "off",
+      startingEnergy: Math.max(30, Math.min(500, Number(settings.startingEnergy || 64))),
+      eventFrequency: ["off", "low", "normal", "high"].includes(settings.eventFrequency) ? settings.eventFrequency : "normal",
+      objectiveFrequency: ["off", "low", "normal", "high"].includes(settings.objectiveFrequency) ? settings.objectiveFrequency : "normal",
+      skipSpawnSelection: Boolean(settings.skipSpawnSelection),
       sandbox: sandboxEnabled
         ? {
             enabled: true,
@@ -402,6 +482,57 @@ class PondFrontServerGame {
     return player;
   }
 
+  activatePlayingPhase() {
+    if (this.phase === spawnConfig.PHASES.PLAYING) return false;
+    const now = this.now();
+    this.phase = spawnConfig.PHASES.PLAYING;
+    this.startedAt = now;
+    this.eventsManager.reset(now);
+    const eventFrequency = this.matchSettings.eventFrequency || "normal";
+    if (eventFrequency === "off") this.eventsManager.nextAt = Number.POSITIVE_INFINITY;
+    else if (this.modifierManager?.enabled?.suddenEvents) this.eventsManager.nextAt = now + 15;
+    else if (eventFrequency === "high") this.eventsManager.nextAt = now + (balance.lakeEventFirstAt || 150) * 0.55;
+    else if (eventFrequency === "low") this.eventsManager.nextAt = now + (balance.lakeEventFirstAt || 150) * 1.5;
+    this.objectives.objectives.forEach((objective) => {
+      objective.active = false;
+      objective.appeared = false;
+      objective.owner = null;
+      objective.activeAt = now + config.BALANCE.objectiveSpawnTime;
+      const tile = this.tileManager.getById(objective.tileId);
+      if (tile) tile.specialActive = false;
+    });
+    if (this.modifierManager?.enabled?.noObjectives || this.matchSettings.objectiveFrequency === "off") {
+      this.objectives.objectives.forEach((objective) => {
+        const tile = this.tileManager.getById(objective.tileId);
+        if (tile) {
+          tile.objectiveId = null;
+          tile.objectiveType = null;
+          tile.specialActive = false;
+        }
+      });
+      this.objectives.objectives = [];
+    } else if (this.matchSettings.objectiveFrequency === "low") {
+      const keep = Math.max(1, Math.ceil(this.objectives.objectives.length * 0.55));
+      this.objectives.objectives.slice(keep).forEach((objective) => {
+        const tile = this.tileManager.getById(objective.tileId);
+        if (tile) {
+          tile.objectiveId = null;
+          tile.objectiveType = null;
+          tile.specialActive = false;
+        }
+      });
+      this.objectives.objectives = this.objectives.objectives.slice(0, keep);
+    }
+    this.players.forEach((player) => {
+      if (!player.removed) player.defeated = false;
+    });
+    this.core.setup(this.players.filter((player) => !player.removed), now);
+    this.economy.recalculate(this.players, now, this);
+    this.gameModeManager?.onMatchStart();
+    this.pushEvent({ kind: "matchStarted", message: "The pond is open. Expand from your border.", at: now });
+    return true;
+  }
+
   tick(dt) {
     const tickStarted = Date.now();
     const effectiveDt = this.sandbox?.enabled ? this.sandbox.tickDelta(dt) : dt;
@@ -409,6 +540,11 @@ class PondFrontServerGame {
       if (this.simTime != null) this.simTime += effectiveDt;
       if (this.ended) return;
       if (effectiveDt <= 0) return;
+      if (this.phase === spawnConfig.PHASES.SPAWN_SELECTION || this.phase === spawnConfig.PHASES.COUNTDOWN) {
+        this.spawnManager?.update();
+        return;
+      }
+      if (this.phase !== spawnConfig.PHASES.PLAYING) return;
       this.combat.update(this, effectiveDt);
       this.diplomacy.update(this);
       this.teamManager.update(this);
@@ -417,7 +553,10 @@ class PondFrontServerGame {
       this.specials?.update(this);
       this.core.update(this);
       this.economy.update(this.players, effectiveDt, this.now(), this);
+      this.modifierManager?.update(effectiveDt);
+      this.gameModeManager?.update(effectiveDt);
       this.updateLastStandStates();
+      this.updateFinalTideState();
       this.players.forEach((player) => {
         player.stats.incomePeak = Math.max(player.stats.incomePeak || 0, player.income || 0);
       });
@@ -434,11 +573,19 @@ class PondFrontServerGame {
     const player = this.getPlayer(actorId);
     if (!player || player.defeated) return { ok: false, message: "You are out of the pond." };
     if (player.isBot) return { ok: false, message: "Bots cannot be controlled by this client." };
+    if (this.phase !== spawnConfig.PHASES.PLAYING) return this.spawnManager?.handleAction(player, body) || { ok: false, message: "The match has not started." };
+    if (["spawnReserve", "spawnConfirm", "spawnRandom", "spawnRelease", "spawnStartCountdown"].includes(body.type)) {
+      return { ok: false, message: "Starting locations are locked." };
+    }
     const percent = Math.max(0.01, Math.min(1, Number(body.percent) || 0.25));
     if (body.type === "sandbox") return this.sandbox?.handle(this, player, body) || { ok: false, message: "Sandbox tools only work in Sandbox Mode." };
 
     const sandboxCheck = this.sandbox?.beforeAction(this, player, body);
     if (sandboxCheck && !sandboxCheck.ok) return sandboxCheck;
+    const modifierCheck = this.modifierManager?.beforeAction(player, body);
+    if (modifierCheck && !modifierCheck.ok) return modifierCheck;
+    const modeCheck = this.gameModeManager?.beforeAction(player, body);
+    if (modeCheck && !modeCheck.ok) return modeCheck;
 
     if (body.type === "expand" || body.type === "attack") {
       const result = this.combat.expandOrAttack(this, player, Number(body.tileId), percent, body.sourceIds || []);
@@ -531,6 +678,7 @@ class PondFrontServerGame {
     if (body.type === "surrender") return this.surrenderPlayer(player, body.targetId || null, "player surrender");
     if (body.type === "diplomacy") return this.diplomacy.handle(this, player, body.targetId, body.command);
     if (body.type === "teamCommand") return this.teamManager.handleCommand(this, player, body);
+    if (body.type === "teamRevive") return this.teamManager.revive(this, player, body.targetId, body.tileId);
     if (body.type === "ping") return this.handlePing(player, body);
     if (body.type === "restartTutorial") {
       this.pushEvent({ kind: "notice", message: "Tutorial restarted.", at: this.now() });
@@ -568,9 +716,35 @@ class PondFrontServerGame {
   }
 
   checkWin() {
+    if (this.phase !== spawnConfig.PHASES.PLAYING) return;
     const state = this.winCheckState();
     this.lastWinCheck = state.debug;
-    if (!state.canEnd) return;
+    const modeWinner = this.gameModeManager?.evaluateWin();
+    if (modeWinner) {
+      this.end(modeWinner.winnerId, modeWinner.winnerTeamId, modeWinner.reason, state);
+      return;
+    }
+    const timerExpired = this.timeLeft() <= 0 && !this.matchSettings?.sandbox?.enabled;
+    if (!state.canEnd && !timerExpired) return;
+
+    if (timerExpired) {
+      const modeTimerWinner = this.gameModeManager?.timerWinner();
+      if (modeTimerWinner) {
+        this.end(modeTimerWinner.winnerId, modeTimerWinner.winnerTeamId, modeTimerWinner.reason, state);
+        return;
+      }
+      if (this.teamManager?.active()) {
+        const leaderTeam = state.teamStats.slice().sort((a, b) => b.territory - a.territory)[0];
+        const leadMember = this.players
+          .filter((player) => player.teamId === leaderTeam?.id && this.isPlayerAlive(player))
+          .sort((a, b) => this.ownedTileCount(b) - this.ownedTileCount(a))[0];
+        this.end(leadMember?.id || null, leaderTeam?.id || null, "timer", state);
+        return;
+      }
+      const leader = state.alivePlayers.slice().sort((a, b) => this.ownedTileCount(b) - this.ownedTileCount(a))[0];
+      this.end(leader?.id || null, null, "timer", state);
+      return;
+    }
 
     if (this.teamManager?.active()) {
       if (state.aliveTeams.length === 1) {
@@ -594,7 +768,15 @@ class PondFrontServerGame {
     let reason = "Waiting for a valid win condition.";
     let blockedReason = "";
 
-    if (this.sandbox?.enabled && this.sandbox.rules?.elimination === false) {
+    if (this.phase !== spawnConfig.PHASES.PLAYING) {
+      canEnd = false;
+      reason = "Match start is waiting for confirmed spawn locations.";
+      blockedReason = reason;
+    }
+
+    if (this.phase !== spawnConfig.PHASES.PLAYING) {
+      // Phase gate above is authoritative for every mode.
+    } else if (this.sandbox?.enabled && this.sandbox.rules?.elimination === false) {
       canEnd = false;
       reason = "Sandbox Mode - match ending disabled.";
       blockedReason = reason;
@@ -604,6 +786,10 @@ class PondFrontServerGame {
     } else {
       reason = alivePlayers.length <= 1 ? "One active animal remains." : "More than one active animal remains.";
       canEnd = alivePlayers.length <= 1;
+    }
+    if (!this.matchSettings?.sandbox?.enabled && this.timeLeft() <= 0) {
+      reason = "Timer ended. Highest territory wins.";
+      canEnd = true;
     }
 
     const aliveBots = alivePlayers.filter((player) => player.isBot);
@@ -640,6 +826,7 @@ class PondFrontServerGame {
   end(winnerId, winnerTeamId = null, reason = "elimination", state = null) {
     if (this.ended) return;
     this.ended = true;
+    this.phase = spawnConfig.PHASES.ENDED;
     this.winnerId = winnerId;
     this.winnerTeamId = winnerTeamId;
     const winner = this.getPlayer(winnerId);
@@ -658,10 +845,10 @@ class PondFrontServerGame {
       elapsed: Math.round(this.elapsed()),
       at: this.now(),
     });
-    if (this.sandbox?.shouldSkipAccountRewards?.()) {
+    if (this.sandbox?.shouldSkipAccountRewards?.() || this.modifierManager?.shouldDisableProgression?.()) {
       this.pushEvent({
         kind: "notice",
-        message: "Sandbox ended. No stats saved.",
+        message: "Custom match ended. Progression and standard stats were not saved.",
         at: this.now(),
       });
       return;
@@ -834,6 +1021,7 @@ class PondFrontServerGame {
       alive: this.isPlayerAlive(player),
       defeated: player.defeated,
       isBot: player.isBot,
+      isHost: Boolean(player.isHost),
       xp: Math.round(player.xp || 0),
       level: player.level || 1,
       evolutionTitle: player.evolutionTitle || "Starter",
@@ -864,6 +1052,10 @@ class PondFrontServerGame {
 
     return {
       serverTime: this.now(),
+      phase: this.phase,
+      spawn: this.spawnManager?.snapshot(effectiveViewerId, true) || null,
+      gameModeState: this.gameModeManager?.snapshot() || null,
+      modifiers: this.modifierManager?.snapshot() || { modified: false, progressionDisabled: false, active: [] },
       timeLeft: this.timeLeft(),
       elapsed: this.elapsed(),
       animalsLeft: winState.alivePlayers.length,
@@ -874,6 +1066,7 @@ class PondFrontServerGame {
       objectives: this.objectives.snapshot().objectives,
       camps: this.objectives.snapshot().camps,
       lakeEvent: this.eventsManager.snapshot(this.now()),
+      finalTide: this.finalTideSnapshot(),
       missions: this.missions.snapshot(effectiveViewerId),
       wars: this.warSnapshot(),
       relationships: this.diplomacy.snapshot(effectiveViewerId, this.now()),
@@ -937,6 +1130,9 @@ class PondFrontServerGame {
         progression: progressionConfig,
         sandbox: sandboxConfig,
         specials: specialConfig,
+        spawn: spawnConfig,
+        gameModes: gameModeConfig,
+        modifiers: modifierConfig,
         buildingCosts: this.playerBuildingCosts(viewer),
       },
     };
@@ -1005,6 +1201,42 @@ class PondFrontServerGame {
     return true;
   }
 
+  updateFinalTideState() {
+    if (this.ended || this.matchSettings?.sandbox?.enabled) return false;
+    const state = this.winCheckState();
+    const contenders = this.teamManager?.active() ? state.aliveTeams : state.alivePlayers;
+    const count = contenders.length;
+    const active = count > 1 && count <= 3 && this.elapsed() >= (balance.midGameTime || 150);
+    this.finalTideActive = active;
+    if (!active || this.finalTideAnnounced) return active;
+    this.finalTideAnnounced = true;
+    this.finalTideStartedAt = this.now();
+    this.pushEvent({
+      kind: "finalTide",
+      eventType: "finalTide",
+      remaining: count,
+      objectiveMultiplier: balance.finalTideObjectiveMultiplier || 1.28,
+      at: this.now(),
+      message: "Final Tide: the last contenders are fighting for the pond.",
+    });
+    return active;
+  }
+
+  finalTideSnapshot() {
+    const active = Boolean(this.finalTideActive);
+    const remaining = this.teamManager?.active()
+      ? this.teamManager.territoryStats(this.players, this.tileManager.playable().length).filter((team) => this.isTeamAlive(team.id)).length
+      : this.players.filter((player) => this.isPlayerAlive(player)).length;
+    return {
+      active,
+      startedAt: this.finalTideStartedAt || 0,
+      remaining,
+      objectiveMultiplier: active ? balance.finalTideObjectiveMultiplier || 1.28 : 1,
+      label: "Final Tide",
+      description: "Last contenders remain. Objectives are worth more and rivals pressure the leader.",
+    };
+  }
+
   ownedTileCount(playerOrId) {
     const id = typeof playerOrId === "string" ? playerOrId : playerOrId?.id;
     if (!id) return 0;
@@ -1021,6 +1253,7 @@ class PondFrontServerGame {
     if (!player) return false;
     if (player.defeated || player.flags?.surrendered || player.removed || player.spectator) return false;
     if (!player.isBot && player.connected === false) return false;
+    if (this.phase !== spawnConfig.PHASES.PLAYING && this.phase !== spawnConfig.PHASES.ENDED) return true;
     return this.ownedTileCount(player) > 0 || this.hasOwnedCore(player);
   }
 
@@ -1029,6 +1262,7 @@ class PondFrontServerGame {
     if (!teamId) return false;
     const members = this.players.filter((player) => player.teamId === teamId);
     if (!members.some((player) => this.isPlayerAlive(player))) return false;
+    if (this.phase !== spawnConfig.PHASES.PLAYING && this.phase !== spawnConfig.PHASES.ENDED) return true;
     return members.some((player) => this.ownedTileCount(player) > 0);
   }
 
@@ -1109,7 +1343,9 @@ class PondFrontServerGame {
   }
 
   visibleEventsFor(viewerId) {
+    const viewer = this.getPlayer(viewerId);
     return this.events.filter((event) => {
+      if (event.kind === "spawnReservationRejected") return event.playerId === viewerId;
       if (event.kind === "teamCommand") return Boolean(event.teamId && this.getPlayer(viewerId)?.teamId === event.teamId);
       if (event.kind === "teamResponse") return Boolean(event.teamId && this.getPlayer(viewerId)?.teamId === event.teamId);
       if (event.kind !== "ping" && event.kind !== "signal") return true;
@@ -1117,6 +1353,20 @@ class PondFrontServerGame {
       if (event.playerId === viewerId || event.targetId === viewerId) return true;
       if (event.visibility === "allies") return this.diplomacy?.areAllied(event.playerId, viewerId);
       return false;
+    }).map((event) => {
+      if (!String(event.kind || "").startsWith("spawn") || event.kind === "spawnCountdown") return event;
+      const owner = this.getPlayer(event.playerId);
+      if (this.spawnManager?.canRevealReservation(viewer, owner)) return event;
+      if (this.spawnManager?.visibilityMode() === "teamOnly") {
+        return { ...event, playerId: null, playerName: "Claimed Area", animal: null, teamId: null };
+      }
+      return {
+        id: event.id,
+        kind: "spawnSync",
+        message: "The spawn map changed.",
+        version: event.version,
+        at: event.at,
+      };
     });
   }
 
@@ -1130,10 +1380,13 @@ class PondFrontServerGame {
   }
 
   timeLeft() {
+    if (!Number.isFinite(this.startedAt)) return this.matchSeconds || config.MATCH_SECONDS;
     return Math.max(0, (this.matchSeconds || config.MATCH_SECONDS) - (this.now() - this.startedAt));
   }
 
   elapsed() {
+    if (!Number.isFinite(this.startedAt)) return 0;
+    if (this.phase !== spawnConfig.PHASES.PLAYING && this.phase !== spawnConfig.PHASES.ENDED) return 0;
     return Math.max(0, this.now() - this.startedAt);
   }
 
@@ -1158,6 +1411,7 @@ class PondFrontServerGame {
 
 const db = new PondDatabase();
 const authManager = new AuthManager(db);
+const oauthManager = new OAuthManager(db, authManager);
 const achievementManager = new AchievementManager(db);
 const matchHistoryManager = new MatchHistoryManager(db);
 const profileManager = new ProfileManager(db, matchHistoryManager);
@@ -1182,6 +1436,22 @@ function sendJson(res, status, data) {
     "Content-Length": Buffer.byteLength(json),
   });
   res.end(json);
+}
+
+function sendRedirect(res, location, status = 302) {
+  res.writeHead(status, { Location: location, "Cache-Control": "no-store", Pragma: "no-cache" });
+  res.end();
+}
+
+function sameOriginRequest(req) {
+  const origin = String(req.headers.origin || "");
+  if (!origin) return true;
+  try {
+    const configured = process.env.APP_BASE_URL ? new URL(process.env.APP_BASE_URL).origin : `http://${req.headers.host || `localhost:${PORT}`}`;
+    return new URL(origin).origin === configured;
+  } catch {
+    return false;
+  }
 }
 
 function readJson(req) {
@@ -1246,10 +1516,12 @@ function actionResponse(match, body, viewerId) {
   const serverReceivedTime = Date.now();
   const beforeEventId = match.eventId;
   const result = match.handleAction(body);
-  match.objectives.update(match);
-  match.economy.completeBuildings(match.now(), match);
-  match.economy.recalculate(match.players, match.now(), match);
-  match.missions.update(match);
+  if (match.phase === spawnConfig.PHASES.PLAYING) {
+    match.objectives.update(match);
+    match.economy.completeBuildings(match.now(), match);
+    match.economy.recalculate(match.players, match.now(), match);
+    match.missions.update(match);
+  }
   if (result.message) match.pushEvent({ kind: "notice", message: result.message, ok: result.ok, at: match.now() });
   const processedAt = Date.now();
   const events = match.events.filter((event) => event.id >= beforeEventId);
@@ -1266,7 +1538,7 @@ function actionResponse(match, body, viewerId) {
         serverReceivedTime,
         processedAt,
         serverProcessMs,
-      }),
+      }, viewerId),
     };
   }
   return { result, state: match.snapshot(viewerId) };
@@ -1300,6 +1572,10 @@ function stateResponse(match, viewerId, query = {}) {
     delta: {
       type: "state",
       serverTime: now,
+      phase: match.phase,
+      spawn: match.spawnManager?.snapshot(viewerId, false) || null,
+      gameModeState: match.gameModeManager?.snapshot() || null,
+      modifiers: match.modifierManager?.snapshot() || null,
       timeLeft: match.timeLeft(),
       elapsed: match.elapsed(),
       animalsLeft: winState.alivePlayers.length,
@@ -1309,6 +1585,8 @@ function stateResponse(match, viewerId, query = {}) {
       objectives: objectiveSnapshot.objectives,
       camps: objectiveSnapshot.camps,
       lakeEvent: match.eventsManager.snapshot(now),
+      finalTide: match.finalTideSnapshot(),
+      buildingCosts: match.playerBuildingCosts(match.getPlayer(viewerId)),
       missions: match.missions.snapshot(viewerId),
       relationships: match.diplomacy.snapshot(viewerId, now),
       matchSettings: match.matchSettings,
@@ -1327,9 +1605,12 @@ function stateResponse(match, viewerId, query = {}) {
   };
 }
 
-function actionDelta(match, body, result, events, timing) {
+function actionDelta(match, body, result, events, timing, viewerId = config.HUMAN_ID) {
   const changedTileIds = collectChangedTileIds(match, body, result, events);
   const playerIds = collectChangedPlayerIds(body, result, events);
+  const now = match.now();
+  const objectiveSnapshot = match.objectives.snapshot();
+  const winState = match.winCheckState();
   return {
     actionId: body.clientActionId || null,
     type: body.type || "",
@@ -1338,17 +1619,35 @@ function actionDelta(match, body, result, events, timing) {
     serverReceivedTime: timing.serverReceivedTime,
     processedAt: timing.processedAt,
     serverProcessMs: timing.serverProcessMs,
-    serverTime: match.now(),
+    serverTime: now,
+    phase: match.phase,
+    spawn: match.spawnManager?.snapshot(viewerId, false) || null,
+    gameModeState: match.gameModeManager?.snapshot() || null,
+    modifiers: match.modifierManager?.snapshot() || null,
+    timeLeft: match.timeLeft(),
+    elapsed: match.elapsed(),
+    animalsLeft: winState.alivePlayers.length,
+    teamsLeft: match.teamManager?.active() ? winState.aliveTeams.length : 0,
+    winDebug: winState.debug,
+    objectives: objectiveSnapshot.objectives,
+    camps: objectiveSnapshot.camps,
+    lakeEvent: match.eventsManager.snapshot(now),
+    finalTide: match.finalTideSnapshot(),
+    buildingCosts: match.playerBuildingCosts(match.getPlayer(viewerId)),
+    missions: match.missions.snapshot(viewerId),
+    relationships: match.diplomacy.snapshot(viewerId, now),
+    matchSettings: match.matchSettings,
+    sandbox: match.sandbox?.snapshot(match) || { enabled: false },
+    teamState: match.teamManager.snapshot(match),
+    ended: match.ended,
+    winnerId: match.winnerId,
+    winnerTeamId: match.winnerTeamId || null,
     changedTiles: [...changedTileIds].map((id) => tileDelta(match, id)).filter(Boolean),
     players: [...playerIds].map((id) => playerDelta(match.getPlayer(id))).filter(Boolean),
     activeAttacks: match.combat.snapshot(match.now()),
     activeExpansions: match.combat.expansionSnapshot(),
     specials: match.specials?.snapshot(match.now()) || { pending: [], zones: [] },
-    metrics: {
-      lastTickMs: match.metrics?.lastTickMs || 0,
-      lastBotThinkMs: match.metrics?.lastBotThinkMs || 0,
-      lastBotThinkers: match.metrics?.lastBotThinkers || 0,
-    },
+    metrics: { ...match.metrics },
     events,
   };
 }
@@ -1466,6 +1765,11 @@ function lobbyQuery(url) {
 const server = http.createServer(async (req, res) => {
   const url = new URL(req.url, `http://${req.headers.host || "localhost"}`);
 
+  if (req.method === "POST" && (url.pathname.startsWith("/api/auth/") || url.pathname.startsWith("/api/profile/")) && !sameOriginRequest(req)) {
+    sendJson(res, 403, { ok: false, message: "Request origin was not accepted." });
+    return;
+  }
+
   if (req.method === "GET" && url.pathname === "/health") {
     sendJson(res, 200, {
       ok: true,
@@ -1501,10 +1805,53 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
+  if (req.method === "GET" && url.pathname === "/api/auth/providers") {
+    const user = authManager.currentUser(req);
+    sendJson(res, 200, { ok: true, providers: oauthManager.providerStatus(user?.id), signedIn: Boolean(user) });
+    return;
+  }
+
+  const oauthStartMatch = url.pathname.match(/^\/api\/auth\/oauth\/(google|discord)\/start$/);
+  if (req.method === "GET" && oauthStartMatch) {
+    const result = oauthManager.begin(oauthStartMatch[1], req, res, url.searchParams.get("mode") || "login");
+    if (!result.ok) sendJson(res, result.status || 400, result);
+    else sendRedirect(res, result.location, result.status);
+    return;
+  }
+
+  const oauthCallbackMatch = url.pathname.match(/^\/api\/auth\/oauth\/(google|discord)\/callback$/);
+  if (req.method === "GET" && oauthCallbackMatch) {
+    const result = await oauthManager.callback(oauthCallbackMatch[1], url.searchParams, req, res);
+    sendRedirect(res, result.location, result.status);
+    return;
+  }
+
+  if (req.method === "POST" && url.pathname === "/api/auth/oauth/disconnect") {
+    const user = requireAccount(req, res);
+    if (!user) return;
+    const body = await readJson(req);
+    const result = oauthManager.disconnect(String(body.provider || ""), user);
+    sendJson(res, result.status || (result.ok ? 200 : 400), {
+      ...result,
+      user: result.ok ? authManager.publicUser(db.findUserById(user.id)) : undefined,
+      providers: oauthManager.providerStatus(user.id),
+    });
+    return;
+  }
+
   if (req.method === "GET" && url.pathname === "/api/profile/me") {
     const user = requireAccount(req, res);
     if (!user) return;
-    sendJson(res, 200, { ok: true, profile: profileManager.profile(user.id) });
+    sendJson(res, 200, { ok: true, profile: profileManager.profile(user.id, { private: true, providerStatus: oauthManager.providerStatus(user.id) }) });
+    return;
+  }
+
+  if (req.method === "POST" && url.pathname === "/api/profile/display-name") {
+    const user = requireAccount(req, res);
+    if (!user) return;
+    const body = await readJson(req);
+    const result = profileManager.updateDisplayName(user.id, body.displayName);
+    sendJson(res, result.status || (result.ok ? 200 : 400), result);
     return;
   }
 
@@ -1591,6 +1938,9 @@ const server = http.createServer(async (req, res) => {
       practice: body.practice,
       beginnerCombat: body.beginnerCombat,
       gameMode: body.gameMode,
+      ruleMode: body.ruleMode,
+      spawnSelectionSeconds: body.spawnSelectionSeconds,
+      privateMatch: true,
       coopTeammates: body.coopTeammates,
       teamBotDifficulty: body.teamBotDifficulty,
       teamCount: body.teamCount,
