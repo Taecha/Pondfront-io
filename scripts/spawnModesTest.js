@@ -67,7 +67,7 @@ check("no economy before PLAYING", basicHuman.energy === initialEnergy && basic.
 check("normal actions blocked before PLAYING", !basic.handleAction({ playerId: basicHuman.id, type: "expand", tileId: basicCandidate.tileId }).ok);
 
 const blockedTile = basic.tileManager.tiles.find((tile) => config.TILE_TYPES[tile.type]?.blocks);
-const blockedResult = basic.handleAction({ playerId: basicHuman.id, type: "spawnReserve", tileId: blockedTile.id });
+const blockedResult = basic.handleAction({ playerId: basicHuman.id, type: "spawnReserve", tileId: blockedTile.id, snapNearby: false });
 check("blocked terrain rejected", !blockedResult.ok && /blocked|playable/i.test(blockedResult.message), blockedResult.message);
 
 const twoHumans = gameWith({
@@ -151,14 +151,14 @@ check("Classic Elimination uses last living animal", classic.ended && classic.wi
 const golden = startGame(gameWith({ ruleMode: "goldenLily", botCount: 1 }));
 const goldenObjective = golden.objectives.objectives.find((objective) => ["goldenLily", "goldenLilyBasin", "goldenLotus", "lotusField"].includes(objective.type));
 if (goldenObjective) golden.tileManager.getById(goldenObjective.tileId).owner = human(golden).id;
-golden.gameModeManager.updateControlScores(170);
+golden.gameModeManager.updateControlScores(1200);
 const goldenWinner = golden.gameModeManager.evaluateWin();
 check("Golden Lily score win is independent", Boolean(goldenObjective && goldenWinner?.winnerId === human(golden).id), goldenWinner?.reason || "no score winner");
 
 const flood = startGame(gameWith({ gameMode: "coop", ruleMode: "floodSurvival", botCount: 4 }));
-flood.gameModeManager.tide = flood.gameModeManager.rules.survivalTides;
+flood.gameModeManager.flood.completed = true;
 const floodWinner = flood.gameModeManager.evaluateWin();
-check("Flood Survival ends after target tides", Boolean(floodWinner && !flood.getPlayer(floodWinner.winnerId)?.isBot), floodWinner?.reason || "no winner");
+check("Flood Survival ends after target waves", Boolean(floodWinner && !flood.getPlayer(floodWinner.winnerId)?.isBot), floodWinner?.reason || "no winner");
 
 const lastNest = startGame(gameWith({ ruleMode: "lastNest", botCount: 2 }));
 lastNest.players.filter((player) => player.isBot).forEach((bot) => {
@@ -169,38 +169,15 @@ lastNest.players.filter((player) => player.isBot).forEach((bot) => {
 const nestWinner = lastNest.gameModeManager.evaluateWin();
 check("Last Nest uses Core Nest survival", nestWinner?.winnerId === human(lastNest).id, nestWinner?.reason || "no winner");
 
-const river = startGame(gameWith({ ruleMode: "riverDomination", botCount: 1 }));
-const riverObjective = river.objectives.objectives.find((objective) => ["riverGate", "canalGate", "deepCurrent", "riverShrine", "clearWaterShrine"].includes(objective.type));
-if (riverObjective) river.tileManager.getById(riverObjective.tileId).owner = human(river).id;
-river.gameModeManager.updateControlScores(140);
-const riverWinner = river.gameModeManager.evaluateWin();
-check("River Domination score win works", Boolean(riverObjective && riverWinner?.winnerId === human(river).id), riverWinner?.reason || "no score winner");
-
-const rush = startGame(gameWith({ ruleMode: "pondRush", botCount: 1 }));
-const rushHuman = human(rush);
-const rushTarget = Math.ceil(rush.tileManager.playable().length * rush.gameModeManager.rules.territoryTarget);
-rush.tileManager.playable().slice(0, rushTarget).forEach((tile) => {
-  tile.owner = rushHuman.id;
-});
-const rushWinner = rush.gameModeManager.evaluateWin();
-check("Pond Rush territory target wins", rushWinner?.winnerId === rushHuman.id, rushWinner?.reason || "no winner");
-
-const peaceful = startGame(gameWith({ ruleMode: "peacefulExpansion", botCount: 1 }));
-const peaceHuman = human(peaceful);
-const peaceBlocked = peaceful.gameModeManager.beforeAction(peaceHuman, { type: "attack" });
-peaceful.simTime = peaceful.startedAt + peaceful.gameModeManager.rules.peaceSeconds + 1;
-const peaceOpen = peaceful.gameModeManager.beforeAction(peaceHuman, { type: "attack" });
-check("Peaceful Expansion locks then opens combat", Boolean(peaceBlocked && !peaceOpen), peaceBlocked?.message || "not blocked");
-
-const migration = startGame(gameWith({ ruleMode: "migration", botCount: 1 }));
-migration.gameModeManager.advanceMigration(migration.now());
-check("Migration shifts neutral water to temporary mud", migration.gameModeManager.migrationTiles.length > 0 && migration.gameModeManager.migrationTiles.every((entry) => migration.tileManager.getById(entry.tileId)?.type === "mud"), `${migration.gameModeManager.migrationTiles.length} tiles`);
-
-const king = startGame(gameWith({ ruleMode: "animalKing", botCount: 4 }));
-const kingPlayer = king.getPlayer(king.gameModeManager.kingId);
-const challengers = king.players.filter((player) => player.id !== kingPlayer?.id && !player.removed);
-const challengersCooperate = challengers.every((player) => challengers.filter((other) => other.id !== player.id).every((other) => player.allies.has(other.id)));
-check("Animal King creates one empowered king and allied challengers", Boolean(kingPlayer?.flags?.kingAnimal && challengersCooperate), kingPlayer?.name || "no king");
+for (const unfinished of ["riverDomination", "pondRush", "peacefulExpansion", "migration", "animalKing"]) {
+  let rejected = false;
+  try {
+    gameWith({ ruleMode: unfinished, botCount: 1 });
+  } catch (error) {
+    rejected = /not available/i.test(error.message);
+  }
+  check(`${unfinished} is blocked until implemented`, rejected);
+}
 
 const cheap = gameWith({ modifiers: { cheapBuildings: true, fastBuildings: true, noSpecials: true } });
 const cheapHuman = human(cheap);

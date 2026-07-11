@@ -25,8 +25,21 @@ class TeamManager {
       player.allies?.clear?.();
     });
 
-    if (this.mode === "coop") this.setupCoop(players, settings);
+    if (settings.ruleMode === "floodSurvival") this.setupFloodSurvival(players, settings);
+    else if (this.mode === "coop") this.setupCoop(players, settings);
     else if (this.mode === "teamBattle") this.setupTeamBattle(players, settings);
+  }
+
+  setupFloodSurvival(players) {
+    const defenders = this.addTeam(teamConfig.teams[0]);
+    const flood = this.addTeam(teamConfig.teams[1]);
+    const humans = players.filter((player) => !player.isBot);
+    humans.forEach((human, index) => this.assign(human, defenders, index === 0 ? "commander" : "guardian", this.coopHumanSpawnIndex(index)));
+    players.filter((player) => player.isBot).forEach((bot, index) => {
+      this.assign(bot, flood, "attacker", index + 1);
+      bot.personality = "aggressive";
+    });
+    this.syncAlliances(players);
   }
 
   setupCoop(players, settings) {

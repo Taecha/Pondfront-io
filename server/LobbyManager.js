@@ -18,7 +18,12 @@ class LobbyManager {
   }
 
   createLobby(payload = {}) {
-    const settings = this.sanitizeSettings(payload.settings || payload);
+    let settings;
+    try {
+      settings = this.sanitizeSettings(payload.settings || payload);
+    } catch (error) {
+      return { ok: false, message: error.message || "The selected game mode is unavailable." };
+    }
     const roomCode = this.generateRoomCode();
     const host = this.makePlayer(payload, settings, true);
     const lobby = {
@@ -126,7 +131,11 @@ class LobbyManager {
     }
     if (payload.settings) {
       if (player.id !== lobby.hostId) return { ok: false, message: "Only the host can change lobby settings." };
-      lobby.settings = this.sanitizeSettings({ ...lobby.settings, ...payload.settings });
+      try {
+        lobby.settings = this.sanitizeSettings({ ...lobby.settings, ...payload.settings });
+      } catch (error) {
+        return { ok: false, message: error.message || "The selected game mode is unavailable." };
+      }
       lobby.teams = teamConfig.teams.slice(0, lobby.settings.teamCount);
       this.normalizeLobbyTeams(lobby);
       changed = true;
@@ -319,8 +328,11 @@ class LobbyManager {
   }
 
   sanitizeSettings(settings = {}) {
-    const gameMode = ["solo", "coop", "teamBattle"].includes(settings.gameMode || settings.teamMode) ? settings.gameMode || settings.teamMode : "solo";
-    const ruleMode = gameModeConfig.sanitize(settings.ruleMode, false);
+    let gameMode = ["solo", "coop", "teamBattle"].includes(settings.gameMode || settings.teamMode) ? settings.gameMode || settings.teamMode : "solo";
+    const requestedRuleMode = settings.ruleMode || "classic";
+    const ruleMode = gameModeConfig.sanitize(requestedRuleMode, false);
+    if (!ruleMode) throw new Error(`Game mode "${String(requestedRuleMode)}" is not available yet.`);
+    if (ruleMode === "floodSurvival") gameMode = "coop";
     const mapIds = Object.keys(config.MAP_SIZES);
     const themedMapIds = mapIds.filter((id) => config.MAP_SIZES[id]?.theme);
     const requestedMap = String(settings.mapSize || "medium");
@@ -346,6 +358,7 @@ class LobbyManager {
       spawnConfig.defaultSeconds({ mapSize, privateMatch: true, teamMode: gameMode }),
       true,
     );
+    const matchLength = ["quick", "standard", "long"].includes(settings.matchLength) ? settings.matchLength : "standard";
     return {
       gameMode,
       teamMode: gameMode,
@@ -359,7 +372,10 @@ class LobbyManager {
       allowBots,
       surrenderMode,
       maxPlayers,
-      matchLength: ["quick", "standard", "long"].includes(settings.matchLength) ? settings.matchLength : "standard",
+      matchLength,
+      goldenLilyScoreTarget: [250, 500, 750].includes(Number(settings.goldenLilyScoreTarget)) ? Number(settings.goldenLilyScoreTarget) : gameModeConfig.scoreTarget("goldenLily", matchLength),
+      floodWaveCount: [8, 10, 15].includes(Number(settings.floodWaveCount)) ? Number(settings.floodWaveCount) : gameModeConfig.waveTarget("floodSurvival", matchLength),
+      lastNestProtectionSeconds: [60, 75, 90].includes(Number(settings.lastNestProtectionSeconds)) ? Number(settings.lastNestProtectionSeconds) : 75,
       coopTeammates: Math.max(0, Math.min(4, Number(settings.coopTeammates ?? 2))),
       teamBotDifficulty: ["normal", "smart", "aggressive"].includes(settings.teamBotDifficulty) ? settings.teamBotDifficulty : "normal",
       forceStart: Boolean(settings.forceStart),

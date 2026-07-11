@@ -1284,7 +1284,13 @@ class CombatManager {
     wave.distanceByTile[tile.id] = candidate.distance;
     wave.fromByTile[tile.id] = candidate.from;
 
-    if (!this.tileManager.owned(defender.id).length && !defender.defeated) game.eliminatePlayer?.(defender, attacker, "no territory");
+    if (
+      !this.tileManager.owned(defender.id).length &&
+      !defender.defeated &&
+      game.gameModeManager?.shouldEliminateForNoTerritory(defender) !== false
+    ) {
+      game.eliminatePlayer?.(defender, attacker, "no territory");
+    }
     if (coreHit?.coreBroken) game.core?.handleCoreCaptured(game, attacker, defender, tile);
 
     this.pushEvent({

@@ -27,6 +27,7 @@
       this.hoverTileId = null;
       this.spawnCandidateIds = new Set();
       this.spawnUnavailableCandidateIds = new Set();
+      this.spawnCandidateZones = new Map();
       this.spawnInspection = null;
       this.sourceIds = [];
       this.preview = null;
@@ -42,6 +43,8 @@
       this.panVelocity = { x: 0, y: 0 };
       this.inertiaFrame = null;
       this.longPressTimer = null;
+      this.resizeFrame = null;
+      this.resizeObserver = null;
       this.minimapPointerId = null;
       this.minimapShrinkTimer = null;
       this.pollTimer = null;
@@ -111,14 +114,22 @@
         this.preview = null;
       });
 
-      window.addEventListener("resize", () => this.renderer.resize());
+      window.addEventListener("resize", () => this.scheduleRendererResize());
+      window.addEventListener("orientationchange", () => this.scheduleRendererResize());
+      window.visualViewport?.addEventListener("resize", () => this.scheduleRendererResize());
+      if (typeof ResizeObserver !== "undefined") {
+        this.resizeObserver = new ResizeObserver(() => this.scheduleRendererResize());
+        this.resizeObserver.observe(this.canvas);
+        if (this.canvas.parentElement) this.resizeObserver.observe(this.canvas.parentElement);
+      }
       window.addEventListener("keydown", (event) => this.handleKey(event));
       this.canvas.addEventListener("wheel", (event) => this.handleWheel(event), { passive: false });
       this.canvas.addEventListener("pointerdown", (event) => this.handlePointerDown(event));
       this.canvas.addEventListener("pointermove", (event) => this.handlePointerMove(event));
       this.canvas.addEventListener("pointerup", (event) => this.handlePointerUp(event));
-      this.canvas.addEventListener("pointercancel", () => {
+      this.canvas.addEventListener("pointercancel", (event) => {
         this.clearLongPress();
+        this.canvas.releasePointerCapture?.(event.pointerId);
         this.pointer = null;
         document.body.classList.remove("map-panning");
         this.activePointers.clear();
@@ -134,6 +145,14 @@
         if (!this.state || this.isSpawnPhase()) return;
         const tile = this.renderer.screenToTile(event.clientX, event.clientY);
         this.openContextMenu(tile, event.clientX, event.clientY);
+      });
+    }
+
+    scheduleRendererResize() {
+      if (this.resizeFrame) cancelAnimationFrame(this.resizeFrame);
+      this.resizeFrame = requestAnimationFrame(() => {
+        this.resizeFrame = null;
+        this.renderer.resize({ preserveCamera: true });
       });
     }
 
@@ -160,6 +179,9 @@
             beginnerCombat: Boolean(payload.beginnerCombat),
             gameMode: payload.gameMode,
             ruleMode: payload.ruleMode,
+            goldenLilyScoreTarget: payload.goldenLilyScoreTarget,
+            floodWaveCount: payload.floodWaveCount,
+            lastNestProtectionSeconds: payload.lastNestProtectionSeconds,
             spawnSelectionSeconds: payload.spawnSelectionSeconds,
             coopTeammates: payload.coopTeammates,
             teamBotDifficulty: payload.teamBotDifficulty,
@@ -432,6 +454,7 @@
       this.state = state;
       this.spawnCandidateIds = new Set(state.spawn?.candidateIds || this.spawnCandidateIds || []);
       this.spawnUnavailableCandidateIds = new Set(state.spawn?.unavailableCandidateIds || []);
+      if (state.spawn?.candidateZones) this.spawnCandidateZones = new Map(state.spawn.candidateZones.map((candidate) => [candidate.tileId, candidate]));
       this.stateVersion += 1;
       this.legalCache.key = "";
       this.humanBordersCache.key = "";
@@ -902,8 +925,15 @@
       if (!this.isSpawnPhase()) return;
       const body = { type: payload.type || "spawnConfirm" };
       if (payload.tileId != null) body.tileId = payload.tileId;
+      if (payload.snapNearby != null) body.snapNearby = Boolean(payload.snapNearby);
       if (body.type === "spawnRelease" || body.type === "spawnRandom") this.spawnInspection = null;
-      await this.postAction(body);
+      const result = await this.postAction(body);
+      if (result?.ok && result.reservation?.tileId != null && body.type === "spawnFind") this.renderer.centerOnTile(result.reservation.tileId);
+      if (result?.adjusted) {
+        this.spawnInspection = { adjusted: true, tileId: result.reservation?.tileId };
+        this.updateUi();
+      }
+      return result;
     }
 
     spawnReservationAt(tile) {
@@ -934,20 +964,13 @@
         this.updateUi();
         return;
       }
-      if (!this.spawnCandidateIds?.has(tile.id) || this.spawnUnavailableCandidateIds?.has(tile.id)) {
-        this.spawnInspection = this.spawnUnavailableCandidateIds?.has(tile.id)
-          ? { playerName: "Claimed Area", animal: null, confirmed: true, anonymous: true }
-          : null;
-        this.updateUi();
-        const message = this.spawnUnavailableCandidateIds?.has(tile.id)
-          ? "Too close to a claimed spawn. Choose water outside the dotted boundary."
-          : "Choose open water with enough room to expand.";
-        this.ui.toast(message, true);
-        this.renderer.vfx?.spawnBlockedEffect(tile.id, "Invalid Spawn");
-        return;
-      }
       this.spawnInspection = null;
-      await this.handleSpawnAction({ type: "spawnReserve", tileId: tile.id });
+      const result = await this.handleSpawnAction({ type: "spawnReserve", tileId: tile.id, snapNearby: true });
+      if (!result?.ok) {
+        this.spawnInspection = { invalid: true, reason: result?.message || "That location is unavailable.", tileId: tile.id };
+        this.updateUi();
+        this.renderer.vfx?.spawnBlockedEffect(tile.id, "Invalid Spawn");
+      }
     }
 
     async postAction(body, options = {}) {
@@ -1040,6 +1063,8 @@
         ended: delta.ended ?? this.state.ended,
         winnerId: delta.winnerId ?? this.state.winnerId,
         winnerTeamId: delta.winnerTeamId ?? this.state.winnerTeamId,
+        endReason: delta.endReason ?? this.state.endReason,
+        endMessage: delta.endMessage ?? this.state.endMessage,
         activeAttacks: delta.activeAttacks || this.state.activeAttacks,
         activeExpansions: delta.activeExpansions || this.state.activeExpansions,
         specials: delta.specials || this.state.specials,
@@ -1231,8 +1256,10 @@
       };
       if (event.pointerType === "touch" && event.button === 0) {
         this.longPressTimer = setTimeout(() => {
+          const point = this.activePointers.get(event.pointerId);
+          const finalTile = point ? this.renderer.screenToTile(point.x, point.y) : null;
           this.pointer = null;
-          this.openContextMenu(tile, event.clientX, event.clientY);
+          if (finalTile && point) this.openContextMenu(finalTile, point.x, point.y);
         }, 560);
       }
 
@@ -1257,7 +1284,7 @@
         this.handlePinchMove();
         return;
       }
-      const tile = this.renderer.screenToTile(event.clientX, event.clientY);
+      const tile = this.renderer.screenToTile(event.clientX, event.clientY, { previousTileId: this.hoverTileId, hysteresisPx: 1.1 });
       const nextHover = tile?.id ?? null;
       if (nextHover !== this.hoverTileId) {
         this.hoverTileId = nextHover;
@@ -1290,6 +1317,7 @@
       const activeBeforeDelete = this.activePointers.size;
       if (event.pointerType === "touch") event.preventDefault();
       this.activePointers.delete(event.pointerId);
+      this.canvas.releasePointerCapture?.(event.pointerId);
       if (this.pinch) {
         const wasTapCancel = !this.pinch.moved && performance.now() - this.pinch.startedAt < 320 && activeBeforeDelete >= 2;
         if (this.activePointers.size < 2) {
@@ -2080,6 +2108,9 @@
           performanceLevel: this.runtimeVisualState.temporaryPerformanceLevel,
           runtimeVisualState: this.runtimeVisualState,
           spawnSelection: this.spawnRenderOptions(),
+          pointerDebug: this.renderer.lastPointerHit
+            ? { ...this.renderer.lastPointerHit, selectedTileId: this.selectedTileId, hoveredTileId: this.hoverTileId }
+            : null,
         });
         if (this.state && view.showDebugStats && now - this.lastPerfUiAt > 500) {
           this.lastPerfUiAt = now;
@@ -2096,6 +2127,7 @@
         phase: this.state.phase,
         candidateIds: this.spawnCandidateIds || new Set(),
         unavailableCandidateIds: this.spawnUnavailableCandidateIds || new Set(),
+        candidateZones: this.spawnCandidateZones || new Map(),
         hoverTileId: this.hoverTileId,
         selectedTileId: this.selectedTileId,
         startRadius: this.state.spawn?.startRadius || 2,

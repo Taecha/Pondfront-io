@@ -182,14 +182,18 @@
               <select id="ruleMode">
                 <option value="classic" selected>Classic Elimination</option>
                 <option value="goldenLily">Golden Lily Control</option>
-                <option value="riverDomination">River Domination</option>
                 <option value="floodSurvival">Flood Survival</option>
-                <option value="pondRush">Pond Rush</option>
                 <option value="lastNest">Last Nest</option>
-                <option value="migration">Migration</option>
-                <option value="animalKing">Animal King</option>
-                <option value="peacefulExpansion">Peaceful Expansion</option>
+                <option value="riverDomination" disabled>River Domination - Coming Soon</option>
+                <option value="pondRush" disabled>Pond Rush - Coming Soon</option>
+                <option value="migration" disabled>Migration - Coming Soon</option>
+                <option value="animalKing" disabled>Animal King - Coming Soon</option>
+                <option value="peacefulExpansion" disabled>Peaceful Expansion - Coming Soon</option>
               </select>
+              <section id="ruleModeInfo" class="mode-info-card" aria-live="polite"></section>
+              <label data-main-mode-only="goldenLily" for="goldenLilyScoreTarget">Control target<select id="goldenLilyScoreTarget"><option value="250">250 points</option><option value="500" selected>500 points</option><option value="750">750 points</option></select></label>
+              <label data-main-mode-only="floodSurvival" for="floodWaveCount">Flood waves<select id="floodWaveCount"><option value="8">8 waves</option><option value="10" selected>10 waves</option><option value="15">15 waves</option></select></label>
+              <label data-main-mode-only="lastNest" for="lastNestProtection">Nest protection<select id="lastNestProtection"><option value="60">60 seconds</option><option value="75" selected>75 seconds</option><option value="90">90 seconds</option></select></label>
               <label for="difficulty">Bot strategy</label>
               <select id="difficulty">
                 <option value="easy">Chill</option>
@@ -372,14 +376,15 @@
             <label for="createRuleMode">Rules<select id="createRuleMode">
               <option value="classic" selected>Classic Elimination</option>
               <option value="goldenLily">Golden Lily Control</option>
-              <option value="riverDomination">River Domination</option>
               <option value="floodSurvival">Flood Survival</option>
-              <option value="pondRush">Pond Rush</option>
               <option value="lastNest">Last Nest</option>
-              <option value="migration">Migration</option>
-              <option value="animalKing">Animal King</option>
-              <option value="peacefulExpansion">Peaceful Expansion</option>
+              <option value="riverDomination" disabled>River Domination - Coming Soon</option>
+              <option value="pondRush" disabled>Pond Rush - Coming Soon</option>
+              <option value="migration" disabled>Migration - Coming Soon</option>
+              <option value="animalKing" disabled>Animal King - Coming Soon</option>
+              <option value="peacefulExpansion" disabled>Peaceful Expansion - Coming Soon</option>
             </select></label>
+            <small id="createRuleModeInfo" class="mode-inline-info"></small>
             <label for="createMapSize">Map<select id="createMapSize">
               <option value="amazon">Amazon River</option>
               <option value="mekong">Mekong Delta</option>
@@ -509,14 +514,18 @@
                 <label for="lobbyRuleMode">Rules<select id="lobbyRuleMode">
                   <option value="classic">Classic Elimination</option>
                   <option value="goldenLily">Golden Lily Control</option>
-                  <option value="riverDomination">River Domination</option>
                   <option value="floodSurvival">Flood Survival</option>
-                  <option value="pondRush">Pond Rush</option>
                   <option value="lastNest">Last Nest</option>
-                  <option value="migration">Migration</option>
-                  <option value="animalKing">Animal King</option>
-                  <option value="peacefulExpansion">Peaceful Expansion</option>
+                  <option value="riverDomination" disabled>River Domination - Coming Soon</option>
+                  <option value="pondRush" disabled>Pond Rush - Coming Soon</option>
+                  <option value="migration" disabled>Migration - Coming Soon</option>
+                  <option value="animalKing" disabled>Animal King - Coming Soon</option>
+                  <option value="peacefulExpansion" disabled>Peaceful Expansion - Coming Soon</option>
                 </select></label>
+                <small id="lobbyRuleModeInfo" class="mode-inline-info"></small>
+                <label data-lobby-mode-only="goldenLily" for="lobbyGoldenLilyScoreTarget">Control target<select id="lobbyGoldenLilyScoreTarget"><option value="250">250 points</option><option value="500" selected>500 points</option><option value="750">750 points</option></select></label>
+                <label data-lobby-mode-only="floodSurvival" for="lobbyFloodWaveCount">Flood waves<select id="lobbyFloodWaveCount"><option value="8">8 waves</option><option value="10" selected>10 waves</option><option value="15">15 waves</option></select></label>
+                <label data-lobby-mode-only="lastNest" for="lobbyLastNestProtection">Nest protection<select id="lobbyLastNestProtection"><option value="60">60 seconds</option><option value="75" selected>75 seconds</option><option value="90">90 seconds</option></select></label>
                 <label for="lobbyMapSize">Map<select id="lobbyMapSize">
                   <option value="amazon">Amazon River</option>
                   <option value="mekong">Mekong Delta</option>
@@ -680,6 +689,22 @@
 
         <section class="play-area">
           <canvas id="mapCanvas" aria-label="PondFront strategy map"></canvas>
+          <section id="modeObjectivePanel" class="mode-objective-panel" aria-live="polite">
+            <span id="modeObjectiveIcon" class="mode-objective-icon">CE</span>
+            <div class="mode-objective-copy">
+              <strong id="modeObjectiveName">Classic Elimination</strong>
+              <small id="modeObjectiveText">Capture territory and eliminate every rival animal.</small>
+            </div>
+            <div id="modeObjectiveMetrics" class="mode-objective-metrics"></div>
+            <button id="modeRulesButton" type="button">Mode Rules</button>
+          </section>
+          <section id="modeRulesSheet" class="mode-rules-sheet hidden" aria-modal="true" role="dialog" aria-labelledby="modeRulesTitle">
+            <div>
+              <header><strong id="modeRulesTitle">Mode Rules</strong><button id="modeRulesClose" type="button" aria-label="Close mode rules">X</button></header>
+              <p id="modeRulesObjective"></p>
+              <ol id="modeRulesList"></ol>
+            </div>
+          </section>
           <section id="spawnSelectionOverlay" class="spawn-selection-overlay hidden" aria-live="polite">
             <div class="spawn-top-banner">
               <span id="spawnPhaseLabel">Choose Your Starting Nest</span>
@@ -710,7 +735,8 @@
                 <button id="spawnFitButton" type="button">Fit Map</button>
               </div>
               <div class="spawn-primary-actions">
-                <button id="spawnRandomButton" type="button">Random</button>
+                <button id="spawnFindButton" type="button">Find Available</button>
+                <button id="spawnRandomButton" type="button">Random Spawn</button>
                 <button id="spawnChangeButton" type="button">Change</button>
                 <button id="spawnConfirmButton" class="primary" type="button">Confirm Spawn</button>
               </div>
@@ -1035,6 +1061,7 @@
                   <label><input id="abilityEffects" type="checkbox" checked /> Ability markers</label>
                   <label><input id="showCoachHints" type="checkbox" checked /> Coach hints</label>
                   <label><input id="showDebugStats" type="checkbox" /> Debug stats</label>
+                  <label id="showTileHitboxesRow" class="hidden"><input id="showTileHitboxes" type="checkbox" /> Show Tile Hitboxes</label>
                 </section>
                 <section class="settings-section">
                   <h3>Effects</h3>
@@ -1112,8 +1139,8 @@
         <section id="tutorial" class="tutorial">
           <div>
             <span class="label">Quick Start</span>
-            <h2>Be the last animal standing</h2>
-            <ol>
+            <h2 id="tutorialModeTitle">Be the last animal standing</h2>
+            <ol id="tutorialModeSteps">
               <li>Click a glowing neutral border tile, then Expand.</li>
               <li>Animal Energy grows with territory and special zones.</li>
               <li>Use Bite, Push, Wave, or Max only on connected enemy borders.</li>
@@ -1236,6 +1263,7 @@
     <script src="/shared/gameConfig.js"></script>
     <script src="/shared/buildingRules.js"></script>
     <script src="/shared/spawnConfig.js"></script>
+    <script src="/shared/pointerMath.js"></script>
     <script src="/shared/gameModeConfig.js"></script>
     <script src="/shared/modifierConfig.js"></script>
     <script src="/shared/diplomacyConfig.js"></script>

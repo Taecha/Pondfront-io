@@ -95,13 +95,17 @@ class CoreManager {
     const tile = candidate.tile;
     if (!tile?.isCore || tile.coreOwnerId !== defender.id || tile.owner !== defender.id) return { blocked: false };
 
-    const nestProtection = game.matchSettings?.ruleMode === "lastNest" ? game.gameModeManager?.rules?.coreProtectionSeconds || 45 : 0;
-    if (nestProtection > 0 && game.elapsed() < nestProtection) {
+    const now = game.now();
+    if (game.matchSettings?.ruleMode === "lastNest" && attacker?.flags?.nestProtectionUntil > now) {
+      attacker.flags.nestProtectionUntil = now;
+      game.pushEvent({ kind: "nestProtectionEnded", playerId: attacker.id, message: `${attacker.name}'s Nest protection ended after attacking another Nest.`, at: now });
+    }
+    const protectionUntil = game.matchSettings?.ruleMode === "lastNest" ? defender?.flags?.nestProtectionUntil || 0 : 0;
+    if (protectionUntil > now) {
       wave.remainingPower = Math.max(0, wave.remainingPower - Math.min(wave.remainingPower, cost * 0.35));
-      return { blocked: true, reason: `Core Nest protection lasts ${Math.ceil(nestProtection - game.elapsed())}s.` };
+      return { blocked: true, reason: `Core Nest protection lasts ${Math.ceil(protectionUntil - now)}s.` };
     }
 
-    const now = game.now();
     const damage = Math.max(8, Math.min(cost, wave.remainingPower) * 0.82);
     tile.coreHealth = Math.max(0, (tile.coreHealth || balance.coreHealth || 125) - damage);
     tile.defenseEnergy = Math.min(120, (tile.defenseEnergy || 0) + 8);

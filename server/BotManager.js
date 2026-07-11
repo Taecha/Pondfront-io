@@ -17,6 +17,7 @@ class BotManager {
     const thinkerLimit = this.thinkerLimit();
     this.game.players.forEach((bot) => {
       if (!bot.isBot || bot.defeated) return;
+      if (this.game.gameModeManager?.canBotAct(bot) === false) return;
       const mode = this.sandboxMode(bot);
       if (mode === "passive") return;
       const now = this.game.now();
@@ -87,6 +88,7 @@ class BotManager {
       .capturable(bot.id)
       .filter((tile) => tile.owner && tile.owner !== bot.id && this.game.diplomacy.canAttack(bot.id, tile.owner, now).ok);
     this.updateBorderContacts(bot, enemy);
+    if (this.tryModeTurn(bot, enemy, phase)) return;
     if (this.trySurrender(bot, phase)) return;
     if (this.shouldSurvive(bot) && this.trySurvivalTurn(bot, enemy, phase)) return;
 
@@ -168,6 +170,66 @@ class BotManager {
     }
 
     if (Math.random() < (phase === "early" ? 0.08 : 0.04)) this.tryAlliance(bot, phase);
+  }
+
+  tryModeTurn(bot, enemy, phase) {
+    const mode = this.game.gameModeManager?.modeId;
+    if (mode === "floodSurvival") {
+      const sanctuary = this.game.tileManager.getById(this.game.gameModeManager.flood.sanctuaryTileId);
+      const humanBorder = enemy
+        .filter((tile) => !this.game.getPlayer(tile.owner)?.isBot)
+        .sort((a, b) => this.modeDistance(a, sanctuary) - this.modeDistance(b, sanctuary));
+      const target = humanBorder[0];
+      if (target && bot.energy >= 12) {
+        this.debugModeDecision(bot, "Break the defender line", target.id, "Advance toward the Sanctuary");
+        this.launchAttack(bot, target, phase);
+        return true;
+      }
+      const neutral = this.game.tileManager.capturable(bot.id).filter((tile) => !tile.owner).sort((a, b) => this.modeDistance(a, sanctuary) - this.modeDistance(b, sanctuary))[0];
+      if (neutral) {
+        this.debugModeDecision(bot, "Open a flood route", neutral.id, "Reach the Sanctuary through neutral water");
+        this.tryExpandNeutral(bot, neutral);
+        return true;
+      }
+      return true;
+    }
+
+    if (mode === "goldenLily") {
+      const objectiveTarget = this.pickObjectiveTarget(bot, phase);
+      if (objectiveTarget) {
+        this.debugModeDecision(bot, objectiveTarget.owner === bot.id ? "Defend a Golden Lily" : "Capture a Golden Lily", objectiveTarget.id, "Control points decide this mode");
+        if (!objectiveTarget.owner) return this.tryExpandNeutral(bot, objectiveTarget);
+        if (objectiveTarget.owner !== bot.id && this.shouldAttack(bot, this.game.getPlayer(objectiveTarget.owner), phase, true, objectiveTarget)) {
+          this.launchAttack(bot, objectiveTarget, phase);
+          return true;
+        }
+      }
+    }
+
+    if (mode === "lastNest") {
+      const core = this.game.tileManager.getById(bot.coreTileId);
+      if (bot.flags?.coreUnderAttack && this.tryDefend(bot)) {
+        this.debugModeDecision(bot, "Protect Core Nest", core?.id, "Own Nest is under attack");
+        return true;
+      }
+      const enemyCore = enemy.find((tile) => tile.isCore && tile.coreOwnerId !== bot.id);
+      if (enemyCore && this.shouldAttack(bot, this.game.getPlayer(enemyCore.owner), phase, true, enemyCore)) {
+        this.debugModeDecision(bot, "Capture enemy Nest", enemyCore.id, "Nest capture is the victory condition");
+        this.launchAttack(bot, enemyCore, phase);
+        return true;
+      }
+    }
+    return false;
+  }
+
+  modeDistance(tile, target) {
+    if (!tile || !target) return 9999;
+    return Math.abs(tile.x - target.x) + Math.abs(tile.y - target.y);
+  }
+
+  debugModeDecision(bot, primaryGoal, target, reason) {
+    if (process.env.NODE_ENV !== "development") return;
+    console.log(`[BOT MODE DECISION] mode=${this.game.gameModeManager?.modeId} bot=${bot.name} primaryGoal="${primaryGoal}" target=${target ?? "none"} reason="${reason}"`);
   }
 
   tryEnergySupport(bot, phase) {
@@ -1185,8 +1247,16 @@ class BotManager {
       if (d > 10) return;
       const personality = bot.personality === "objectiveHunter" ? 1.9 : bot.animal === "frog" ? 1.28 : bot.animal === "turtle" ? 1.25 : bot.animal === "carp" ? 1.16 : 1;
       const ownerPressure = objective.owner ? 1.25 : 1;
-      score += Math.max(0, 10 - d) * 1.15 * personality * ownerPressure;
+      const modeWeight = this.game.modeRules?.botRules?.objectives || 1;
+      score += Math.max(0, 10 - d) * 1.15 * personality * ownerPressure * modeWeight;
     });
+    if (this.game.gameModeManager?.modeId === "lastNest") {
+      this.game.players.filter((player) => player.id !== bot.id && this.game.hasOwnedCore(player)).forEach((player) => {
+        const core = this.game.tileManager.getById(player.coreTileId);
+        const d = core ? Math.abs(tile.x - core.x) + Math.abs(tile.y - core.y) : 99;
+        score += Math.max(0, 12 - d) * 1.4;
+      });
+    }
     return score;
   }
 

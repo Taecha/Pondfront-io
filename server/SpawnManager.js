@@ -13,6 +13,7 @@ class SpawnManager {
     this.deadline = null;
     this.countdownEndsAt = 0;
     this.autoAssigned = new Set();
+    this.humanPriorityCandidates = [];
     this.version = 0;
   }
 
@@ -20,6 +21,7 @@ class SpawnManager {
     this.mainWaterIds = this.findMainWaterNetwork();
     this.candidates = this.generateCandidates();
     this.candidateById = new Map(this.candidates.map((candidate) => [candidate.tileId, candidate]));
+    this.humanPriorityCandidates = this.selectHumanPriorityCandidates();
     this.startedAt = now;
     this.deadline = this.game.matchSettings.spawnSelectionSeconds > 0 ? now + this.game.matchSettings.spawnSelectionSeconds : null;
     this.game.phase = spawnConfig.PHASES.SPAWN_SELECTION;
@@ -58,7 +60,7 @@ class SpawnManager {
         seeds.push(tile);
       }
     });
-    const step = this.tileManager.tiles.length > 9000 ? 4 : 3;
+    const step = this.tileManager.tiles.length > 9000 ? 3 : 2;
     for (let y = 2; y < this.tileManager.rows - 2; y += step) {
       for (let x = 2; x < this.tileManager.cols - 2; x += step) {
         const tile = this.tileManager.get(x, y);
@@ -71,7 +73,7 @@ class SpawnManager {
       .map((tile) => this.inspectCandidate(tile))
       .filter((candidate) => candidate.valid)
       .sort((a, b) => b.baseScore - a.baseScore)
-      .slice(0, Math.max(260, this.game.players.length * 35));
+      .slice(0, Math.max(420, this.game.players.length * 45));
   }
 
   inspectCandidate(tile) {
@@ -100,8 +102,27 @@ class SpawnManager {
       objectiveDistance,
       valid,
       baseScore: nearby * 1.45 + directions * 12 + Math.min(14, objectiveDistance) * 0.7 + (tile?.type === "water" ? 8 : tile?.type === "lily" ? 5 : 2),
+      label: this.candidateLabel(tile, nearby, directions),
       reason: valid ? "Valid starting water." : this.invalidReason({ tile, blocked, inMainWater, nearby, directions, objectiveDistance }),
     };
+  }
+
+  candidateLabel(tile, nearby, directions) {
+    if (nearby >= 30 && directions >= 3) return "Wide Water";
+    if (directions === 2 || tile?.type === "reeds" || tile?.type === "mud") return "Defendable";
+    return "Good Spawn";
+  }
+
+  selectHumanPriorityCandidates() {
+    const humans = this.game.players.filter((player) => !player.isBot && !player.removed && !player.spectator);
+    const wanted = Math.max(3, humans.length * 3);
+    const selected = [];
+    const spacing = Math.max(6, Math.round(this.minimumDistance(humans[0]) * 1.8));
+    for (const candidate of this.candidates) {
+      if (selected.every((other) => Math.hypot(candidate.x - other.x, candidate.y - other.y) >= spacing)) selected.push(candidate);
+      if (selected.length >= wanted) break;
+    }
+    return selected;
   }
 
   invalidReason(check) {
@@ -117,7 +138,7 @@ class SpawnManager {
 
   objectiveClearance() {
     const mode = this.game.matchSettings.ruleMode;
-    return mode === "goldenLily" || mode === "riverDomination" ? 7 : 4;
+    return mode === "goldenLily" ? 5 : 3;
   }
 
   nearestObjectiveDistance(tile) {
@@ -145,14 +166,14 @@ class SpawnManager {
   minimumDistance(player, other = null) {
     const playable = Math.max(1, this.tileManager.playable().length);
     const count = Math.max(2, this.game.players.length);
-    let distance = Math.max(5, Math.min(15, Math.round(Math.sqrt(playable / count) * 0.7)));
+    let distance = Math.max(4, Math.min(12, Math.round(Math.sqrt(playable / count) * 0.48)));
+    if (count >= 20) distance = Math.max(4, distance - 1);
     if (player?.teamId && other?.teamId === player.teamId) {
       const style = this.game.matchSettings.teamSpawnStyle || "nearby";
-      if (style === "together") distance = Math.max(5, Math.round(distance * 0.62));
-      if (style === "nearby") distance = Math.max(5, Math.round(distance * 0.78));
+      if (style === "together") distance = Math.max(4, Math.round(distance * 0.58));
+      if (style === "nearby") distance = Math.max(4, Math.round(distance * 0.74));
       if (style === "spread") distance = Math.round(distance * 1.18);
     }
-    if (this.game.matchSettings.ruleMode === "pondRush") distance = Math.max(4, distance - 2);
     return distance;
   }
 
@@ -234,7 +255,15 @@ class SpawnManager {
     if (current?.confirmed && this.game.matchSettings.lockSpawnOnConfirm && !options.force) {
       return { ok: false, message: "This lobby locks a starting nest after confirmation." };
     }
-    const validated = this.validate(playerId, tileId, options);
+    let validated = this.validate(playerId, tileId, options);
+    let adjustedFromTileId = null;
+    if (!validated.ok && options.snapNearby) {
+      const nearby = this.findNearbyValidSpawn(playerId, tileId, spawnConfig.LOCAL_SNAP_RADIUS, options);
+      if (nearby) {
+        adjustedFromTileId = Number(tileId);
+        validated = nearby;
+      }
+    }
     if (!validated.ok) {
       this.emitReservationEvent("spawnReservationRejected", { playerId, tileId }, {
         reason: validated.reason || "invalid",
@@ -259,10 +288,33 @@ class SpawnManager {
     this.emitReservationEvent(reservation.confirmed ? "spawnConfirmed" : "spawnReserved", reservation);
     return {
       ok: true,
-      message: options.autoAssigned ? "A starting location was selected automatically." : "Starting nest reserved. Confirm when ready.",
+      message: adjustedFromTileId != null
+        ? "Adjusted to the nearest valid water location. Confirm when ready."
+        : options.autoAssigned
+          ? "A starting location was selected automatically."
+          : "Valid spawn reserved. Confirm when ready.",
       reservation: { ...reservation },
+      adjusted: adjustedFromTileId != null,
+      adjustedFromTileId,
       version: this.version,
     };
+  }
+
+  findNearbyValidSpawn(playerId, tileId, radius = spawnConfig.LOCAL_SNAP_RADIUS, options = {}) {
+    const origin = this.tileManager.getById(Number(tileId));
+    if (!origin) return null;
+    const matches = [];
+    for (let y = origin.y - radius; y <= origin.y + radius; y += 1) {
+      for (let x = origin.x - radius; x <= origin.x + radius; x += 1) {
+        const tile = this.tileManager.get(x, y);
+        if (!tile || tile.id === origin.id) continue;
+        const distance = Math.hypot(x - origin.x, y - origin.y);
+        if (distance > radius) continue;
+        const validation = this.validate(playerId, tile.id, { ...options, snapNearby: false });
+        if (validation.ok) matches.push({ ...validation, distance });
+      }
+    }
+    return matches.sort((a, b) => a.distance - b.distance || b.candidate.baseScore - a.candidate.baseScore)[0] || null;
   }
 
   releaseSpawn(playerId) {
@@ -294,9 +346,20 @@ class SpawnManager {
   randomSpawn(playerId, options = {}) {
     const player = this.game.getPlayer(playerId);
     if (!player) return { ok: false, message: "Player is not part of this match." };
-    const ranked = this.candidates
+    let ranked = this.candidates
       .map((candidate) => ({ candidate, score: this.playerScore(player, candidate) }))
       .sort((a, b) => b.score - a.score);
+    if (player.isBot && options.avoidHumanPriority) {
+      const humanTeams = new Set(this.game.players.filter((entry) => !entry.isBot && entry.teamId).map((entry) => entry.teamId));
+      const alliedHuman = player.teamId && humanTeams.has(player.teamId);
+      if (!alliedHuman) {
+        const clearance = this.minimumDistance(player) * 1.08;
+        const unprotected = ranked.filter(({ candidate }) =>
+          this.humanPriorityCandidates.every((priority) => Math.hypot(candidate.x - priority.x, candidate.y - priority.y) >= clearance),
+        );
+        if (unprotected.length >= 8) ranked = unprotected;
+      }
+    }
     const limit = player.isBot ? (player.difficulty === "easy" ? 36 : player.difficulty === "normal" ? 24 : 12) : 30;
     const pool = ranked.slice(0, limit).filter(({ candidate }) => this.validate(playerId, candidate.tileId, { bot: player.isBot }).ok);
     if (!pool.length) {
@@ -307,6 +370,20 @@ class SpawnManager {
     const spread = player.isBot && player.difficulty === "chaos" ? pool.length : Math.max(4, Math.ceil(pool.length * 0.45));
     const choice = pool[Math.floor(Math.random() * Math.min(pool.length, spread))];
     return this.reserveSpawn(playerId, choice.candidate.tileId, options);
+  }
+
+  findAvailableSpawn(playerId) {
+    const player = this.game.getPlayer(playerId);
+    if (!player) return { ok: false, message: "Player is not part of this match." };
+    const preferred = [...this.humanPriorityCandidates, ...this.candidates];
+    const unique = new Set();
+    const candidate = preferred.find((entry) => {
+      if (unique.has(entry.tileId)) return false;
+      unique.add(entry.tileId);
+      return this.validate(playerId, entry.tileId).ok;
+    });
+    if (!candidate) return { ok: false, message: "No fair starting area is available yet." };
+    return this.reserveSpawn(playerId, candidate.tileId);
   }
 
   playerScore(player, candidate) {
@@ -335,7 +412,7 @@ class SpawnManager {
     this.game.players
       .filter((player) => player.isBot && !player.removed)
       .forEach((bot) => {
-        const result = this.randomSpawn(bot.id, { confirmed: true, autoAssigned: true });
+        const result = this.randomSpawn(bot.id, { confirmed: true, autoAssigned: true, avoidHumanPriority: true });
         if (!result.ok) {
           bot.removed = true;
           bot.defeated = true;
@@ -397,9 +474,10 @@ class SpawnManager {
   }
 
   handleAction(player, body = {}) {
-    if (body.type === "spawnReserve") return this.reserveSpawn(player.id, Number(body.tileId));
+    if (body.type === "spawnReserve") return this.reserveSpawn(player.id, Number(body.tileId), { snapNearby: body.snapNearby !== false });
     if (body.type === "spawnConfirm") return this.confirmSpawn(player.id);
     if (body.type === "spawnRandom") return this.randomSpawn(player.id);
+    if (body.type === "spawnFind") return this.findAvailableSpawn(player.id);
     if (body.type === "spawnRelease") return this.releaseSpawn(player.id);
     if (body.type === "spawnStartCountdown" && player.isHost) {
       return this.beginCountdown("The host started the final countdown.")
@@ -528,6 +606,9 @@ class SpawnManager {
       reservations,
       statusRows,
       unavailableCandidateIds,
+      candidateZones: includeCandidates
+        ? this.candidates.slice(0, 180).map((candidate) => ({ tileId: candidate.tileId, label: candidate.label, score: Math.round(candidate.baseScore) }))
+        : undefined,
       autoAssigned: this.autoAssigned.has(viewerId),
       candidateIds: includeCandidates ? this.candidates.map((candidate) => candidate.tileId) : undefined,
     };

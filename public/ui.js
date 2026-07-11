@@ -128,6 +128,17 @@
         playerName: document.querySelector("#playerName"),
         gameMode: document.querySelector("#gameMode"),
         ruleMode: document.querySelector("#ruleMode"),
+        ruleModeInfo: document.querySelector("#ruleModeInfo"),
+        createRuleModeInfo: document.querySelector("#createRuleModeInfo"),
+        lobbyRuleModeInfo: document.querySelector("#lobbyRuleModeInfo"),
+        goldenLilyScoreTarget: document.querySelector("#goldenLilyScoreTarget"),
+        floodWaveCount: document.querySelector("#floodWaveCount"),
+        lastNestProtection: document.querySelector("#lastNestProtection"),
+        lobbyGoldenLilyScoreTarget: document.querySelector("#lobbyGoldenLilyScoreTarget"),
+        lobbyFloodWaveCount: document.querySelector("#lobbyFloodWaveCount"),
+        lobbyLastNestProtection: document.querySelector("#lobbyLastNestProtection"),
+        mainModeSettingFields: [...document.querySelectorAll("[data-main-mode-only]")],
+        lobbyModeSettingFields: [...document.querySelectorAll("[data-lobby-mode-only]")],
         beginnerCombat: document.querySelector("#beginnerCombat"),
         mapSize: document.querySelector("#mapSize"),
         mapInfoCard: document.querySelector("#mapInfoCard"),
@@ -171,12 +182,26 @@
         spawnStatusSummary: document.querySelector("#spawnStatusSummary"),
         spawnStatusList: document.querySelector("#spawnStatusList"),
         spawnRandomButton: document.querySelector("#spawnRandomButton"),
+        spawnFindButton: document.querySelector("#spawnFindButton"),
         spawnChangeButton: document.querySelector("#spawnChangeButton"),
         spawnConfirmButton: document.querySelector("#spawnConfirmButton"),
         spawnViewButton: document.querySelector("#spawnViewButton"),
         spawnFitButton: document.querySelector("#spawnFitButton"),
         winDebugPanel: document.querySelector("#winDebugPanel"),
         controlMeter: document.querySelector("#controlMeter"),
+        modeObjectivePanel: document.querySelector("#modeObjectivePanel"),
+        modeObjectiveIcon: document.querySelector("#modeObjectiveIcon"),
+        modeObjectiveName: document.querySelector("#modeObjectiveName"),
+        modeObjectiveText: document.querySelector("#modeObjectiveText"),
+        modeObjectiveMetrics: document.querySelector("#modeObjectiveMetrics"),
+        modeRulesButton: document.querySelector("#modeRulesButton"),
+        modeRulesSheet: document.querySelector("#modeRulesSheet"),
+        modeRulesClose: document.querySelector("#modeRulesClose"),
+        modeRulesTitle: document.querySelector("#modeRulesTitle"),
+        modeRulesObjective: document.querySelector("#modeRulesObjective"),
+        modeRulesList: document.querySelector("#modeRulesList"),
+        tutorialModeTitle: document.querySelector("#tutorialModeTitle"),
+        tutorialModeSteps: document.querySelector("#tutorialModeSteps"),
         lakeEventBanner: document.querySelector("#lakeEventBanner"),
         lakeEventTitle: document.querySelector("#lakeEventTitle"),
         lakeEventDetails: document.querySelector("#lakeEventDetails"),
@@ -270,6 +295,8 @@
         abilityEffects: document.querySelector("#abilityEffects"),
         showCoachHints: document.querySelector("#showCoachHints"),
         showDebugStats: document.querySelector("#showDebugStats"),
+        showTileHitboxes: document.querySelector("#showTileHitboxes"),
+        showTileHitboxesRow: document.querySelector("#showTileHitboxesRow"),
         screenShake: document.querySelector("#screenShake"),
         reducedMotion: document.querySelector("#reducedMotion"),
         autoLowPerformance: document.querySelector("#autoLowPerformance"),
@@ -315,6 +342,7 @@
       this.lastWorldPanelRenderAt = 0;
       this.debugMode = new URLSearchParams(window.location.search).has("debug") || localStorage.getItem("pondfront:debug") === "1";
       document.body.classList.toggle("debug-open", this.debugMode);
+      this.nodes.showTileHitboxesRow?.classList.toggle("hidden", !this.debugMode);
       this.nodes.strategicView.checked = true;
       this.nodes.showIcons.checked = false;
       if (this.nodes.showAnimalIcons) this.nodes.showAnimalIcons.checked = true;
@@ -349,6 +377,8 @@
       this.setRightPanelTab("leaderboard");
       this.updateLobbyAnimal();
       this.updateLobbyMode();
+      this.updateModeSelection();
+      this.updateModeSelection(this.nodes.createRuleMode, this.nodes.createRuleModeInfo, this.nodes.createGameMode);
       this.syncBotOptions(true);
       this.setPercent(this.percent);
     }
@@ -412,6 +442,7 @@
       this.nodes.lobbyStartMatch?.addEventListener("click", () => this.emit("lobbyStart"));
       this.nodes.leaveLobbyButton?.addEventListener("click", () => this.emit("lobbyLeave"));
       this.nodes.spawnRandomButton?.addEventListener("click", () => this.emit("spawnAction", { type: "spawnRandom" }));
+      this.nodes.spawnFindButton?.addEventListener("click", () => this.emit("spawnAction", { type: "spawnFind" }));
       this.nodes.spawnChangeButton?.addEventListener("click", () => this.emit("spawnAction", { type: "spawnRelease" }));
       this.nodes.spawnViewButton?.addEventListener("click", () => {
         const tileId = this.lastState?.spawn?.ownReservation?.tileId;
@@ -446,9 +477,13 @@
         this.nodes.lobbyFriendlyFire,
         this.nodes.lobbyAllowBots,
         this.nodes.lobbyForceStart,
+        this.nodes.lobbyGoldenLilyScoreTarget,
+        this.nodes.lobbyFloodWaveCount,
+        this.nodes.lobbyLastNestProtection,
         ...this.nodes.lobbyModifierInputs,
       ].forEach((node) =>
         node?.addEventListener("change", () => {
+          if (node === this.nodes.lobbyRuleMode) this.updateModeSelection(this.nodes.lobbyRuleMode, this.nodes.lobbyRuleModeInfo, this.nodes.lobbyGameMode);
           this.emit("lobbyUpdateSettings", this.lobbySettingsPayload());
         }),
       );
@@ -463,6 +498,14 @@
       this.nodes.gameMode?.addEventListener("change", () => {
         this.updateLobbyMode();
         this.syncBotOptions();
+      });
+      this.nodes.ruleMode?.addEventListener("change", () => this.updateModeSelection());
+      this.nodes.createRuleMode?.addEventListener("change", () => this.updateModeSelection(this.nodes.createRuleMode, this.nodes.createRuleModeInfo, this.nodes.createGameMode));
+      this.nodes.lobbyRuleMode?.addEventListener("change", () => this.updateModeSelection(this.nodes.lobbyRuleMode, this.nodes.lobbyRuleModeInfo, this.nodes.lobbyGameMode));
+      this.nodes.modeRulesButton?.addEventListener("click", () => this.nodes.modeRulesSheet?.classList.remove("hidden"));
+      this.nodes.modeRulesClose?.addEventListener("click", () => this.nodes.modeRulesSheet?.classList.add("hidden"));
+      this.nodes.modeRulesSheet?.addEventListener("click", (event) => {
+        if (event.target === this.nodes.modeRulesSheet) this.nodes.modeRulesSheet.classList.add("hidden");
       });
       this.nodes.difficulty?.addEventListener("change", () => {
         if (this.nodes.beginnerCombat && this.nodes.difficulty.value === "easy") this.nodes.beginnerCombat.checked = true;
@@ -586,6 +629,7 @@
         this.updateDebugStats(this.lastState);
         this.emit("viewChanged");
       });
+      this.nodes.showTileHitboxes?.addEventListener("change", () => this.emit("viewChanged"));
       this.nodes.screenShake?.addEventListener("change", () => this.emit("viewChanged"));
       this.nodes.reducedMotion.addEventListener("change", () => this.emit("viewChanged"));
       this.nodes.autoLowPerformance.addEventListener("change", () => this.emit("viewChanged"));
@@ -829,6 +873,9 @@
         beginnerCombat: this.nodes.beginnerCombat?.checked || this.nodes.difficulty.value === "easy",
         gameMode: this.nodes.gameMode?.value || "solo",
         ruleMode: this.nodes.ruleMode?.value || "classic",
+        goldenLilyScoreTarget: Number(this.nodes.goldenLilyScoreTarget?.value || 500),
+        floodWaveCount: Number(this.nodes.floodWaveCount?.value || 10),
+        lastNestProtectionSeconds: Number(this.nodes.lastNestProtection?.value || 75),
         mapSize: this.nodes.mapSize?.value || "large",
         botCount: Number(this.nodes.botCount?.value || 12),
         matchLength: this.nodes.matchLength?.value || "standard",
@@ -848,6 +895,9 @@
         animal: this.nodes.createAnimalSelect?.value || fallback.animal,
         gameMode: this.nodes.createGameMode?.value || fallback.gameMode,
         ruleMode: this.nodes.createRuleMode?.value || fallback.ruleMode || "classic",
+        goldenLilyScoreTarget: fallback.goldenLilyScoreTarget,
+        floodWaveCount: fallback.floodWaveCount,
+        lastNestProtectionSeconds: fallback.lastNestProtectionSeconds,
         mapSize: this.nodes.createMapSize?.value || fallback.mapSize,
         botDifficulty: this.nodes.createBotDifficulty?.value || fallback.difficulty,
         difficulty: this.nodes.createBotDifficulty?.value || fallback.difficulty,
@@ -883,6 +933,9 @@
       return {
         gameMode: this.nodes.lobbyGameMode?.value || "solo",
         ruleMode: this.nodes.lobbyRuleMode?.value || "classic",
+        goldenLilyScoreTarget: Number(this.nodes.lobbyGoldenLilyScoreTarget?.value || 500),
+        floodWaveCount: Number(this.nodes.lobbyFloodWaveCount?.value || 10),
+        lastNestProtectionSeconds: Number(this.nodes.lobbyLastNestProtection?.value || 75),
         mapSize: this.nodes.lobbyMapSize?.value || "medium",
         botCount: Number(this.nodes.lobbyBotCount?.value || 0),
         botDifficulty: this.nodes.lobbyBotDifficulty?.value || "normal",
@@ -1029,6 +1082,10 @@
       const settings = lobby.settings || {};
       this.setSelectValue(this.nodes.lobbyGameMode, settings.gameMode || "solo");
       this.setSelectValue(this.nodes.lobbyRuleMode, settings.ruleMode || "classic");
+      this.setSelectValue(this.nodes.lobbyGoldenLilyScoreTarget, settings.goldenLilyScoreTarget || 500);
+      this.setSelectValue(this.nodes.lobbyFloodWaveCount, settings.floodWaveCount || 10);
+      this.setSelectValue(this.nodes.lobbyLastNestProtection, settings.lastNestProtectionSeconds || 75);
+      this.updateModeSelection(this.nodes.lobbyRuleMode, this.nodes.lobbyRuleModeInfo, this.nodes.lobbyGameMode);
       this.setSelectValue(this.nodes.lobbyMapSize, settings.mapSize || "medium");
       this.setSelectValue(this.nodes.lobbyBotCount, String(settings.botCount ?? 8));
       this.setSelectValue(this.nodes.lobbyBotDifficulty, settings.botDifficulty || settings.difficulty || "normal");
@@ -1240,6 +1297,38 @@
       if (this.nodes.botCount) this.nodes.botCount.disabled = battle;
     }
 
+    updateModeSelection(select = this.nodes.ruleMode, output = this.nodes.ruleModeInfo, teamSelect = this.nodes.gameMode) {
+      const id = select?.value || "classic";
+      const mode = root.PondGameModes?.modes?.[id] || root.PondGameModes?.modes?.classic;
+      if (!mode) return;
+      if (mode.requiresCoop && teamSelect) {
+        if (teamSelect.value !== "coop") teamSelect.dataset.modeBeforeForcedCoop = teamSelect.value || "solo";
+        teamSelect.dataset.modeForcedCoop = "true";
+        this.setSelectValue(teamSelect, "coop");
+        if (teamSelect === this.nodes.gameMode) this.updateLobbyMode();
+      } else if (teamSelect?.dataset.modeForcedCoop === "true") {
+        this.setSelectValue(teamSelect, teamSelect.dataset.modeBeforeForcedCoop || "solo");
+        delete teamSelect.dataset.modeForcedCoop;
+        delete teamSelect.dataset.modeBeforeForcedCoop;
+        if (teamSelect === this.nodes.gameMode) this.updateLobbyMode();
+      }
+      const summary = `${mode.primaryObjective || mode.short} Win: ${this.modeWinLabel(mode)} Team: ${mode.teamRequirement || "Any"}.`;
+      const fields = select === this.nodes.lobbyRuleMode ? this.nodes.lobbyModeSettingFields : select === this.nodes.ruleMode ? this.nodes.mainModeSettingFields : [];
+      fields.forEach((field) => field.classList.toggle("hidden", field.dataset.mainModeOnly !== id && field.dataset.lobbyModeOnly !== id));
+      if (output === this.nodes.ruleModeInfo) {
+        output.innerHTML = `<strong>${this.escape(mode.label)}</strong><span>${this.escape(mode.primaryObjective || mode.short)}</span><dl><dt>Win</dt><dd>${this.escape(this.modeWinLabel(mode))}</dd><dt>Map</dt><dd>${this.escape(mode.recommendedMap || "Any")}</dd><dt>Bots</dt><dd>${this.escape(mode.recommendedBots || "Optional")}</dd><dt>Team</dt><dd>${this.escape(mode.teamRequirement || "Any")}</dd></dl>`;
+      } else if (output) output.textContent = summary;
+    }
+
+    modeWinLabel(mode) {
+      return {
+        lastStanding: "Last animal or team",
+        controlScore: "Reach the Lily score target",
+        survivalWaves: "Survive every wave",
+        lastCore: "Last Core Nest",
+      }[mode.winConditionType] || mode.short || "Mode objective";
+    }
+
     updateLobbyAnimal() {
       const info = LOBBY_ANIMALS[this.selectedAnimal] || LOBBY_ANIMALS.duck;
       const visual = this.visualFor(this.selectedAnimal);
@@ -1366,13 +1455,14 @@
         state.phase === "SPAWN_SELECTION" || state.phase === "COUNTDOWN"
           ? `${state.spawn?.timeLeft == null ? "No limit" : `${Math.ceil(state.spawn.timeLeft)}s`} | ${state.spawn?.readyCount || 0}/${state.spawn?.totalPlayers || 1} ready`
           : `${this.formatTime(timeLeft)} left | ${state.teamState?.active ? `${state.teamsLeft || 0} teams` : `${state.animalsLeft || 0} left`}`;
+      this.updateModeObjective(state, human);
       if (this.nodes.matchRulesSummary) {
         const surrender = state.matchSettings?.surrenderMode || "off";
         const label = surrender === "bots" ? "Bots Only" : surrender === "everyone" ? "Everyone" : "Off";
         const lastStand = human.flags?.lastStandUntil > state.serverTime ? ` | Last Stand ${Math.ceil(human.flags.lastStandUntil - state.serverTime)}s` : "";
         const mode = state.gameModeState;
         const leadScore = mode?.scores?.[0]?.score;
-        const modeProgress = mode?.scoreTarget ? ` ${leadScore || 0}/${mode.scoreTarget}` : mode?.tideTarget ? ` Tide ${mode.tide || 0}/${mode.tideTarget}` : mode?.combatLocked ? ` Combat in ${mode.peaceLeft}s` : "";
+        const modeProgress = mode?.scoreTarget ? ` ${leadScore || 0}/${mode.scoreTarget}` : mode?.waveTarget ? ` Wave ${mode.wave || 0}/${mode.waveTarget}` : mode?.nestsRemaining != null ? ` ${mode.nestsRemaining} Nests` : "";
         this.nodes.matchRulesSummary.textContent = `${mode?.label || "Classic Elimination"}${modeProgress} | Surrender: ${label}${lastStand}`;
       }
       this.nodes.controlMeter.style.transform = `scaleX(${Math.max(0, Math.min(1, human.territoryPct))})`;
@@ -1448,7 +1538,12 @@
       if (!active || !spawn) return;
       const reservation = spawn.ownReservation;
       const reservedTile = reservation ? state.tiles[reservation.tileId] : null;
-      const phaseLabel = state.phase === "COUNTDOWN" ? "Starting Territory Bloom" : spawn.label || "Choose Your Starting Nest";
+      const spawnInstructions = {
+        goldenLily: "Choose a fair start away from the Golden Lilies",
+        floodSurvival: "Choose a team start around the Sanctuary",
+        lastNest: "Choose open water with room for your Core Nest",
+      };
+      const phaseLabel = state.phase === "COUNTDOWN" ? "Starting Territory Bloom" : spawnInstructions[state.gameModeState?.id] || spawn.label || "Choose Your Starting Nest";
       if (this.nodes.spawnPhaseLabel) this.nodes.spawnPhaseLabel.textContent = phaseLabel;
       if (this.nodes.spawnTimer) this.nodes.spawnTimer.textContent = spawn.timeLeft == null ? "No limit" : `${Math.ceil(spawn.timeLeft)}s`;
       if (this.nodes.spawnReadyCount) this.nodes.spawnReadyCount.textContent = `Players Ready: ${spawn.readyCount || 0}/${spawn.totalPlayers || 1}`;
@@ -1472,9 +1567,13 @@
               ? spawn.lockOnConfirm
                 ? "Starting nest confirmed and locked."
                 : "Starting nest confirmed. You may still change it before time ends."
+              : context.spawnInspection?.invalid
+                ? `Invalid spawn: ${context.spawnInspection.reason}`
+                : context.spawnInspection?.adjusted
+                  ? "Adjusted to the nearest valid water location."
               : reservation
                 ? "Location reserved. Confirm when ready."
-                : "Click or tap open water to preview your starting territory.";
+                : "Choose a glowing marker or tap nearby playable water.";
       }
       if (this.nodes.spawnLocationDetails) {
         const focus = reservedTile || selectedTile;
@@ -1485,14 +1584,19 @@
         const inspected = context.spawnInspection;
         this.nodes.spawnInspection.classList.toggle("hidden", !inspected);
         if (inspected) {
-          const owner = inspected.playerName || "Claimed Area";
-          const animal = inspected.animal ? this.visualFor(inspected.animal).label || inspected.animal : "Hidden";
-          const status = inspected.confirmed ? "Confirmed" : "Reserved";
-          this.nodes.spawnInspection.textContent = `${owner} | ${animal} | ${status}. You must spawn outside the dotted boundary.`;
+          if (inspected.invalid) this.nodes.spawnInspection.textContent = inspected.reason || "That location is unavailable.";
+          else if (inspected.adjusted) this.nodes.spawnInspection.textContent = "Your click was close to valid water, so the preview moved a short distance.";
+          else {
+            const owner = inspected.playerName || "Claimed Area";
+            const animal = inspected.animal ? this.visualFor(inspected.animal).label || inspected.animal : "Hidden";
+            const status = inspected.confirmed ? "Confirmed" : "Reserved";
+            this.nodes.spawnInspection.textContent = `${owner} | ${animal} | ${status}. You must spawn outside the dotted boundary.`;
+          }
         }
       }
       const locked = state.phase === "COUNTDOWN";
       if (this.nodes.spawnRandomButton) this.nodes.spawnRandomButton.disabled = locked;
+      if (this.nodes.spawnFindButton) this.nodes.spawnFindButton.disabled = locked;
       if (this.nodes.spawnViewButton) this.nodes.spawnViewButton.disabled = !reservation;
       if (this.nodes.spawnChangeButton) this.nodes.spawnChangeButton.disabled = locked || !reservation || (reservation.confirmed && spawn.lockOnConfirm);
       if (this.nodes.spawnConfirmButton) {
@@ -1501,6 +1605,40 @@
         this.nodes.spawnConfirmButton.textContent = locked ? `Starting in ${Math.ceil(spawn.timeLeft || 0)}s` : hostCanStart ? "Start Countdown" : reservation?.confirmed ? "Spawn Confirmed" : "Confirm Spawn";
         this.nodes.spawnConfirmButton.disabled = locked || (!reservation && !hostCanStart) || (reservation?.confirmed && !hostCanStart);
       }
+    }
+
+    updateModeObjective(state, human) {
+      const mode = state.gameModeState;
+      if (!mode) return;
+      if (this.nodes.modeObjectiveIcon) this.nodes.modeObjectiveIcon.textContent = mode.icon || "PF";
+      if (this.nodes.modeObjectiveName) this.nodes.modeObjectiveName.textContent = mode.activeModeName || mode.label;
+      if (this.nodes.modeObjectiveText) this.nodes.modeObjectiveText.textContent = mode.primaryObjective || mode.description;
+      const ownerKey = human.teamId || human.id;
+      const ownScore = mode.scores?.find((entry) => entry.id === ownerKey)?.score || 0;
+      const ownControl = mode.controls?.filter((control) => control.ownerKey === ownerKey).length || 0;
+      const ownNest = mode.nests?.find((nest) => nest.playerId === human.id);
+      let metrics = [];
+      if (mode.id === "classic") {
+        metrics = [
+          [state.teamState?.active ? "Teams" : "Animals", state.teamState?.active ? state.teamsLeft : state.animalsLeft],
+          ["Territory", `${Math.round(human.territoryPct * 100)}%`],
+        ];
+      } else if (mode.id === "goldenLily") {
+        metrics = [["Score", `${ownScore}/${mode.scoreTarget}`], ["Lilies", ownControl], ["Contested", mode.contestedLilies || 0]];
+        if (mode.overtime) metrics.unshift(["State", "OVERTIME"]);
+      } else if (mode.id === "floodSurvival") {
+        metrics = [["Wave", `${mode.wave}/${mode.waveTarget}`], ["Enemies", mode.enemiesRemaining ?? 0], [mode.wavePhase === "active" ? "Wave Time" : "Next Wave", `${mode.nextWaveCountdown || 0}s`], ["Sanctuary", `${mode.sanctuary?.health || 0}/${mode.sanctuary?.maxHealth || 0}`]];
+      } else if (mode.id === "lastNest") {
+        metrics = [["Nest", ownNest ? `${ownNest.health}/${ownNest.maxHealth}` : "Lost"], ["Status", ownNest?.status || "Captured"], ["Nests", mode.nestsRemaining], ["Protection", `${mode.nestProtectionRemaining || 0}s`]];
+      }
+      if (this.nodes.modeObjectiveMetrics) {
+        this.nodes.modeObjectiveMetrics.innerHTML = metrics.map(([label, value]) => `<span><small>${this.escape(label)}</small><b>${this.escape(value)}</b></span>`).join("");
+      }
+      if (this.nodes.modeRulesTitle) this.nodes.modeRulesTitle.textContent = `${mode.label} Rules`;
+      if (this.nodes.modeRulesObjective) this.nodes.modeRulesObjective.textContent = mode.primaryObjective || mode.description;
+      if (this.nodes.modeRulesList) this.nodes.modeRulesList.innerHTML = (mode.tutorial || []).map((step) => `<li>${this.escape(step)}</li>`).join("");
+      if (this.nodes.tutorialModeTitle) this.nodes.tutorialModeTitle.textContent = mode.label;
+      if (this.nodes.tutorialModeSteps) this.nodes.tutorialModeSteps.innerHTML = (mode.tutorial || []).map((step) => `<li>${this.escape(step)}</li>`).join("");
     }
 
     updateWinDebug(state) {
@@ -1793,7 +1931,11 @@
         this.nodes.leaderboardExpandButton.title = this.leaderboardExpanded ? "Show top 5 only" : "Show more leaderboard rows";
       }
       if (this.leaderboardMode === "teams" && teamModeAvailable) {
-        this.nodes.leaderboard.innerHTML = state.teamState.teams
+        const modeScores = new Map((state.gameModeState?.scores || []).map((entry) => [entry.id, entry.score]));
+        const teamRows = state.teamState.teams.slice().sort((a, b) =>
+          state.gameModeState?.id === "goldenLily" ? (modeScores.get(b.id) || 0) - (modeScores.get(a.id) || 0) : b.territory - a.territory,
+        );
+        this.nodes.leaderboard.innerHTML = teamRows
           .slice(0, limit)
           .map((team, index) => {
             const local = state.players.find((player) => player.id === state.humanId)?.teamId === team.id;
@@ -1801,17 +1943,18 @@
               <span class="leader-rank">#${index + 1}</span>
               <span class="team-badge">${this.escape(team.badge || "T")}</span>
               <span class="leader-name"><b>${this.escape(team.name)}</b><small>${team.members} members | +${team.income}/s</small></span>
-              <span class="leader-territory">${Math.round(team.territoryPct * 100)}%</span>
+              <span class="leader-territory">${state.gameModeState?.id === "goldenLily" ? `${modeScores.get(team.id) || 0} pt` : `${Math.round(team.territoryPct * 100)}%`}</span>
               <span class="leader-energy">${team.energy}</span>
             </li>`;
           })
           .join("");
         return;
       }
+      const modeScores = new Map((state.gameModeState?.scores || []).map((entry) => [entry.id, entry.score]));
       const rows = state.players
         .filter((player) => !player.defeated)
         .slice()
-        .sort((a, b) => b.territoryPct - a.territoryPct)
+        .sort((a, b) => state.gameModeState?.id === "goldenLily" ? (modeScores.get(b.id) || 0) - (modeScores.get(a.id) || 0) : b.territoryPct - a.territoryPct)
         .slice(0, limit);
       this.nodes.leaderboard.innerHTML = rows
         .map((player, index) => {
@@ -1834,7 +1977,7 @@
             <span class="leader-rank">#${index + 1}</span>
             <span class="leader-animal animal-visual-disc animal-${this.escape(player.animal)} ${this.escape(player.animal)}" style="--animal-color:${this.escape(visual.badge || animal.color)};--animal-accent:${this.escape(visual.accent || "#edf8fb")}" title="${this.escape(`${animal.label}: ${visual.role || ""}`)}">${this.escape(visual.short || animal.icon)}</span>
             <span class="leader-name"><b>${teamBadge}${profileBadge}${this.escape(name)} ${relationBadge}</b><small>${this.escape(animal.label)} L${player.level || 1} | ${this.escape(visual.role || "Pond role")}${profileTitle ? ` | ${this.escape(profileTitle)}` : player.teamName ? ` | ${this.escape(player.teamName)}` : relation ? ` | ${this.escape(relation.label)}` : ""}</small></span>
-            <span class="leader-territory">${Math.round(player.territoryPct * 100)}%</span>
+            <span class="leader-territory">${state.gameModeState?.id === "goldenLily" ? `${modeScores.get(player.id) || 0} pt` : state.gameModeState?.id === "lastNest" ? `${player.coreHealth}/${player.coreMaxHealth}` : `${Math.round(player.territoryPct * 100)}%`}</span>
             <span class="leader-energy">${player.energy}</span>
           </li>`;
         })
@@ -2134,6 +2277,7 @@
         showAnimalAnimations: this.nodes.showAnimalAnimations?.checked !== false,
         showBorderStatus: this.nodes.showBorderStatus?.checked !== false,
         showDebugStats: this.debugMode || this.nodes.showDebugStats?.checked === true,
+        showTileHitboxes: this.debugMode && this.nodes.showTileHitboxes?.checked === true,
         visualPreset: this.nodes.visualPreset?.value || "balanced",
         colorVisionMode: this.nodes.colorVisionMode?.value || "standard",
         visualQuality: this.nodes.visualQuality?.value || "high",
@@ -2403,6 +2547,7 @@
       const humanVisual = this.visualFor(human.animal);
       const winnerVisual = this.visualFor(winner?.animal || human.animal);
       const sandbox = Boolean(state.sandbox?.enabled || state.matchSettings?.sandbox?.enabled);
+      const mode = state.gameModeState || {};
       const bestTeammate = state.players
         .filter((player) => player.teamId && player.teamId === human.teamId && player.id !== human.id)
         .sort(
@@ -2417,11 +2562,7 @@
       this.nodes.resultTitle.textContent = sandbox ? "Sandbox Ended" : winningTeam ? (teamVictory ? "Team Victory" : "Team Defeat") : winner?.id === state.humanId ? "Victory" : "Defeat";
       this.nodes.resultSummary.innerHTML = sandbox
         ? `${this.animalInline(human.animal, `${humanVisual.label} sandbox test`)} Sandbox ended. No stats, XP, coins, achievements, or ranked progress were saved.`
-        : winningTeam
-          ? `${winningTeam.name} is the last team in the pond.`
-          : winner
-            ? `${this.animalInline(winner.animal, `${winner.name} - ${winnerVisual.victoryTitle || "Pond Victor"}`)} is the last animal standing.`
-            : "The match ended.";
+        : this.escape(state.endMessage || (winner ? `${winner.name} won ${mode.label || "the match"}.` : "The match ended."));
       const rank =
         winningTeam && humanTeam
           ? state.teamState.teams.findIndex((team) => team.id === humanTeam.id) + 1
@@ -2430,8 +2571,22 @@
               .sort((a, b) => b.territoryPct - a.territoryPct)
               .findIndex((player) => player.id === state.humanId) + 1;
       const title = humanVisual.victoryTitle || this.playstyleTitle(human);
+      const ownModeKey = human.teamId || human.id;
+      const ownModeScore = mode.scores?.find((entry) => entry.id === ownModeKey)?.score || 0;
+      const ownNest = mode.nests?.find((nest) => nest.playerId === human.id);
+      const modeStats =
+        mode.id === "goldenLily"
+          ? `<dt>Control Points</dt><dd>${ownModeScore}</dd><dt>Lilies Controlled</dt><dd>${mode.controls?.filter((control) => control.ownerKey === ownModeKey).length || 0}</dd>`
+          : mode.id === "floodSurvival"
+            ? `<dt>Waves Survived</dt><dd>${mode.wave || 0}/${mode.waveTarget || 0}</dd><dt>Sanctuary</dt><dd>${mode.sanctuary?.health || 0}/${mode.sanctuary?.maxHealth || 0}</dd>`
+            : mode.id === "lastNest"
+              ? `<dt>Nest Health</dt><dd>${ownNest?.health || 0}/${ownNest?.maxHealth || 0}</dd><dt>Nests Remaining</dt><dd>${mode.nestsRemaining || 0}</dd>`
+              : `<dt>Animals Remaining</dt><dd>${state.animalsLeft || 0}</dd>`;
       this.nodes.resultStats.innerHTML = `
         <dt>Title</dt><dd>${this.escape(title)}</dd>
+        <dt>Mode</dt><dd>${this.escape(mode.label || "Classic Elimination")}</dd>
+        <dt>End Reason</dt><dd>${this.escape(String(state.endReason || "Match complete").replace(/([A-Z])/g, " $1").trim())}</dd>
+        ${modeStats}
         <dt>${winningTeam ? "Team Rank" : "Final Rank"}</dt><dd>#${rank}</dd>
         ${winningTeam ? `<dt>Winning Team</dt><dd>${this.escape(winningTeam.name)}</dd>` : ""}
         ${humanTeam ? `<dt>Your Team</dt><dd>${this.escape(humanTeam.name)} | ${Math.round(humanTeam.territoryPct * 100)}%</dd>` : ""}

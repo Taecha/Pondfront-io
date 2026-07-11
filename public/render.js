@@ -23,11 +23,13 @@
       this.resize();
     }
 
-    resize() {
+    resize(options = {}) {
+      const previousCamera = { ...this.camera };
+      const previousDpr = this.dpr;
       this.dpr = Math.max(1, Math.min(2, window.devicePixelRatio || 1));
       const rect = this.canvas.getBoundingClientRect();
-      this.canvas.width = Math.max(1, Math.floor(rect.width * this.dpr));
-      this.canvas.height = Math.max(1, Math.floor(rect.height * this.dpr));
+      this.canvas.width = Math.max(1, Math.round(rect.width * this.dpr));
+      this.canvas.height = Math.max(1, Math.round(rect.height * this.dpr));
       this.ctx.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
 
       const mini = this.miniMap.getBoundingClientRect();
@@ -35,7 +37,14 @@
       this.miniMap.height = Math.max(1, Math.floor(mini.height * this.dpr));
       this.miniCtx.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
       this.miniMapDirty = true;
-      if (this.state) this.fit(false);
+      if (this.state) {
+        if (!this.fitted) this.fit(true);
+        else if (options.preserveCamera !== false) {
+          this.camera = previousCamera;
+          this.clampCamera();
+        } else this.fit(true);
+      }
+      if (previousDpr !== this.dpr) this.invalidateVisualCaches("device pixel ratio changed");
     }
 
     invalidateVisualCaches(reason = "visual settings changed") {
@@ -109,7 +118,7 @@
 
     fit(force = false) {
       if (!this.state || (!force && !this.fitted)) return;
-      const rect = this.canvas.getBoundingClientRect();
+      const rect = this.drawingSize();
       const mapW = this.state.cols * this.baseTile;
       const mapH = this.state.rows * this.baseTile;
       const zoom = Math.min(rect.width / (mapW * 1.08), rect.height / (mapH * 1.08));
@@ -208,7 +217,7 @@
 
     minZoom() {
       if (!this.state) return 0.22;
-      const rect = this.canvas.getBoundingClientRect();
+      const rect = this.drawingSize();
       const mapW = this.state.cols * this.baseTile;
       const mapH = this.state.rows * this.baseTile;
       return Math.max(0.16, Math.min(rect.width / mapW, rect.height / mapH) * 0.86);
@@ -220,7 +229,7 @@
 
     clampCamera() {
       if (!this.state) return;
-      const rect = this.canvas.getBoundingClientRect();
+      const rect = this.drawingSize();
       const mapW = this.state.cols * this.baseTile;
       const mapH = this.state.rows * this.baseTile;
       const halfW = rect.width / 2 / Math.max(0.001, this.camera.zoom);
@@ -232,25 +241,68 @@
       else this.camera.y = Math.max(halfH - margin, Math.min(mapH - halfH + margin, this.camera.y));
     }
 
-    screenToWorld(x, y) {
-      const rect = this.canvas.getBoundingClientRect();
+    pointerMetrics() {
       return {
-        x: (x - rect.left - rect.width / 2) / this.camera.zoom + this.camera.x,
-        y: (y - rect.top - rect.height / 2) / this.camera.zoom + this.camera.y,
+        rect: this.canvas.getBoundingClientRect(),
+        backingWidth: this.canvas.width,
+        backingHeight: this.canvas.height,
+        dpr: this.dpr,
       };
     }
 
-    screenToTile(x, y) {
+    drawingSize() {
+      return { width: this.canvas.width / this.dpr, height: this.canvas.height / this.dpr };
+    }
+
+    screenPointToWorld(x, y) {
+      return root.PondPointerMath.screenPointToWorld(x, y, this.pointerMetrics(), this.camera);
+    }
+
+    screenToWorld(x, y) {
+      return this.screenPointToWorld(x, y);
+    }
+
+    screenToTile(x, y, options = {}) {
       if (!this.state) return null;
-      const world = this.screenToWorld(x, y);
-      const tx = Math.floor(world.x / this.baseTile);
-      const ty = Math.floor(world.y / this.baseTile);
+      const world = this.screenPointToWorld(x, y);
+      const coords = root.PondPointerMath.tileCoordinates(world.x, world.y, this.baseTile);
+      const tx = coords.x;
+      const ty = coords.y;
       if (tx < 0 || ty < 0 || tx >= this.state.cols || ty >= this.state.rows) return null;
-      return this.tileMap.get(ty * this.state.cols + tx) || null;
+      const tile = this.tileMap.get(ty * this.state.cols + tx) || null;
+      if (!root.PondPointerMath.pointInSquareTile(world.x, world.y, tile, this.baseTile)) return null;
+      const previous = options.previousTileId != null ? this.tileMap.get(options.previousTileId) : null;
+      const hysteresisWorld = Math.max(0, Number(options.hysteresisPx || 0)) / Math.max(0.001, this.camera.zoom);
+      const stable = previous && previous.id !== tile?.id && root.PondPointerMath.pointInSquareTile(world.x, world.y, previous, this.baseTile, hysteresisWorld)
+        ? previous
+        : tile;
+      this.lastPointerHit = {
+        clientX: x,
+        clientY: y,
+        canvasX: world.canvasX,
+        canvasY: world.canvasY,
+        worldX: world.x,
+        worldY: world.y,
+        tileId: stable?.id ?? null,
+        candidateIds: this.neighborCandidateIds(tx, ty),
+      };
+      return stable;
+    }
+
+    neighborCandidateIds(tx, ty) {
+      const ids = [];
+      for (let y = ty - 1; y <= ty + 1; y += 1) {
+        for (let x = tx - 1; x <= tx + 1; x += 1) {
+          if (x < 0 || y < 0 || x >= (this.state?.cols || 0) || y >= (this.state?.rows || 0)) continue;
+          const tile = this.tileMap.get(y * this.state.cols + x);
+          if (tile) ids.push(tile.id);
+        }
+      }
+      return ids;
     }
 
     worldToScreen(x, y) {
-      const rect = this.canvas.getBoundingClientRect();
+      const rect = this.drawingSize();
       return {
         x: (x - this.camera.x) * this.camera.zoom + rect.width / 2,
         y: (y - this.camera.y) * this.camera.zoom + rect.height / 2,
@@ -266,7 +318,7 @@
         mapDecorations: drawOptions.mapDecorations,
         isMobile: Boolean(drawOptions.isMobile),
       });
-      const rect = this.canvas.getBoundingClientRect();
+      const rect = this.drawingSize();
       const ctx = this.ctx;
       ctx.clearRect(0, 0, rect.width, rect.height);
       const shake = this.vfx?.shakeOffset?.(performance.now()) || { x: 0, y: 0 };
@@ -276,6 +328,7 @@
       if (this.state) {
         this.drawMap(ctx, drawOptions);
         this.drawEvents(ctx, drawOptions);
+        if (drawOptions.showTileHitboxes) this.drawPointerDebug(ctx, drawOptions.pointerDebug);
       }
       ctx.restore();
       if (!this.state) return;
@@ -1883,6 +1936,38 @@
       ctx.restore();
     }
 
+    drawPointerDebug(ctx, pointer) {
+      if (!pointer) return;
+      const size = this.baseTile * this.camera.zoom;
+      ctx.save();
+      (pointer.candidateIds || []).forEach((id) => {
+        const tile = this.tileMap.get(id);
+        if (!tile) return;
+        const p = this.worldToScreen(tile.x * this.baseTile, tile.y * this.baseTile);
+        ctx.strokeStyle = id === pointer.tileId ? "#fff18a" : "rgba(110, 224, 235, 0.46)";
+        ctx.lineWidth = id === pointer.tileId ? 2 : 1;
+        ctx.strokeRect(p.x + 0.5, p.y + 0.5, Math.max(1, size - 1), Math.max(1, size - 1));
+      });
+      ctx.fillStyle = "#ff675f";
+      ctx.beginPath();
+      ctx.arc(pointer.canvasX, pointer.canvasY, 3.5, 0, Math.PI * 2);
+      ctx.fill();
+      const lines = [
+        `screen ${Math.round(pointer.clientX)}, ${Math.round(pointer.clientY)} | canvas ${pointer.canvasX.toFixed(1)}, ${pointer.canvasY.toFixed(1)}`,
+        `world ${pointer.worldX.toFixed(1)}, ${pointer.worldY.toFixed(1)} | zoom ${this.camera.zoom.toFixed(3)} | dpr ${this.dpr.toFixed(2)}`,
+        `camera ${this.camera.x.toFixed(1)}, ${this.camera.y.toFixed(1)} | hover ${pointer.hoveredTileId ?? "-"} | selected ${pointer.selectedTileId ?? "-"}`,
+      ];
+      ctx.font = "700 11px ui-monospace, monospace";
+      ctx.textAlign = "left";
+      ctx.textBaseline = "top";
+      const width = Math.max(...lines.map((line) => ctx.measureText(line).width)) + 16;
+      ctx.fillStyle = "rgba(2, 10, 15, 0.9)";
+      ctx.fillRect(10, 10, width, 54);
+      ctx.fillStyle = "#dffbff";
+      lines.forEach((line, index) => ctx.fillText(line, 18, 16 + index * 15));
+      ctx.restore();
+    }
+
     drawSpawnSelection(ctx, options = {}) {
       const spawn = options.spawnSelection;
       if (!spawn) return;
@@ -1892,7 +1977,10 @@
       const focusReservation = (spawn.reservations || []).find((reservation) => reservation.tileId === focusId);
       const isCandidate = Boolean(focus && spawn.candidateIds?.has?.(focus.id));
       const tooClose = Boolean(focus && spawn.unavailableCandidateIds?.has?.(focus.id));
-      const valid = isCandidate && !tooClose;
+      const blocked = Boolean(focus && this.state.config.tileTypes?.[focus.type]?.blocks);
+      const inspectedInvalid = Boolean(focus && spawn.inspection?.invalid && spawn.inspection.tileId === focus.id);
+      const valid = isCandidate && !tooClose && !blocked && !inspectedInvalid;
+      const nearbyWater = Boolean(focus && !isCandidate && !tooClose && !blocked && !inspectedInvalid);
       const pulse = 0.55 + Math.sin(performance.now() * 0.006) * 0.2;
       ctx.save();
 
@@ -1915,16 +2003,16 @@
       }
 
       if (focus && !focusReservation) {
-        const color = valid ? "#70e0c5" : "#ef746d";
+        const color = valid ? "#70e0c5" : nearbyWater ? "#f0c96a" : "#ef746d";
         const point = this.tileCenter(focus);
         const innerRadius = Math.max(8, (Number(spawn.startRadius || 2) + 0.65) * size);
         const outerRadius = Math.max(innerRadius + 5, Number(spawn.minimumDistanceRadius || 6) * size);
-        ctx.globalAlpha = valid ? 0.16 + pulse * 0.12 : 0.2;
+        ctx.globalAlpha = valid || nearbyWater ? 0.16 + pulse * 0.12 : 0.2;
         ctx.fillStyle = color;
         ctx.beginPath();
         ctx.arc(point.x, point.y, innerRadius, 0, Math.PI * 2);
         ctx.fill();
-        if (!valid) {
+        if (!valid && !nearbyWater) {
           ctx.save();
           ctx.beginPath();
           ctx.arc(point.x, point.y, innerRadius, 0, Math.PI * 2);
@@ -1953,12 +2041,14 @@
         ctx.arc(point.x, point.y, outerRadius, 0, Math.PI * 2);
         ctx.stroke();
         ctx.setLineDash([]);
-        if (!valid) {
-          ctx.globalAlpha = 1;
-          ctx.fillStyle = "#fff1ed";
-          ctx.font = "800 11px Inter, sans-serif";
-          ctx.textAlign = "center";
-          ctx.fillText(tooClose ? "Too Close" : "Unavailable", point.x, point.y - innerRadius - 7);
+        const candidateZone = spawn.candidateZones?.get?.(focus.id);
+        ctx.globalAlpha = 1;
+        ctx.fillStyle = valid ? "#d9fff4" : nearbyWater ? "#fff3bd" : "#fff1ed";
+        ctx.font = "800 11px Inter, sans-serif";
+        ctx.textAlign = "center";
+        ctx.fillText(valid ? `${candidateZone?.label || "Valid Spawn"}  ✓` : nearbyWater ? "Nearby Water" : tooClose ? "Too Close" : spawn.inspection?.reason || "Unavailable", point.x, point.y - innerRadius - 7);
+        if (!valid && !nearbyWater) {
+          ctx.globalAlpha = 0.9;
         }
       }
 
