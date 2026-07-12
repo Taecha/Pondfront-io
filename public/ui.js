@@ -171,6 +171,8 @@
         animalStat: document.querySelector("#animalStat"),
         teamStat: document.querySelector("#teamStat"),
         timerStat: document.querySelector("#timerStat"),
+        mobileModeStat: document.querySelector("#mobileModeStat"),
+        mobileModeStatLabel: document.querySelector("#mobileModeStatLabel"),
         modifiedMatchBadge: document.querySelector("#modifiedMatchBadge"),
         spawnSelectionOverlay: document.querySelector("#spawnSelectionOverlay"),
         spawnPhaseLabel: document.querySelector("#spawnPhaseLabel"),
@@ -300,6 +302,15 @@
         screenShake: document.querySelector("#screenShake"),
         reducedMotion: document.querySelector("#reducedMotion"),
         autoLowPerformance: document.querySelector("#autoLowPerformance"),
+        mobileDockSide: document.querySelector("#mobileDockSide"),
+        mobileButtonSize: document.querySelector("#mobileButtonSize"),
+        mobileTapSensitivity: document.querySelector("#mobileTapSensitivity"),
+        mobileLongPress: document.querySelector("#mobileLongPress"),
+        mobileDoubleTap: document.querySelector("#mobileDoubleTap"),
+        mobileVibration: document.querySelector("#mobileVibration"),
+        batterySaver: document.querySelector("#batterySaver"),
+        fpsLimit: document.querySelector("#fpsLimit"),
+        mobileMinimapSize: document.querySelector("#mobileMinimapSize"),
         soundEnabled: document.querySelector("#soundEnabled"),
         musicEnabled: document.querySelector("#musicEnabled"),
         uiSounds: document.querySelector("#uiSounds"),
@@ -369,11 +380,22 @@
         if (this.nodes.screenShake) this.nodes.screenShake.checked = false;
         if (this.nodes.showAnimalAnimations) this.nodes.showAnimalAnimations.checked = false;
       }
+      this.loadMobilePreferences();
       this.setUiScale(localStorage.getItem("pondfront:ui-scale") || "compact");
       this.syncAudioControls();
       this.tooltips = root.PondTooltips ? new root.PondTooltips() : null;
       this.helpMenu = root.PondHelpMenu ? new root.PondHelpMenu(this.nodes.helpButton) : null;
+      this.mobileControls = root.PondMobileControls
+        ? new root.PondMobileControls({
+            onAction: (payload) => this.handleMobileResolvedAction(payload),
+            onMore: () => this.emit("openContextActions"),
+            onInfo: () => this.openMobileInfoSheet(),
+            onTeam: () => this.openTeamSheet(),
+            onLeaderboard: () => this.toggleMobileLeaderboard(),
+          })
+        : null;
       this.bind();
+      this.bindMobileSheetGestures();
       this.setRightPanelTab("leaderboard");
       this.updateLobbyAnimal();
       this.updateLobbyMode();
@@ -634,6 +656,17 @@
       this.nodes.reducedMotion.addEventListener("change", () => this.emit("viewChanged"));
       this.nodes.autoLowPerformance.addEventListener("change", () => this.emit("viewChanged"));
       [
+        this.nodes.mobileDockSide,
+        this.nodes.mobileButtonSize,
+        this.nodes.mobileTapSensitivity,
+        this.nodes.mobileLongPress,
+        this.nodes.mobileDoubleTap,
+        this.nodes.mobileVibration,
+        this.nodes.batterySaver,
+        this.nodes.fpsLimit,
+        this.nodes.mobileMinimapSize,
+      ].forEach((node) => node?.addEventListener("change", () => this.saveMobilePreferences()));
+      [
         this.nodes.soundEnabled,
         this.nodes.musicEnabled,
         this.nodes.uiSounds,
@@ -749,6 +782,97 @@
       this.nodes.settingsPanel?.classList.remove("hidden");
       this.nodes.settingsButton?.setAttribute("aria-expanded", "true");
       document.body.classList.add("settings-open");
+    }
+
+    loadMobilePreferences() {
+      const setValue = (node, key, fallback) => {
+        if (node) node.value = localStorage.getItem(key) || fallback;
+      };
+      setValue(this.nodes.mobileDockSide, "pondfront:mobile-dock-side", "center");
+      setValue(this.nodes.mobileButtonSize, "pondfront:mobile-button-size", "normal");
+      setValue(this.nodes.mobileTapSensitivity, "pondfront:mobile-tap-sensitivity", "normal");
+      setValue(this.nodes.mobileLongPress, "pondfront:mobile-long-press", "540");
+      setValue(this.nodes.mobileDoubleTap, "pondfront:mobile-double-tap", "actions");
+      setValue(this.nodes.fpsLimit, "pondfront:fps-limit", "60");
+      setValue(this.nodes.mobileMinimapSize, "pondfront:mobile-minimap-size", "medium");
+      if (this.nodes.mobileVibration) this.nodes.mobileVibration.checked = localStorage.getItem("pondfront:mobile-vibration") !== "off";
+      if (this.nodes.batterySaver) this.nodes.batterySaver.checked = localStorage.getItem("pondfront:battery-saver") === "on";
+      this.applyMobilePreferences();
+    }
+
+    bindMobileSheetGestures() {
+      [this.nodes.mobileSheet, this.nodes.buildSheet, this.nodes.specialSheet, this.nodes.teamSheet].forEach((sheet) => {
+        if (!sheet) return;
+        let swipe = null;
+        sheet.addEventListener("pointerdown", (event) => {
+          if (!this.isMobile() || !event.target.closest("header")) return;
+          swipe = { id: event.pointerId, y: event.clientY };
+          sheet.setPointerCapture?.(event.pointerId);
+        });
+        sheet.addEventListener("pointermove", (event) => {
+          if (!swipe || swipe.id !== event.pointerId) return;
+          const distance = Math.max(0, event.clientY - swipe.y);
+          const card = sheet.firstElementChild;
+          if (card) card.style.transform = `translateY(${Math.min(120, distance)}px)`;
+        });
+        const finish = (event) => {
+          if (!swipe || swipe.id !== event.pointerId) return;
+          const distance = Math.max(0, event.clientY - swipe.y);
+          swipe = null;
+          const card = sheet.firstElementChild;
+          if (card) card.style.transform = "";
+          if (distance >= 72) sheet.classList.add("hidden");
+        };
+        sheet.addEventListener("pointerup", finish);
+        sheet.addEventListener("pointercancel", finish);
+      });
+    }
+
+    saveMobilePreferences() {
+      localStorage.setItem("pondfront:mobile-dock-side", this.nodes.mobileDockSide?.value || "center");
+      localStorage.setItem("pondfront:mobile-button-size", this.nodes.mobileButtonSize?.value || "normal");
+      localStorage.setItem("pondfront:mobile-tap-sensitivity", this.nodes.mobileTapSensitivity?.value || "normal");
+      localStorage.setItem("pondfront:mobile-long-press", this.nodes.mobileLongPress?.value || "540");
+      localStorage.setItem("pondfront:mobile-double-tap", this.nodes.mobileDoubleTap?.value || "actions");
+      localStorage.setItem("pondfront:mobile-vibration", this.nodes.mobileVibration?.checked === false ? "off" : "on");
+      localStorage.setItem("pondfront:battery-saver", this.nodes.batterySaver?.checked ? "on" : "off");
+      localStorage.setItem("pondfront:fps-limit", this.nodes.fpsLimit?.value || "60");
+      localStorage.setItem("pondfront:mobile-minimap-size", this.nodes.mobileMinimapSize?.value || "medium");
+      this.applyMobilePreferences();
+      this.emit("viewChanged");
+    }
+
+    applyMobilePreferences() {
+      document.body.dataset.dockSide = this.nodes.mobileDockSide?.value || "center";
+      document.body.dataset.mobileButtons = this.nodes.mobileButtonSize?.value || "normal";
+      document.body.dataset.minimapSize = this.nodes.mobileMinimapSize?.value || "medium";
+      document.body.classList.toggle("battery-saver", this.nodes.batterySaver?.checked === true);
+    }
+
+    mobilePreferences() {
+      const thresholds = { precise: 6, normal: 9, relaxed: 13 };
+      const sensitivity = this.nodes.mobileTapSensitivity?.value || "normal";
+      return {
+        tapThreshold: thresholds[sensitivity] || 9,
+        longPressMs: Math.max(350, Math.min(800, Number(this.nodes.mobileLongPress?.value || 540))),
+        doubleTap: this.nodes.mobileDoubleTap?.value || "actions",
+        batterySaver: this.nodes.batterySaver?.checked === true,
+        fpsLimit: Number(this.nodes.fpsLimit?.value || 60) === 30 ? 30 : 60,
+      };
+    }
+
+    handleMobileResolvedAction(payload = {}) {
+      if (payload.action === "buildMenu") return this.openBuildSheet();
+      if (payload.action === "ability") return this.emit("action", { type: "ability", tileId: payload.tileId });
+      if (payload.action === "cancelSelection") return this.emit("camera", { type: "cancel" });
+      this.emit("contextAction", payload);
+    }
+
+    toggleMobileLeaderboard() {
+      const open = !document.body.classList.contains("leaderboard-open");
+      document.body.classList.toggle("leaderboard-open", open);
+      this.setRightPanelTab("leaderboard");
+      this.nodes.openLeaderboardButton?.classList.toggle("active", open);
     }
 
     closeSettings() {
@@ -1455,6 +1579,7 @@
         state.phase === "SPAWN_SELECTION" || state.phase === "COUNTDOWN"
           ? `${state.spawn?.timeLeft == null ? "No limit" : `${Math.ceil(state.spawn.timeLeft)}s`} | ${state.spawn?.readyCount || 0}/${state.spawn?.totalPlayers || 1} ready`
           : `${this.formatTime(timeLeft)} left | ${state.teamState?.active ? `${state.teamsLeft || 0} teams` : `${state.animalsLeft || 0} left`}`;
+      this.updateMobileModeStat(state, human);
       this.updateModeObjective(state, human);
       if (this.nodes.matchRulesSummary) {
         const surrender = state.matchSettings?.surrenderMode || "off";
@@ -1476,8 +1601,11 @@
 
       const abilityStatus = human.abilityStatus || {};
       this.nodes.abilityName.innerHTML = this.abilityInline(human.animal, animal.ability);
-      const cooldownLeft = Math.max(0, abilityStatus.cooldownLeft ?? human.abilityReadyAt - state.serverTime);
-      const activeLeft = Math.max(0, abilityStatus.activeLeft ?? human.abilityActiveUntil - state.serverTime);
+      const serverNow = Number(state.serverTime || abilityStatus.serverNow || 0);
+      const cooldownEndsAt = Number(abilityStatus.cooldownEndsAt || human.abilityCooldownEndsAt || human.abilityReadyAt || 0);
+      const activeEndsAt = Number(abilityStatus.activeEndsAt || human.abilityActiveUntil || 0);
+      const cooldownLeft = Math.max(0, cooldownEndsAt - serverNow);
+      const activeLeft = Math.max(0, activeEndsAt - serverNow);
       const realModifier = abilityStatus.realModifier || root.PondInfo?.abilityTip(human.animal) || animalVisual.tooltip || animal.perk;
       this.nodes.abilityPerk.textContent = abilityStatus.activeEffect
         ? `${abilityStatus.activeEffect}: ${realModifier}`
@@ -1490,7 +1618,7 @@
             : "Ready";
       const cooldownTotal = abilityStatus.cooldown || animal.cooldown;
       this.nodes.cooldownBar.style.transform = `scaleX(${cooldownLeft > 0 ? Math.max(0, 1 - cooldownLeft / cooldownTotal) : 1})`;
-      this.nodes.abilityButton.disabled = human.defeated || state.ended;
+      this.nodes.abilityButton.disabled = human.defeated || state.ended || cooldownLeft > 0;
       const progress = cooldownLeft > 0 ? Math.max(0, 1 - cooldownLeft / cooldownTotal) : 1;
       this.nodes.abilityButton.style.setProperty("--cooldown-angle", `${Math.round(progress * 360)}deg`);
       this.nodes.abilityButton.classList.toggle("cooldown", cooldownLeft > 0);
@@ -1524,6 +1652,7 @@
       this.updateActionLabels(human);
       this.updateActionVisibility(state, selectedTile, context);
       this.updateMobileActionCard(state, selectedTile, context);
+      this.mobileControls?.update({ state, tile: selectedTile, context, human });
       this.updateCoachHint(state, selectedTile, context);
       this.updateDebugStats(state);
       if (!this.nodes.specialSheet?.classList.contains("hidden")) this.openSpecialSheet();
@@ -1639,6 +1768,27 @@
       if (this.nodes.modeRulesList) this.nodes.modeRulesList.innerHTML = (mode.tutorial || []).map((step) => `<li>${this.escape(step)}</li>`).join("");
       if (this.nodes.tutorialModeTitle) this.nodes.tutorialModeTitle.textContent = mode.label;
       if (this.nodes.tutorialModeSteps) this.nodes.tutorialModeSteps.innerHTML = (mode.tutorial || []).map((step) => `<li>${this.escape(step)}</li>`).join("");
+    }
+
+    updateMobileModeStat(state, human) {
+      if (!this.nodes.mobileModeStat || !this.nodes.mobileModeStatLabel) return;
+      const mode = state.gameModeState || {};
+      const ownerKey = human.teamId || human.id;
+      if (mode.id === "goldenLily") {
+        const score = mode.scores?.find((entry) => (entry.id || entry.playerId) === ownerKey)?.score || 0;
+        this.nodes.mobileModeStatLabel.textContent = "Lilies";
+        this.nodes.mobileModeStat.textContent = `${score}/${mode.scoreTarget || 0}`;
+      } else if (mode.id === "floodSurvival") {
+        this.nodes.mobileModeStatLabel.textContent = "Wave";
+        this.nodes.mobileModeStat.textContent = `${mode.wave || 0}/${mode.waveTarget || 0}`;
+      } else if (mode.id === "lastNest") {
+        const nest = mode.nests?.find((entry) => entry.playerId === human.id);
+        this.nodes.mobileModeStatLabel.textContent = "Nest";
+        this.nodes.mobileModeStat.textContent = nest ? `${nest.health}/${nest.maxHealth}` : "Lost";
+      } else {
+        this.nodes.mobileModeStatLabel.textContent = state.teamState?.active ? "Teams" : "Animals";
+        this.nodes.mobileModeStat.textContent = `${state.teamState?.active ? state.teamsLeft || 0 : state.animalsLeft || 0} left`;
+      }
     }
 
     updateWinDebug(state) {
@@ -1773,6 +1923,19 @@
           ? { label: special.short || special.label || "Special", type: "special", specialType: context.pendingSpecialType, detail: `Confirm ${special.label || "special"} here.` }
           : { label: "Choose Target", type: "", detail: `Tap a glowing tile for ${special.label || "this special"}.` };
       }
+      const shared = (context.availableActions || []).filter((item) => !item.separator && item.available !== false);
+      const preferred = shared.find((item) => ["expand", "attack", "defend", "ability", "special", "waterRoute"].includes(item.id));
+      if (preferred) {
+        return {
+          label: preferred.label,
+          type: preferred.id,
+          percent: preferred.payload?.percent,
+          specialType: preferred.payload?.specialType,
+          detail: preferred.hint || (preferred.cost != null ? `Uses ${Math.ceil(preferred.cost)} Animal Energy.` : "Ready."),
+        };
+      }
+      const build = shared.find((item) => item.id === "buildMenu");
+      if (build) return { label: "Build", type: "build", detail: "Open the available pond buildings." };
       if (context.canExpand) {
         return { label: `Expand ${percent}%`, type: "expand", detail: context.estimateText || "Capture neutral water." };
       }
@@ -2190,10 +2353,13 @@
       document.body.dataset.actionContext = contextName;
 
       const teamActive = Boolean(state?.teamState?.active);
-      const showAttack = enemyTile;
-      const showExpand = neutralTile && (context.canExpand || !tile.type?.blocks);
-      const showDefend = ownsTile;
-      const showBuild = ownsTile || Boolean(neutralTile && context.canBuild);
+      const actions = (context.availableActions || []).filter((item) => !item.separator);
+      const hasAction = (id) => actions.some((item) => item.id === id);
+      const usableAction = (id) => actions.some((item) => item.id === id && item.available !== false);
+      const showAttack = actions.length ? hasAction("attack") : enemyTile;
+      const showExpand = actions.length ? hasAction("expand") : neutralTile && context.canExpand;
+      const showDefend = actions.length ? hasAction("defend") : ownsTile;
+      const showBuild = actions.length ? hasAction("buildMenu") || hasAction("upgradeBuilding") : ownsTile;
       const showPercent = showExpand || showDefend;
       const showAttackStyle = showAttack;
 
@@ -2201,7 +2367,7 @@
       this.nodes.attackStyleRow?.classList.toggle("hidden-action", !showAttackStyle);
       this.setActionVisible(this.nodes.expandButton, showExpand);
       this.setActionVisible(this.nodes.attackButton, showAttack);
-      this.setActionVisible(this.nodes.currentPushButton, showAttack);
+      this.setActionVisible(this.nodes.currentPushButton, actions.length ? hasAction("waterRoute") : showAttack);
       this.setActionVisible(this.nodes.defendButton, showDefend);
       this.setActionVisible(this.nodes.buildButton, showBuild);
       this.setActionVisible(this.nodes.teamButton, teamActive);
@@ -2209,8 +2375,8 @@
       this.setActionVisible(this.nodes.specialButton, true);
       this.nodes.buildSelect?.classList.toggle("hidden-action", !showBuild);
 
-      if (this.nodes.expandButton) this.nodes.expandButton.disabled = !human || human.defeated || !context.canExpand;
-      if (this.nodes.defendButton) this.nodes.defendButton.disabled = !human || human.defeated || !context.canDefend;
+      if (this.nodes.expandButton) this.nodes.expandButton.disabled = !human || human.defeated || (actions.length ? !usableAction("expand") : !context.canExpand);
+      if (this.nodes.defendButton) this.nodes.defendButton.disabled = !human || human.defeated || (actions.length ? !usableAction("defend") : !context.canDefend);
       if (this.nodes.buildButton) {
         const construction = this.constructionLeft(tile, state);
         const canManageBuilding = ownsTile && Boolean(tile?.building);
@@ -2223,8 +2389,37 @@
         }
         if (canManageBuilding && construction <= 0) this.nodes.buildButton.textContent = context.canUpgradeBuilding ? "Upgrade" : "Building";
       }
-      if (this.nodes.attackButton) this.nodes.attackButton.disabled = this.nodes.attackButton.disabled || !context.canAttack;
-      if (this.nodes.currentPushButton) this.nodes.currentPushButton.disabled = this.nodes.currentPushButton.disabled || !context.canAttack;
+      if (this.nodes.attackButton) this.nodes.attackButton.disabled = !human || human.defeated || (actions.length ? !usableAction("attack") : !context.canAttack);
+      if (this.nodes.currentPushButton) this.nodes.currentPushButton.disabled = !human || human.defeated || (actions.length ? !usableAction("waterRoute") : !context.canAttack);
+    }
+
+    refreshAbilityCooldown(serverNow) {
+      const state = this.lastState;
+      const human = state?.players?.find((player) => player.id === state.humanId);
+      const animal = state?.config?.animals?.[human?.animal];
+      if (!human || !animal || !this.nodes.abilityButton) return;
+      const status = human.abilityStatus || {};
+      const cooldownEndsAt = Number(status.cooldownEndsAt || human.abilityCooldownEndsAt || human.abilityReadyAt || 0);
+      const activeEndsAt = Number(status.activeEndsAt || human.abilityActiveUntil || 0);
+      const cooldownLeft = Math.max(0, cooldownEndsAt - Number(serverNow || state.serverTime || 0));
+      const activeLeft = Math.max(0, activeEndsAt - Number(serverNow || state.serverTime || 0));
+      const total = Math.max(1, Number(status.cooldown || animal.cooldown || 1));
+      const realModifier = status.realModifier || root.PondInfo?.abilityTip(human.animal) || animal.perk || "";
+      this.nodes.cooldownText.textContent = activeLeft > 0
+        ? `${status.activeEffect || "Active"}: ${Math.ceil(activeLeft)}s`
+        : cooldownLeft > 0
+          ? `Cooldown: ${Math.ceil(cooldownLeft)}s`
+          : "Ready";
+      const progress = cooldownLeft > 0 ? Math.max(0, 1 - cooldownLeft / total) : 1;
+      this.nodes.cooldownBar.style.transform = `scaleX(${progress})`;
+      this.nodes.abilityButton.disabled = human.defeated || state.ended || cooldownLeft > 0;
+      this.nodes.abilityButton.style.setProperty("--cooldown-angle", `${Math.round(progress * 360)}deg`);
+      this.nodes.abilityButton.classList.toggle("cooldown", cooldownLeft > 0);
+      this.nodes.abilityButton.classList.toggle("ready", cooldownLeft <= 0 && activeLeft <= 0);
+      this.nodes.abilityButton.classList.toggle("active", activeLeft > 0);
+      this.nodes.abilityButton.dataset.tip = cooldownLeft > 0 && activeLeft <= 0
+        ? `${animal.ability} cooldown: ${Math.ceil(cooldownLeft)}s. ${realModifier}`
+        : `${animal.ability}: ${realModifier}`;
     }
 
     setActionVisible(button, visible) {
@@ -2243,13 +2438,27 @@
 
     stackToast(message, bad = false) {
       if (!this.nodes.toastStack) return;
+      const duplicate = [...this.nodes.toastStack.children].find((entry) => entry.dataset.message === message);
+      if (duplicate) {
+        const count = Number(duplicate.dataset.count || 1) + 1;
+        duplicate.dataset.count = String(count);
+        duplicate.textContent = `${message} x${count}`;
+        duplicate.classList.remove("leaving");
+        clearTimeout(duplicate._leaveTimer);
+        clearTimeout(duplicate._removeTimer);
+        duplicate._leaveTimer = setTimeout(() => duplicate.classList.add("leaving"), 2600);
+        duplicate._removeTimer = setTimeout(() => duplicate.remove(), 3200);
+        return;
+      }
       const item = document.createElement("div");
       item.className = `stack-toast${bad ? " bad" : ""}`;
+      item.dataset.message = message;
+      item.dataset.count = "1";
       item.textContent = message;
       this.nodes.toastStack.appendChild(item);
-      while (this.nodes.toastStack.children.length > 4) this.nodes.toastStack.firstElementChild?.remove();
-      setTimeout(() => item.classList.add("leaving"), 2600);
-      setTimeout(() => item.remove(), 3200);
+      while (this.nodes.toastStack.children.length > 3) this.nodes.toastStack.firstElementChild?.remove();
+      item._leaveTimer = setTimeout(() => item.classList.add("leaving"), 2600);
+      item._removeTimer = setTimeout(() => item.remove(), 3200);
     }
 
     flashEnergy() {
@@ -2268,6 +2477,7 @@
     }
 
     viewOptions() {
+      const batterySaver = this.nodes.batterySaver?.checked === true;
       return {
         strategicView: this.nodes.strategicView.checked,
         autoStrategicView: this.nodes.autoStrategicView.checked,
@@ -2280,18 +2490,20 @@
         showTileHitboxes: this.debugMode && this.nodes.showTileHitboxes?.checked === true,
         visualPreset: this.nodes.visualPreset?.value || "balanced",
         colorVisionMode: this.nodes.colorVisionMode?.value || "standard",
-        visualQuality: this.nodes.visualQuality?.value || "high",
-        mapDecorations: this.nodes.mapDecorations?.checked !== false,
+        visualQuality: batterySaver ? "low" : this.nodes.visualQuality?.value || "high",
+        mapDecorations: !batterySaver && this.nodes.mapDecorations?.checked !== false,
         isMobile: this.isMobile(),
+        batterySaver,
         effects: {
-          level: this.nodes.effectsLevel.value,
-          particles: this.nodes.particlesLevel?.value || this.nodes.effectsLevel.value,
-          floatingText: this.nodes.floatingText.checked,
+          level: batterySaver ? "low" : this.nodes.effectsLevel.value,
+          particles: batterySaver ? "low" : this.nodes.particlesLevel?.value || this.nodes.effectsLevel.value,
+          floatingText: !batterySaver && this.nodes.floatingText.checked,
           attackArrows: this.nodes.attackArrows.checked,
           abilityEffects: this.nodes.abilityEffects?.checked !== false,
-          screenShake: this.nodes.screenShake?.checked !== false,
-          reducedMotion: this.nodes.reducedMotion.checked,
+          screenShake: !batterySaver && this.nodes.screenShake?.checked !== false,
+          reducedMotion: batterySaver || this.nodes.reducedMotion.checked,
           autoLowPerformance: this.nodes.autoLowPerformance.checked,
+          batterySaver,
         },
       };
     }
@@ -2537,7 +2749,7 @@
     }
 
     isMobile() {
-      return window.matchMedia?.("(max-width: 900px), (pointer: coarse)")?.matches || false;
+      return window.matchMedia?.("(max-width: 1024px), (pointer: coarse)")?.matches || false;
     }
 
     showResult(state, human) {

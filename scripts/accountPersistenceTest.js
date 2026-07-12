@@ -74,8 +74,10 @@ try {
   const recorded = db.recordMatch(signedIn.id, matchRecord, 50, 8);
   const achievementManager = new AchievementManager(db);
   const unlocked = achievementManager.unlockEligible(signedIn.id, matchRecord);
+  const duplicateUnlock = achievementManager.unlockEligible(signedIn.id, matchRecord);
   check("match stats and history save", recorded?.stats?.gamesPlayed === 1 && db.matchHistoryFor(signedIn.id, 5).length === 1);
   check("eligible achievements and badges unlock", unlocked.some((entry) => entry.id === "pond_winner") && db.findUserById(signedIn.id).unlockedBadges.includes("first_win"), unlocked.map((entry) => entry.id).join(", "));
+  check("achievement unlocks are duplicate-safe", duplicateUnlock.length === 0 && db.achievementsFor(signedIn.id).filter((entry) => entry.achievementId === "pond_winner").length === 1);
 
   const profileManager = new ProfileManager(db, new MatchHistoryManager(db));
   const selected = profileManager.selectBadge(signedIn.id, "first_win");

@@ -1,0 +1,71 @@
+(function initCombatConfig(root, factory) {
+  const combatConfig = factory();
+  if (typeof module !== "undefined" && module.exports) module.exports = combatConfig;
+  else root.PondCombat = combatConfig;
+})(typeof self !== "undefined" ? self : this, function factory() {
+  return {
+    attackCooldownSeconds: 0,
+    minimumAttackEnergy: 5,
+    maxActiveAttacksPerPlayer: 3,
+    waveTickSeconds: 0.4,
+    waveCaptureLimit: 2,
+    attackEfficiency: 0.86,
+    waveMaxDurationSeconds: 12,
+    contestPowerLossRatio: 0.18,
+    contestWinnerLossRatio: 0.45,
+    currentPush: {
+      cooldownSeconds: 45,
+      minEnergy: 10,
+      maxRange: 32,
+      minTravelSeconds: 3,
+      maxTravelSeconds: 12,
+      secondsPerTile: 0.28,
+      warningLeadSeconds: 2,
+      baseEfficiency: 0.78,
+      minEfficiency: 0.5,
+      distanceTier: 8,
+      distancePenaltyPerTier: 0.1,
+      maxImpactCaptures: 7,
+      longRouteCapturePenalty: 1,
+      impactCostMultiplier: 1.08,
+      interceptPowerLossPerTile: 0.055,
+      maxInterceptPowerLoss: 0.45,
+      turtleShellPowerMultiplier: 0.82,
+      beginnerHumanPowerMultiplier: 0.75,
+    },
+    attackStyles: {
+      bite: { label: "Quick Bite", short: "Bite", percent: 0.25, description: "Cheap pressure that weakens or nips weak borders." },
+      push: { label: "Strong Push", short: "Push", percent: 0.5, description: "Recommended attack for breaking normal borders." },
+      wave: { label: "Full Wave", short: "Wave", percent: 0.75, description: "Large splash attack for pushing through several tiles." },
+      max: { label: "Max Wave", short: "Max", percent: 1, description: "All-in attack when the enemy border is ready to break." },
+    },
+    pressure: {
+      captureThreshold: 0.82,
+      nearMissKeepRatio: 0.72,
+      defenseDamageMultiplier: 0.22,
+      decayPerSecond: 0.5,
+      decayIntervalSeconds: 2,
+      maxProgressRatio: 0.95,
+    },
+    formula: {
+      baseCostByTile: {
+        water: 6,
+        lily: 8,
+        reeds: 12,
+        mud: 14,
+        nest: 16,
+      },
+      buildingBaseCost: 18,
+      terrainDefenseMultiplier: 1.05,
+      defenseEnergyMultiplier: 0.58,
+      defenderEnergyFlatMultiplier: 0.024,
+      defenderEnergyFlatCap: 12,
+      defenderEnergyRatioBase: 0.82,
+      defenderEnergyRatioMultiplier: 0.32,
+      distanceCost: 1.1,
+      weakBorderPenalty: 1.2,
+      lowPowerFatigueMultiplier: 1.06,
+      bigDefenderWeakEnergyMultiplier: 0.88,
+    },
+  };
+});

@@ -1,0 +1,183 @@
+const crypto = require("crypto");
+
+class AuthManager {
+  constructor(db) {
+    this.db = db;
+    this.cookieName = "pond_session";
+    this.sessionSecret = process.env.SESSION_SECRET || "pondfront-local-development-session-secret";
+    this.secureCookies = process.env.NODE_ENV === "production" || String(process.env.APP_BASE_URL || "").startsWith("https://");
+    this.available = process.env.NODE_ENV !== "production" || Boolean(process.env.SESSION_SECRET);
+    if (process.env.NODE_ENV === "production" && !process.env.SESSION_SECRET) {
+      console.warn("[AUTH] SESSION_SECRET is missing. Set it before accepting production logins.");
+    }
+  }
+
+  publicUser(user) {
+    if (!user) return null;
+    return {
+      id: user.id,
+      username: user.username,
+      displayName: user.displayName || user.username,
+      avatarUrl: user.avatarUrl || "",
+      createdAt: user.createdAt,
+      lastLoginAt: user.lastLoginAt,
+      level: user.level || 1,
+      xp: user.xp || 0,
+      coins: user.coins || 0,
+      selectedBadge: user.selectedBadge || "rookie",
+      selectedTitle: user.selectedTitle || "pond_rookie",
+      selectedCosmetic: user.selectedCosmetic || "clear_ripple",
+      unlockedBadges: user.unlockedBadges || ["rookie"],
+      unlockedTitles: user.unlockedTitles || ["pond_rookie"],
+      unlockedCosmetics: user.unlockedCosmetics || ["clear_ripple"],
+      connectedProviders: this.db.oauthAccountsFor?.(user.id).map((account) => account.provider) || [],
+    };
+  }
+
+  signup(body = {}, req, res) {
+    if (!this.available) return this.unavailableResult();
+    const username = this.cleanUsername(body.username);
+    const password = String(body.password || "");
+    const confirm = String(body.confirmPassword || body.confirm || "");
+    const validation = this.validateSignup(username, password, confirm);
+    if (validation) return { ok: false, status: 400, message: validation };
+    try {
+      if (this.db.findUserByUsername(username)) return { ok: false, status: 409, message: "Username already exists." };
+      const user = this.db.createUser({ username, passwordHash: this.hashPassword(password), email: body.email });
+      if (!this.issueSession(user.id, req, res)) return { ok: false, status: 503, code: "SESSION_CREATE_FAILED", message: "Login session could not be created." };
+      console.log(`[AUTH] signup success userId=${user.id} cookieSecure=${this.secureCookies}`);
+      return { ok: true, status: 200, message: "Account created.", user: this.publicUser(user) };
+    } catch (error) {
+      console.error(`[AUTH] signup failed code=DATABASE_UNAVAILABLE cause=${error?.code || error?.name || "unknown"}`);
+      return { ok: false, status: 503, code: "DATABASE_UNAVAILABLE", message: "Database is temporarily unavailable." };
+    }
+  }
+
+  login(body = {}, req, res) {
+    if (!this.available) return this.unavailableResult();
+    const username = this.cleanUsername(body.username);
+    const password = String(body.password || "");
+    try {
+      const user = this.db.findUserByUsername(username);
+      if (!user || !this.verifyPassword(password, user.passwordHash)) {
+        console.warn("[AUTH] login rejected code=INVALID_CREDENTIALS");
+        return { ok: false, status: 401, message: "Incorrect username or password." };
+      }
+      this.deleteCurrentSession(req);
+      if (!this.issueSession(user.id, req, res)) return { ok: false, status: 503, code: "SESSION_CREATE_FAILED", message: "Login session could not be created." };
+      console.log(`[AUTH] login success userId=${user.id} cookieSecure=${this.secureCookies}`);
+      return { ok: true, status: 200, message: "Logged in.", user: this.publicUser(this.db.findUserById(user.id)) };
+    } catch (error) {
+      console.error(`[AUTH] login failed code=DATABASE_UNAVAILABLE cause=${error?.code || error?.name || "unknown"}`);
+      return { ok: false, status: 503, code: "DATABASE_UNAVAILABLE", message: "Authentication service is temporarily unavailable." };
+    }
+  }
+
+  logout(req, res) {
+    const token = this.sessionToken(req);
+    if (token) {
+      this.db.deleteSession(this.storedSessionToken(token));
+      this.db.deleteSession(token);
+    }
+    this.clearSessionCookie(res);
+    return { ok: true, status: 200, message: "Logged out." };
+  }
+
+  currentUser(req) {
+    const token = this.sessionToken(req);
+    if (!token) return null;
+    const session = this.db.getSession(this.storedSessionToken(token)) || this.db.getSession(token);
+    if (!session) return null;
+    return this.db.findUserById(session.userId);
+  }
+
+  validateSignup(username, password, confirm) {
+    if (!/^[a-zA-Z0-9 _-]{3,20}$/.test(username)) return "Username must be 3-20 letters, numbers, spaces, _ or -.";
+    if (password.length < 6) return "Password too short.";
+    if (password.length > 96) return "Password is too long.";
+    if (password !== confirm) return "Passwords do not match.";
+    return "";
+  }
+
+  cleanUsername(value) {
+    return String(value || "")
+      .trim()
+      .replace(/\s+/g, " ")
+      .slice(0, 20);
+  }
+
+  hashPassword(password) {
+    const salt = crypto.randomBytes(16).toString("hex");
+    const hash = crypto.scryptSync(password, salt, 64, { N: 16384, r: 8, p: 1 }).toString("hex");
+    return `scrypt$16384$8$1$${salt}$${hash}`;
+  }
+
+  verifyPassword(password, stored) {
+    try {
+      const [algorithm, n, r, p, salt, hash] = String(stored || "").split("$");
+      if (algorithm !== "scrypt" || !salt || !hash) return false;
+      const expected = Buffer.from(hash, "hex");
+      const actual = crypto.scryptSync(password, salt, expected.length, { N: Number(n), r: Number(r), p: Number(p) });
+      return expected.length === actual.length && crypto.timingSafeEqual(expected, actual);
+    } catch {
+      return false;
+    }
+  }
+
+  sessionToken(req) {
+    return this.cookies(req)[this.cookieName] || "";
+  }
+
+  storedSessionToken(rawToken) {
+    return `h2_${crypto.createHmac("sha256", this.sessionSecret).update(String(rawToken || "")).digest("hex")}`;
+  }
+
+  issueSession(userId, req, res) {
+    const rawToken = `pfs_${crypto.randomBytes(32).toString("base64url")}`;
+    const session = this.db.addSession(userId, req?.headers?.["user-agent"], this.storedSessionToken(rawToken));
+    this.setSessionCookie(res, rawToken);
+    return session;
+  }
+
+  unavailableResult() {
+    console.error("[AUTH] request rejected code=MISSING_SESSION_SECRET");
+    return { ok: false, status: 503, code: "AUTH_NOT_CONFIGURED", message: "Authentication service is temporarily unavailable." };
+  }
+
+  deleteCurrentSession(req) {
+    const token = this.sessionToken(req);
+    if (!token) return;
+    this.db.deleteSession(this.storedSessionToken(token));
+    this.db.deleteSession(token);
+  }
+
+  cookies(req) {
+    return Object.fromEntries(
+      String(req.headers.cookie || "")
+        .split(";")
+        .map((part) => part.trim())
+        .filter(Boolean)
+        .map((part) => {
+          const index = part.indexOf("=");
+          return index < 0 ? [part, ""] : [part.slice(0, index), decodeURIComponent(part.slice(index + 1))];
+        }),
+    );
+  }
+
+  setSessionCookie(res, token) {
+    const secure = this.secureCookies ? "; Secure" : "";
+    this.appendCookie(res, `${this.cookieName}=${encodeURIComponent(token)}; HttpOnly; SameSite=Lax; Path=/; Max-Age=2592000${secure}`);
+  }
+
+  clearSessionCookie(res) {
+    const secure = this.secureCookies ? "; Secure" : "";
+    this.appendCookie(res, `${this.cookieName}=; HttpOnly; SameSite=Lax; Path=/; Max-Age=0${secure}`);
+  }
+
+  appendCookie(res, cookie) {
+    const current = res.getHeader?.("Set-Cookie");
+    res.setHeader("Set-Cookie", current ? (Array.isArray(current) ? [...current, cookie] : [current, cookie]) : cookie);
+  }
+}
+
+module.exports = AuthManager;

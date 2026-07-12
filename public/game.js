@@ -36,6 +36,8 @@
       this.pendingAbilityTarget = false;
       this.pendingBuildType = null;
       this.pendingSpecialType = null;
+      this.pendingTargetConfirmation = null;
+      this.pendingCurrentPush = false;
       this.pointer = null;
       this.activePointers = new Map();
       this.pinch = null;
@@ -70,6 +72,8 @@
       this.frameSample = { frames: 0, totalMs: 0, worstMs: 0, since: performance.now(), lastAt: 0 };
       this.messageSample = { count: 0, since: performance.now() };
       this.lastPerfUiAt = 0;
+      this.lastCooldownUiAt = 0;
+      this.serverClock = { time: 0, receivedAt: performance.now() };
       this.performanceLowSince = 0;
       this.performanceAutoLow = false;
       this.runtimeVisualState = {
@@ -88,6 +92,7 @@
       this.seenEventIds = new Set();
       this.bind();
       this.loop();
+      queueMicrotask(() => this.restoreLobbySession());
     }
 
     bind() {
@@ -103,6 +108,8 @@
       this.ui.on("openProfile", () => this.profileView?.open("overview"));
       this.ui.on("home", () => this.returnHome());
       this.ui.on("action", (payload) => this.handleAction(payload));
+      this.ui.on("contextAction", (payload) => this.handleContextAction(payload));
+      this.ui.on("openContextActions", () => this.openSelectedContextActions());
       this.ui.on("camera", (payload) => this.handleCamera(payload));
       this.ui.on("diplomacy", (command) => this.handleDiplomacy(command));
       this.ui.on("teamCommand", (command) => this.handleTeamCommand(command));
@@ -112,6 +119,7 @@
       this.contextMenu?.on("preview", (payload) => this.setActionPreview(payload));
       this.contextMenu?.on("close", () => {
         this.preview = null;
+        this.contextMenuTileId = null;
       });
 
       window.addEventListener("resize", () => this.scheduleRendererResize());
@@ -142,7 +150,7 @@
       this.miniMap.addEventListener("pointercancel", (event) => this.handleMiniMapPointer(event));
       this.canvas.addEventListener("contextmenu", (event) => {
         event.preventDefault();
-        if (!this.state || this.isSpawnPhase()) return;
+        if (!this.state) return;
         const tile = this.renderer.screenToTile(event.clientX, event.clientY);
         this.openContextMenu(tile, event.clientX, event.clientY);
       });
@@ -161,6 +169,7 @@
       try {
         this.clearLobbyPolling();
         this.lobbySession = null;
+        this.saveLobbySession();
         this.audio?.unlock?.().catch(() => {});
         this.audio?.play("start");
         const animal = root.PondAnimals?.[payload.animal] ? payload.animal : "duck";
@@ -219,6 +228,7 @@
           body: JSON.stringify(payload),
         });
         this.lobbySession = { ...data.session, inGame: false };
+        this.saveLobbySession();
         this.ui.showWaitingRoom(data.lobby, this.lobbySession);
         this.ui.toast(`Lobby created: ${data.lobby.roomCode}`);
         this.startLobbyPolling();
@@ -243,6 +253,7 @@
           body: JSON.stringify(payload),
         });
         this.lobbySession = { ...data.session, inGame: false };
+        this.saveLobbySession();
         this.ui.showWaitingRoom(data.lobby, this.lobbySession);
         this.ui.toast(`Joined ${data.lobby.roomCode}.`);
         this.startLobbyPolling();
@@ -271,6 +282,7 @@
       try {
         const data = await this.request(`/api/lobby/state?${this.lobbyQuery()}`);
         this.lobbySession = { ...this.lobbySession, ...data.session, inGame: data.lobby?.status === "inGame" };
+        this.saveLobbySession();
         if (data.matchState) {
           this.enterLobbyMatch(data);
           return;
@@ -360,6 +372,7 @@
       }
       this.clearLobbyPolling();
       this.lobbySession = null;
+      this.saveLobbySession();
       this.ui.showHome();
       this.ui.toast("Left lobby.");
     }
@@ -367,6 +380,7 @@
     enterLobbyMatch(data) {
       this.clearLobbyPolling();
       this.lobbySession = { ...this.lobbySession, ...data.session, inGame: true };
+      this.saveLobbySession();
       this.resetSelection();
       this.seenEventIds.clear();
       this.ui.showGame();
@@ -388,6 +402,47 @@
     lobbyQuery() {
       const auth = this.lobbyAuth();
       return new URLSearchParams(auth).toString();
+    }
+
+    saveLobbySession() {
+      try {
+        if (this.lobbySession?.roomCode && this.lobbySession?.playerId && this.lobbySession?.playerToken) {
+          sessionStorage.setItem("pondfront:lobby-session", JSON.stringify(this.lobbySession));
+        } else {
+          sessionStorage.removeItem("pondfront:lobby-session");
+        }
+      } catch {
+        // Private browsing may disable storage; the live in-memory session still works.
+      }
+    }
+
+    async restoreLobbySession() {
+      if (this.lobbySession || this.state) return;
+      let saved = null;
+      try {
+        saved = JSON.parse(sessionStorage.getItem("pondfront:lobby-session") || "null");
+      } catch {
+        sessionStorage.removeItem("pondfront:lobby-session");
+      }
+      if (!saved?.roomCode || !saved?.playerId || !saved?.playerToken) return;
+      this.lobbySession = saved;
+      try {
+        const data = await this.request(`/api/lobby/state?${this.lobbyQuery()}`);
+        this.lobbySession = { ...saved, ...data.session, inGame: data.lobby?.status === "inGame" };
+        this.saveLobbySession();
+        if (data.matchState || this.lobbySession.inGame) {
+          if (!data.matchState) throw new Error("Match state is unavailable.");
+          this.enterLobbyMatch({ ...data, matchState: data.matchState });
+          this.ui.toast("Match reconnected.");
+        } else {
+          this.ui.showWaitingRoom(data.lobby, this.lobbySession);
+          this.startLobbyPolling();
+          this.ui.toast("Lobby reconnected.");
+        }
+      } catch {
+        this.lobbySession = null;
+        this.saveLobbySession();
+      }
     }
 
     startPolling() {
@@ -452,6 +507,7 @@
       const incomingSpawnVersion = Number(state?.spawn?.version ?? -1);
       if (options.delta && currentSpawnVersion > incomingSpawnVersion) state = { ...state, spawn: this.state.spawn };
       this.state = state;
+      this.serverClock = { time: Number(state.serverTime || 0), receivedAt: performance.now() };
       this.spawnCandidateIds = new Set(state.spawn?.candidateIds || this.spawnCandidateIds || []);
       this.spawnUnavailableCandidateIds = new Set(state.spawn?.unavailableCandidateIds || []);
       if (state.spawn?.candidateZones) this.spawnCandidateZones = new Map(state.spawn.candidateZones.map((candidate) => [candidate.tileId, candidate]));
@@ -635,6 +691,7 @@
       this.pollTimer = null;
       this.clearLobbyPolling();
       this.lobbySession = null;
+      this.saveLobbySession();
       this.state = null;
       this.ui.nodes.gameScreen.classList.add("hidden");
       this.ui.nodes.startScreen.classList.remove("hidden");
@@ -664,7 +721,13 @@
     updateUi() {
       if (!this.state) return;
       const tile = this.selectedTile() || this.hoverTile();
-      this.ui.update(this.state, tile, this.selectedPlayerId, { ...this.tileContext(tile), spawnInspection: this.spawnInspection });
+      const context = { ...this.tileContext(tile), spawnInspection: this.spawnInspection };
+      context.availableActions = this.availableTileActions(tile, context).actions;
+      this.ui.update(this.state, tile, this.selectedPlayerId, context);
+      if (this.contextMenu?.visible && this.contextMenuTileId != null) {
+        const contextTile = this.tileMap.get(this.contextMenuTileId) || null;
+        this.contextMenu.refresh(this.buildContextMenu(contextTile));
+      }
       this.sandboxPanel?.setState(this.state, { selectedTile: tile, selectedPlayerId: this.selectedPlayerId });
     }
 
@@ -799,8 +862,9 @@
       if (!human) return;
       const selected = payload.tileId != null ? this.tileMap.get(payload.tileId) : this.selectedTile();
       const status = human.abilityStatus || {};
-      if (status.cooldownLeft > 0 || this.state.serverTime < human.abilityReadyAt) {
-        const left = Math.ceil(status.cooldownLeft || human.abilityReadyAt - this.state.serverTime);
+      const cooldownEndsAt = Number(status.cooldownEndsAt || human.abilityCooldownEndsAt || human.abilityReadyAt || 0);
+      if (this.state.serverTime < cooldownEndsAt) {
+        const left = Math.ceil(cooldownEndsAt - this.state.serverTime);
         this.ui.toast(`Ability cooldown ${left}s.`, true);
         this.ui.pulseAbility(true);
         return;
@@ -866,8 +930,15 @@
       }
 
       this.pendingSpecialType = null;
+      this.pendingTargetConfirmation = null;
       this.preview = null;
       this.mode = specialType === "lilyBarrage" ? "attack" : "defend";
+      if (this.isTouchLayout() && !this.confirmMobileTarget("special", specialType, selected, special.label || "Special")) {
+        this.pendingSpecialType = specialType;
+        this.preview = { mode: specialType === "lilyBarrage" ? "attack" : "defend", tileIds: this.specialTargetIds(specialType), label: `${special.label} target` };
+        this.updateUi();
+        return;
+      }
       await this.postAction({ type: "special", specialType, tileId: selected.id });
     }
 
@@ -1236,7 +1307,6 @@
 
       if (event.button === 2) {
         event.preventDefault();
-        if (this.isSpawnPhase()) return;
         this.openContextMenu(tile, event.clientX, event.clientY);
         return;
       }
@@ -1255,12 +1325,13 @@
         selecting: false,
       };
       if (event.pointerType === "touch" && event.button === 0) {
+        const preferences = this.ui.mobilePreferences?.() || {};
         this.longPressTimer = setTimeout(() => {
           const point = this.activePointers.get(event.pointerId);
           const finalTile = point ? this.renderer.screenToTile(point.x, point.y) : null;
           this.pointer = null;
           if (finalTile && point) this.openContextMenu(finalTile, point.x, point.y);
-        }, 560);
+        }, preferences.longPressMs || 540);
       }
 
       if (event.button !== 0) return;
@@ -1295,12 +1366,13 @@
       const dx = event.clientX - this.pointer.lastX;
       const dy = event.clientY - this.pointer.lastY;
       const total = Math.hypot(event.clientX - this.pointer.startX, event.clientY - this.pointer.startY);
-      if (total > 5) {
+      const tapThreshold = event.pointerType === "touch" ? this.ui.mobilePreferences?.().tapThreshold || 9 : 5;
+      if (total > tapThreshold) {
         this.pointer.moved = true;
         this.clearLongPress();
       }
 
-      if (event.pointerType === "touch" || this.pointer.panning || (this.pointer.moved && !this.pointer.selecting)) {
+      if ((event.pointerType === "touch" && this.pointer.moved) || this.pointer.panning || (this.pointer.moved && !this.pointer.selecting)) {
         this.pointer.panning = true;
         document.body.classList.add("map-panning");
         this.renderer.pan(dx, dy);
@@ -1346,7 +1418,8 @@
         }
         this.selectTile(tile);
         if (await this.handlePendingTap(tile)) return;
-        this.handleTap(tile);
+        await this.handleTap(tile, event);
+        if (!tile) this.closeMobileOverlays();
       }
       if (wasSourceDrag) this.updateUi();
       if (event.pointerType === "touch" && !wasClick && this.panVelocity && Math.hypot(this.panVelocity.x, this.panVelocity.y) > 1.8) {
@@ -1378,43 +1451,44 @@
       this.pinch = { ...next, moved: this.pinch.moved };
     }
 
-    handleTap(tile) {
+    async handleTap(tile, event = null) {
       if (!tile) return;
       const now = performance.now();
       const doubleTap = this.lastTap.tileId === tile.id && now - this.lastTap.at < 360;
       this.lastTap = { tileId: tile.id, at: now };
-      if (doubleTap) this.quickAction(tile);
+      if (doubleTap) await this.quickAction(tile, event);
     }
 
-    async quickAction(tile) {
+    async quickAction(tile, event = null) {
       if (!tile || !this.state || this.state.ended) return;
       this.selectTile(tile);
-      const human = this.human();
-      if (!human) return;
-      if (!tile.owner && this.tileContext(tile).canExpand) {
-        const action = { type: "expand", tileId: tile.id, percent: this.ui.percent };
-        const pendingAction = this.beginPendingAction(action, tile, human);
-        if (pendingAction === false) return;
-        action.sourceIds = this.fastSourceIds(tile);
-        await this.postAction(action, { pendingAction });
-        return;
+      if (event?.pointerType !== "touch") {
+        const context = this.tileContext(tile);
+        if (!tile.owner && context.canExpand) {
+          await this.handleAction({ type: "expand", percent: this.ui.percent });
+          return;
+        }
+        if (tile.owner === this.state.humanId && context.canDefend) {
+          await this.handleAction({ type: "defend", percent: this.ui.percent });
+          return;
+        }
       }
-      if (tile.owner && tile.owner !== human.id && this.tileContext(tile).canAttack) {
-        const action = { type: "attack", tileId: tile.id, percent: this.ui.percent };
-        const pendingAction = this.beginPendingAction(action, tile, human);
-        if (pendingAction === false) return;
-        action.sourceIds = this.fastSourceIds(tile);
-        await this.postAction(action, { pendingAction });
-        return;
-      }
-      if (tile.owner === human.id && this.isBorder(tile, human.id)) {
-        const action = { type: "defend", tileId: tile.id, percent: this.ui.percent };
-        const pendingAction = this.beginPendingAction(action, tile, human);
-        if (pendingAction === false) return;
-        await this.postAction(action, { pendingAction });
-        return;
-      }
-      this.ui.toast("Double tap a valid border target.", true);
+      const preference = this.ui.mobilePreferences?.().doubleTap || "actions";
+      if (preference === "none") return;
+      if (preference === "info") return this.ui.openMobileInfoSheet?.();
+      this.openContextMenu(tile, event?.clientX || window.innerWidth / 2, event?.clientY || window.innerHeight - 120);
+    }
+
+    openSelectedContextActions() {
+      const tile = this.selectedTile() || this.hoverTile();
+      const rect = this.canvas.getBoundingClientRect();
+      this.openContextMenu(tile, rect.left + rect.width / 2, rect.bottom - 90);
+    }
+
+    closeMobileOverlays() {
+      this.contextMenu?.close();
+      document.body.classList.remove("leaderboard-open", "minimap-active", "mobile-info-expanded");
+      [this.ui.nodes.mobileSheet, this.ui.nodes.buildSheet, this.ui.nodes.specialSheet, this.ui.nodes.teamSheet].forEach((sheet) => sheet?.classList.add("hidden"));
     }
 
     cancelSelection() {
@@ -1423,6 +1497,8 @@
       this.pendingAbilityTarget = false;
       this.pendingBuildType = null;
       this.pendingSpecialType = null;
+      this.pendingCurrentPush = false;
+      this.pendingTargetConfirmation = null;
       this.resetSelection();
       this.updateUi();
       this.ui.toast("Selection cleared.");
@@ -1430,16 +1506,33 @@
 
     async handlePendingTap(tile) {
       if (!tile || !this.state || this.state.ended) return false;
+      if (this.pendingCurrentPush) {
+        const target = this.nearbyValidTarget(tile, (candidate) => Boolean(candidate.owner && candidate.owner !== this.state.humanId && this.estimateCurrentPush(candidate, this.human()).valid));
+        if (!target) {
+          this.ui.toast("Tap a glowing enemy coast connected by open water.", true);
+          this.renderer.vfx?.spawnBlockedEffect(tile.id, "No Route");
+          return true;
+        }
+        if (!this.confirmMobileTarget("currentPush", "waterRoute", target, "Current Push")) return true;
+        this.pendingCurrentPush = false;
+        this.preview = null;
+        const action = { type: "waterRoute", tileId: target.id, percent: this.ui.percent, sourceIds: this.fastSourceIds(target) };
+        const pendingAction = this.beginPendingAction(action, target, this.human());
+        if (pendingAction !== false) await this.postAction(action, { pendingAction });
+        return true;
+      }
       if (this.pendingAbilityTarget) {
-        if (!this.isLeapTarget(tile)) {
+        const target = this.nearbyValidTarget(tile, (candidate) => this.isLeapTarget(candidate));
+        if (!target) {
           this.ui.toast("Tap a glowing neutral leap target.", true);
           this.renderer.vfx?.spawnBlockedEffect(tile.id, "Invalid");
           return true;
         }
+        if (!this.confirmMobileTarget("ability", "frog", target, "Big Leap")) return true;
         this.pendingAbilityTarget = false;
         this.preview = null;
         this.mode = "expand";
-        await this.postAction({ type: "ability", tileId: tile.id });
+        await this.postAction({ type: "ability", tileId: target.id });
         return true;
       }
       if (this.pendingBuildType) {
@@ -1458,17 +1551,50 @@
       if (this.pendingSpecialType) {
         const specialType = this.pendingSpecialType;
         const special = this.state.config.specials?.[specialType] || root.PondSpecials?.[specialType] || {};
-        if (!this.isValidSpecialTarget(tile, specialType)) {
+        const target = this.nearbyValidTarget(tile, (candidate) => this.isValidSpecialTarget(candidate, specialType));
+        if (!target) {
           this.ui.toast(`${special.label || "Special"} cannot target that tile.`, true);
           this.renderer.vfx?.spawnBlockedEffect(tile.id, "Invalid");
           return true;
         }
+        if (!this.confirmMobileTarget("special", specialType, target, special.label || "Special")) return true;
         this.pendingSpecialType = null;
         this.preview = null;
         this.mode = specialType === "lilyBarrage" ? "attack" : "defend";
-        await this.postAction({ type: "special", specialType, tileId: tile.id });
+        await this.postAction({ type: "special", specialType, tileId: target.id });
         return true;
       }
+      return false;
+    }
+
+    nearbyValidTarget(tile, predicate, radius = 1) {
+      if (!tile) return null;
+      if (predicate(tile)) return tile;
+      if (!this.isTouchLayout()) return null;
+      const candidates = [];
+      for (let y = tile.y - radius; y <= tile.y + radius; y += 1) {
+        for (let x = tile.x - radius; x <= tile.x + radius; x += 1) {
+          const candidate = this.tileAt(x, y);
+          const distance = Math.abs(tile.x - x) + Math.abs(tile.y - y);
+          if (candidate && distance > 0 && distance <= radius && predicate(candidate)) candidates.push({ candidate, distance });
+        }
+      }
+      candidates.sort((a, b) => a.distance - b.distance || a.candidate.id - b.candidate.id);
+      return candidates[0]?.candidate || null;
+    }
+
+    confirmMobileTarget(kind, actionType, tile, label) {
+      if (!this.isTouchLayout()) return true;
+      const now = performance.now();
+      const pending = this.pendingTargetConfirmation;
+      if (pending && pending.kind === kind && pending.actionType === actionType && pending.tileId === tile.id && now - pending.at < 4500) {
+        this.pendingTargetConfirmation = null;
+        return true;
+      }
+      this.pendingTargetConfirmation = { kind, actionType, tileId: tile.id, at: now };
+      this.selectTile(tile, { preserveSources: true });
+      this.renderer.vfx?.spawnPulse(tile.id, "#f2d87a", 1.1);
+      this.ui.toast(`Target adjusted. Tap the highlighted tile again to confirm ${label}.`);
       return false;
     }
 
@@ -1527,14 +1653,44 @@
     }
 
     openContextMenu(tile, x, y) {
-      if (!this.contextMenu || !this.state || !tile || this.isSpawnPhase()) return;
-      this.selectTile(tile, { preserveSources: true });
-      this.renderer.vfx?.spawnPulse(tile.id, "#87d7ea", 0.92);
+      if (!this.contextMenu || !this.state) return;
+      if (tile) {
+        this.selectTile(tile, { preserveSources: true });
+        this.renderer.vfx?.spawnPulse(tile.id, "#87d7ea", 0.92);
+      }
+      this.contextMenuTileId = tile?.id ?? null;
       const menu = this.buildContextMenu(tile);
-      this.contextMenu.open({ x, y, ...menu });
+      this.contextMenu.open({ x, y, mobile: this.isTouchLayout(), ...menu });
     }
 
     buildContextMenu(tile) {
+      const resolved = this.availableTileActions(tile);
+      return { title: resolved.title, subtitle: resolved.subtitle, items: resolved.actions };
+    }
+
+    availableTileActions(tile, existingContext = null) {
+      if (!root.PondActions?.getAvailableTileActions || !this.state) return { title: "Pond Actions", subtitle: "", actions: [] };
+      const context = existingContext || this.tileContext(tile);
+      return root.PondActions.getAvailableTileActions({
+        state: this.state,
+        player: this.human(),
+        tile,
+        context,
+        serverNow: this.state.serverTime,
+        helpers: {
+          isBlocked: (candidate) => this.isBlocked(candidate),
+          relationship: (playerId) => this.relationship(playerId),
+          buildPreview: (buildingType, candidate, player) => this.buildPreview(buildingType, candidate, player),
+          validAbilityTarget: (candidate) => this.isLeapTarget(candidate),
+          validSpecialTarget: (candidate, specialType) => this.isValidSpecialTarget(candidate, specialType),
+          terrainText: (tileType) => root.PondInfo?.terrainText(tileType),
+          buildingText: (buildingType) => root.PondInfo?.buildingText(buildingType),
+          tileLabel: (candidate) => this.state.config.tileTypes?.[candidate?.type]?.label || candidate?.type || "Pond tile",
+        },
+      });
+    }
+
+    legacyBuildContextMenu(tile) {
       const human = this.human();
       const type = this.state.config.tileTypes[tile.type];
       const owner = tile.owner ? this.player(tile.owner) : null;
@@ -1686,7 +1842,16 @@
       if (tile) this.selectTile(tile, { preserveSources: true });
       if (payload.percent) this.ui.setPercent(payload.percent);
 
-      if (payload.action === "viewTile" || payload.action === "viewTerrain" || payload.action === "previewCost") {
+      if (["spawnReserve", "spawnConfirm", "spawnRelease", "spawnRandom", "spawnFind"].includes(payload.action)) {
+        await this.handleSpawnAction({ type: payload.action, tileId: payload.tileId, snapNearby: payload.snapNearby });
+        return;
+      }
+      if (payload.action === "cancelSelection") {
+        this.cancelSelection();
+        return;
+      }
+
+      if (["viewTile", "viewTerrain", "viewArea", "previewCost"].includes(payload.action)) {
         this.showTileInfo(tile, payload.action);
         return;
       }
@@ -1741,6 +1906,18 @@
         return;
       }
       if (payload.action === "waterRoute") {
+        if (this.isTouchLayout() && !this.pendingCurrentPush) {
+          this.pendingCurrentPush = true;
+          this.pendingAbilityTarget = false;
+          this.pendingBuildType = null;
+          this.pendingSpecialType = null;
+          this.pendingTargetConfirmation = null;
+          this.mode = "special";
+          this.preview = { mode: "attack", tileIds: this.state.tiles.filter((candidate) => candidate.owner && candidate.owner !== this.state.humanId && this.estimateCurrentPush(candidate, this.human()).valid).map((candidate) => candidate.id), label: "Current Push target" };
+          this.ui.toast("Current Push: tap a glowing enemy coast, then tap again to confirm.");
+          this.updateUi();
+          return;
+        }
         const human = this.human();
         const action = {
           type: "waterRoute",
@@ -1962,13 +2139,18 @@
         human.buildings?.jumpPad || 0,
         buildingType || "",
         this.pendingSpecialType || "",
+        this.pendingCurrentPush ? "currentPush" : "",
         this.sourceIds.join("."),
       ].join("|");
       if (this.legalCache.key === key) return this.legalCache.ids;
 
       let ids = [];
 
-      if (this.mode === "ability" && human.animal === "frog") {
+      if (this.pendingCurrentPush) {
+        ids = this.state.tiles
+          .filter((tile) => tile.owner && tile.owner !== human.id && this.estimateCurrentPush(tile, human).valid)
+          .map((tile) => tile.id);
+      } else if (this.mode === "ability" && human.animal === "frog") {
         ids = this.leapTargetIds();
       } else if (this.mode === "special") {
         ids = this.specialTargetIds(this.pendingSpecialType || "lilyBarrage");
@@ -2093,6 +2275,13 @@
     loop() {
       const draw = () => {
         const now = performance.now();
+        const fpsLimit = this.ui.mobilePreferences?.().fpsLimit || 60;
+        const frameInterval = 1000 / fpsLimit;
+        if (this.isTouchLayout() && this.lastRenderAt && now - this.lastRenderAt < frameInterval - 1) {
+          requestAnimationFrame(draw);
+          return;
+        }
+        this.lastRenderAt = now;
         const view = this.ui.viewOptions();
         this.recordFrame(now, view);
         this.renderer.draw({
@@ -2116,9 +2305,17 @@
           this.lastPerfUiAt = now;
           this.ui.updateDebugStats(this.state);
         }
+        if (this.state && now - this.lastCooldownUiAt > 250) {
+          this.lastCooldownUiAt = now;
+          this.ui.refreshAbilityCooldown?.(this.estimatedServerNow());
+        }
         requestAnimationFrame(draw);
       };
       requestAnimationFrame(draw);
+    }
+
+    estimatedServerNow() {
+      return this.serverClock.time + Math.max(0, performance.now() - this.serverClock.receivedAt) / 1000;
     }
 
     spawnRenderOptions() {
@@ -2382,6 +2579,7 @@
         pendingAbility: this.pendingAbilityTarget,
         pendingBuildType: this.pendingBuildType,
         pendingSpecialType: this.pendingSpecialType,
+        pendingCommand: this.pendingCurrentPush,
         validAbilityTarget: this.isLeapTarget(tile),
         validBuildTarget: this.pendingBuildType ? this.canBuildHere(human, tile, this.pendingBuildType) : false,
         validSpecialTarget: this.pendingSpecialType ? this.isValidSpecialTarget(tile, this.pendingSpecialType) : false,

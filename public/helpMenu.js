@@ -118,7 +118,7 @@
       if (tab === "mobile") {
         return list([
           "One finger drags the camera; two fingers pinch to zoom.",
-          "Double tap a valid border target to quick expand, attack, or defend.",
+          "On PC, double-click a valid neutral border to expand or your own border to reinforce. On mobile, double-tap follows your Controls setting.",
           "Long press a territory tile to open combat and diplomacy actions.",
           "Long press an ally to ping help, danger, attack, or defend.",
           "Tap the minimap or drag on it to jump the camera.",

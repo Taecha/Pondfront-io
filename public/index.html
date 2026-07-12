@@ -682,7 +682,8 @@
             </div>
             <div class="stat"><span>Animal</span><strong id="animalStat">Duck</strong></div>
             <div class="stat team-stat"><span>Team</span><strong id="teamStat">Solo</strong></div>
-            <div class="stat"><span>Time <button class="info-button" data-tip-key="win" aria-label="Win condition info">?</button></span><strong id="timerStat">00:00</strong></div>
+            <div class="stat timer-stat"><span>Time <button class="info-button" data-tip-key="win" aria-label="Win condition info">?</button></span><strong id="timerStat">00:00</strong></div>
+            <div class="stat mobile-mode-stat"><span id="mobileModeStatLabel">Animals</span><strong id="mobileModeStat">0 left</strong></div>
           </div>
         </header>
         <div id="winDebugPanel" class="win-debug-panel hidden"></div>
@@ -758,6 +759,17 @@
             <button id="mobileTeamButton" type="button" title="Team commands">Team</button>
             <button id="mobileSandboxButton" class="hidden" type="button" title="Sandbox tools">Sandbox</button>
             <button id="mobileMuteButton" type="button" title="Mute sound">Sound</button>
+          </div>
+          <button id="mobileRankChip" class="mobile-rank-chip" type="button" aria-label="Open leaderboard">#1 | 0%</button>
+          <button id="mobileMiniMapButton" class="mobile-minimap-button" type="button" aria-label="Open minimap">Map</button>
+          <button id="mobileTargetCancel" class="mobile-target-cancel hidden" type="button" aria-label="Cancel targeting">X Cancel</button>
+          <div id="mobileTouchDock" class="mobile-touch-dock" aria-label="Mobile actions">
+            <button id="mobileDockHandle" class="mobile-dock-summary" type="button" aria-expanded="false">
+              <span><strong id="mobileDockTitle">Pond Actions</strong><small id="mobileDockMeta">Tap a tile to begin</small></span>
+              <b>^</b>
+            </button>
+            <div id="mobileDockActions" class="mobile-dock-actions"></div>
+            <p id="mobileDockDetail" class="mobile-dock-detail">Drag to pan. Tap to select. Hold for all actions.</p>
           </div>
           <div id="mobileActionCard" class="mobile-action-card hidden">
             <div>
@@ -1062,6 +1074,12 @@
                   <label><input id="showCoachHints" type="checkbox" checked /> Coach hints</label>
                   <label><input id="showDebugStats" type="checkbox" /> Debug stats</label>
                   <label id="showTileHitboxesRow" class="hidden"><input id="showTileHitboxes" type="checkbox" /> Show Tile Hitboxes</label>
+                  <label>Action dock<select id="mobileDockSide"><option value="right">Right-handed</option><option value="left">Left-handed</option><option value="center" selected>Centered</option></select></label>
+                  <label>Button size<select id="mobileButtonSize"><option value="compact">Compact</option><option value="normal" selected>Normal</option><option value="large">Large</option></select></label>
+                  <label>Tap sensitivity<select id="mobileTapSensitivity"><option value="precise">Precise</option><option value="normal" selected>Normal</option><option value="relaxed">Relaxed</option></select></label>
+                  <label>Long press<select id="mobileLongPress"><option value="420">Fast (0.42s)</option><option value="540" selected>Normal (0.54s)</option><option value="680">Slow (0.68s)</option></select></label>
+                  <label>Double tap<select id="mobileDoubleTap"><option value="actions" selected>Open actions</option><option value="info">Open info</option><option value="none">Do nothing</option></select></label>
+                  <label><input id="mobileVibration" type="checkbox" checked /> Vibration feedback</label>
                 </section>
                 <section class="settings-section">
                   <h3>Effects</h3>
@@ -1086,6 +1104,9 @@
                   <label><input id="screenShake" type="checkbox" checked /> Screen shake</label>
                   <label><input id="reducedMotion" type="checkbox" /> Reduced motion</label>
                   <label><input id="autoLowPerformance" type="checkbox" checked /> Auto low performance</label>
+                  <label><input id="batterySaver" type="checkbox" /> Battery saver</label>
+                  <label>FPS limit<select id="fpsLimit"><option value="30">30 FPS</option><option value="60" selected>60 FPS</option></select></label>
+                  <label>Minimap size<select id="mobileMinimapSize"><option value="small">Small</option><option value="medium" selected>Medium</option><option value="large">Large</option></select></label>
                 </section>
                 <section class="settings-section">
                   <h3>Audio</h3>
@@ -1277,11 +1298,13 @@
     <script src="/shared/animalVisuals.js"></script>
     <script src="/shared/objectives.js"></script>
     <script src="/shared/lakeEvents.js"></script>
+    <script src="/shared/actionConfig.js"></script>
     <script src="/shared/progressionConfig.js"></script>
     <script src="/shared/badgeConfig.js"></script>
     <script src="/shared/achievementConfig.js"></script>
     <script src="./infoPanel.js"></script>
     <script src="./contextMenu.js"></script>
+    <script src="./mobileControls.js"></script>
     <script src="./tooltips.js"></script>
     <script src="./helpMenu.js"></script>
     <script src="./audioManager.js"></script>

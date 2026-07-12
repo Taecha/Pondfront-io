@@ -26,7 +26,10 @@
     resize(options = {}) {
       const previousCamera = { ...this.camera };
       const previousDpr = this.dpr;
-      this.dpr = Math.max(1, Math.min(2, window.devicePixelRatio || 1));
+      const touchLayout = window.matchMedia?.("(max-width: 900px), (pointer: coarse)")?.matches;
+      const batterySaver = localStorage.getItem("pondfront:battery-saver") === "on";
+      const dprCap = batterySaver ? 1.25 : touchLayout ? 1.6 : 2;
+      this.dpr = Math.max(1, Math.min(dprCap, window.devicePixelRatio || 1));
       const rect = this.canvas.getBoundingClientRect();
       this.canvas.width = Math.max(1, Math.round(rect.width * this.dpr));
       this.canvas.height = Math.max(1, Math.round(rect.height * this.dpr));
@@ -338,6 +341,7 @@
     effectiveOptions(options = {}) {
       const effects = { ...(options.effects || {}) };
       const mobile = Boolean(options.isMobile);
+      const batterySaver = Boolean(options.batterySaver || options.effects?.batterySaver);
       const performanceLevel = Math.max(0, Math.min(2, Number(options.performanceLevel || 0)));
       const autoStrategic = Boolean(options.autoStrategicView) && (this.camera.zoom < (mobile ? 0.78 : 0.48) || performanceLevel >= 2);
       if (options.runtimeVisualState) {
@@ -357,6 +361,16 @@
         mapDecorations: options.mapDecorations !== false,
         effects,
       };
+      if (batterySaver) {
+        effects.level = "low";
+        effects.particles = "low";
+        effects.floatingText = false;
+        effects.screenShake = false;
+        effects.reducedMotion = true;
+        next.visualQuality = "low";
+        next.mapDecorations = false;
+        next.showAnimalAnimations = false;
+      }
       if (lowPower) {
         const effectSteps = performanceLevel + (mobile ? 1 : 0);
         effects.level = this.downgradeQuality(effects.level, effectSteps);
@@ -3025,7 +3039,7 @@
       if (!this.state) return;
       const now = performance.now();
       const totalTiles = this.state.tiles.length;
-      const interval = options.isMobile ? 700 : totalTiles > 14000 ? 650 : totalTiles > 9000 ? 480 : 240;
+      const interval = options.batterySaver ? 1400 : options.isMobile ? 700 : totalTiles > 14000 ? 650 : totalTiles > 9000 ? 480 : 240;
       const dirtyThrottle = totalTiles > 14000 ? 320 : totalTiles > 9000 ? 220 : 80;
       if (this.miniMapDirty && now - this.lastMiniMapDrawAt < dirtyThrottle) return;
       if (!this.miniMapDirty && now - this.lastMiniMapDrawAt < interval) return;

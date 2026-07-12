@@ -1,0 +1,302 @@
+﻿[
+    {
+        "Path":  "public\\achievements.js",
+        "SHA256":  "6732374D5668A8A2C48A8CA7AE03B2E21836FC1A62F55087A4B2D14685FC9411"
+    },
+    {
+        "Path":  "public\\audioManager.js",
+        "SHA256":  "24FE50B73567DB50535436DF01C944AFE886894F66C03342A960FF6772E852E7"
+    },
+    {
+        "Path":  "public\\auth.js",
+        "SHA256":  "892DE0AF40D9E3F31F6C2CE832676B6C735F157646B5C51F560D2EA62BD620BF"
+    },
+    {
+        "Path":  "public\\contextMenu.js",
+        "SHA256":  "C4EAF208921EDA1C39D2176AC27F6CBCE89E2013599D36DE4738D451D11512CE"
+    },
+    {
+        "Path":  "public\\game.js",
+        "SHA256":  "091128AC18188441432538EB5876D9146F04A28CE2EBDA16D231887113BF3D12"
+    },
+    {
+        "Path":  "public\\helpMenu.js",
+        "SHA256":  "62175E3C51CBA701DCD1362489CA4C8E0848674E6268111D4D2B1A5FD9738701"
+    },
+    {
+        "Path":  "public\\index.html",
+        "SHA256":  "8AB5236696F490AEC503E728DE498299EEDAD0ABDC3B0B43C53755C3FC5D08E9"
+    },
+    {
+        "Path":  "public\\infoPanel.js",
+        "SHA256":  "AA743353E213F6EDBEB906AD5873508B2B98142BBF9F924B1B5BD3BA5A324E70"
+    },
+    {
+        "Path":  "public\\leaderboard.js",
+        "SHA256":  "CF75EF2EEE420C41A6948A76E2754EEC50280890813AEF067FA248190A83A57B"
+    },
+    {
+        "Path":  "public\\mobileControls.js",
+        "SHA256":  "F4D0CBFE43E98E714987B31482C4C7FD437F3DEF46E77264932F016716732EE9"
+    },
+    {
+        "Path":  "public\\profile.js",
+        "SHA256":  "8B47387918B4789C049AE5E672F26B190C9CADE185B581BFD6434C7397731E3F"
+    },
+    {
+        "Path":  "public\\render.js",
+        "SHA256":  "E3994B021EE3183799FDA8C81BA0E9EA4B728072C1757A2DCFAD7A544202FD56"
+    },
+    {
+        "Path":  "public\\sandboxPanel.js",
+        "SHA256":  "28AA308BF2519EFC4D08B956926E039FDE7374214B6DB72D857E27B2380D6DAF"
+    },
+    {
+        "Path":  "public\\style.css",
+        "SHA256":  "80367C5341456C9AAF015D4D28152D02D70D5BC052B0DAC6831622AF57D2B251"
+    },
+    {
+        "Path":  "public\\tooltips.js",
+        "SHA256":  "43BFFAED9E13FF96DE67E52BC10B1F10675B2F3E566240DC0805732B59CB180C"
+    },
+    {
+        "Path":  "public\\ui.js",
+        "SHA256":  "D92F506AE007D3E7552FF309AF53193B6741BAA2AF34FA537A415A3532DBBC27"
+    },
+    {
+        "Path":  "public\\vfx.js",
+        "SHA256":  "99F1677EA12F32F25AA467E5664148E64E8D58C3EC2706D069DDC459BF0DB4F9"
+    },
+    {
+        "Path":  "server\\AchievementManager.js",
+        "SHA256":  "CD3DFD9D6F6B00B60F4A3730EF77051F3B5AA53ABF861208AC2BA2ADAB997A29"
+    },
+    {
+        "Path":  "server\\AuthManager.js",
+        "SHA256":  "D3DB4F3C9960CC968F428386A247A15904CEA85883D4170B41347D66DB3FBA8F"
+    },
+    {
+        "Path":  "server\\BotManager.js",
+        "SHA256":  "4834AA370B6BC72F17759BD04035D78D1FC88AE194E23FCF1ECF8EC286E250B6"
+    },
+    {
+        "Path":  "server\\CombatManager.js",
+        "SHA256":  "48B29BB4529D4E782B2849C6F454F78B568EA04DE8A60775BC74004392AD2855"
+    },
+    {
+        "Path":  "server\\CoreManager.js",
+        "SHA256":  "4BCEB6AFEEFC661B0B2277C0C2C842093BB78666B125D3FA8332973C09B4190D"
+    },
+    {
+        "Path":  "server\\db.js",
+        "SHA256":  "D8F2A126B1A91C293C1FF25AAD975A5560465CD0C3D0EBC838F86FA059038C92"
+    },
+    {
+        "Path":  "server\\DiplomacyManager.js",
+        "SHA256":  "1E8AD8E18D22B985460A015C0E65C1E56B181A927B8193A11F87E5F00FB42A6F"
+    },
+    {
+        "Path":  "server\\EconomyManager.js",
+        "SHA256":  "9F88D3A487173F4127F3B52D797C9D8C28BBF8993F209D5147D4DFB99A0E79CF"
+    },
+    {
+        "Path":  "server\\EventManager.js",
+        "SHA256":  "8BCA53578C3E3C6F1400401CB10B7BEE4199CCAE8C97F8EAC9C8BD20242222C4"
+    },
+    {
+        "Path":  "server\\GameModeManager.js",
+        "SHA256":  "B8D6123A889F6550F387F269D83365D43199817A6819D3D44EAC057489E1E8CA"
+    },
+    {
+        "Path":  "server\\LobbyManager.js",
+        "SHA256":  "DE1BC086E99C8B0C2085F65656F50DD21811095FDEA73DCFB5C633A0268D0C3F"
+    },
+    {
+        "Path":  "server\\MatchHistoryManager.js",
+        "SHA256":  "2FC8107D57EFE94D78C400047C7BEF8AE87F75F2795025ACB69C6F4B9AE06A4B"
+    },
+    {
+        "Path":  "server\\MissionManager.js",
+        "SHA256":  "D6293F18AA02DACC4B22F6B2D56C9A693716115020928B060D2598F9140024BD"
+    },
+    {
+        "Path":  "server\\ModifierManager.js",
+        "SHA256":  "419A3B0F72E8B0402A800180909D9E69D4949B90DADD1B50326F55CC6C301799"
+    },
+    {
+        "Path":  "server\\OAuthManager.js",
+        "SHA256":  "D60CE2729915EB1838BE7CA81CE11B13D1B6A878D2738EFCB7C0FF845259A8D2"
+    },
+    {
+        "Path":  "server\\ObjectiveManager.js",
+        "SHA256":  "6388997AF1A1EC0DBFC699931647254B01DB4C26D4E14879FC2929F38261A4A8"
+    },
+    {
+        "Path":  "server\\ProfileManager.js",
+        "SHA256":  "9D56A45E0354DF841EBB25368FA5CDAB15D2B8C563C5F9B6F4E75A4D84BFAFF9"
+    },
+    {
+        "Path":  "server\\ProgressionManager.js",
+        "SHA256":  "84E5C5A2C0D096ECF8DFCA22CB7ED9DEBCC8D6E9FD11EAF1E68A87CF3FFBE1C0"
+    },
+    {
+        "Path":  "server\\SandboxManager.js",
+        "SHA256":  "D165AF07F7C669830C7BE9F70493504D138C7F0CA6297503F0914B8B8EFF333E"
+    },
+    {
+        "Path":  "server\\SpawnManager.js",
+        "SHA256":  "72E70FBC242EF58D7BFD65A9942E7785713CE003272D746E012163969DCE13B7"
+    },
+    {
+        "Path":  "server\\SpecialManager.js",
+        "SHA256":  "DE8A665104D2E4345CE98087C33CBED11F257DB77B104790584EB3762E344D58"
+    },
+    {
+        "Path":  "server\\StatsManager.js",
+        "SHA256":  "5A9979CAC3069E3E806C7F82434444354F02230323052E5571C3704E7542EBDD"
+    },
+    {
+        "Path":  "server\\SupportManager.js",
+        "SHA256":  "43E72A95CF93076A09D1ED68418A485CD7AB1C37152592F75213B9CCC4E62E6B"
+    },
+    {
+        "Path":  "server\\TeamManager.js",
+        "SHA256":  "FBCA693387A4A0ECDC576A71773B7DA561FB4DB83FB8984A053780343443BA8F"
+    },
+    {
+        "Path":  "server\\TileManager.js",
+        "SHA256":  "861A2411A3D21CDF76FFE255C771978AB136C1D18D99B567F3D2D57028596C59"
+    },
+    {
+        "Path":  "shared\\achievementConfig.js",
+        "SHA256":  "EBF9FDDC27C633FBEF708DAFA01651B561BBF53041E86B5ED8C327061B02331E"
+    },
+    {
+        "Path":  "shared\\actionConfig.js",
+        "SHA256":  "0D0ABE00070097D216017CB416D18C13985D906752D1737E9BABA1196C860FCC"
+    },
+    {
+        "Path":  "shared\\animals.js",
+        "SHA256":  "AFA4ED7CBB23910B87AB7B6CB130B21C71922B093A7FED4B9FD776189E44E2AB"
+    },
+    {
+        "Path":  "shared\\animalVisuals.js",
+        "SHA256":  "992F1E41AA412F69593676A6976688E16EEE7E08F356410A8878C5CED5583CA4"
+    },
+    {
+        "Path":  "shared\\badgeConfig.js",
+        "SHA256":  "8B0505FCF0248B3D06B71B23301EDDC921AC6E8B68B6AEFD575B35A448B7E019"
+    },
+    {
+        "Path":  "shared\\balanceConfig.js",
+        "SHA256":  "96200DF6BC4E784D72279BD0784C7BA8AD6BC3469A505197348DB80535483748"
+    },
+    {
+        "Path":  "shared\\borderStatus.js",
+        "SHA256":  "E9981E9D771CA28566D88C72F46FE8FDD9079C84FF22DABD8FCF5BFD636A007D"
+    },
+    {
+        "Path":  "shared\\botDifficultyConfig.js",
+        "SHA256":  "0C9CB19EE5DAD427D3B6CCF89C7BB91A90FA9FF1EDB1D193E63CC2E25233D319"
+    },
+    {
+        "Path":  "shared\\buildingRules.js",
+        "SHA256":  "C9AFC8186F875957659FEB6D945CF1B1F3D8FCE7D3645879746EB192059E6AF7"
+    },
+    {
+        "Path":  "shared\\combatConfig.js",
+        "SHA256":  "B7C5CD5E7E0200268520BA6C746E2A8256B5975D5FC94CCA89E71E39CA57BDBD"
+    },
+    {
+        "Path":  "shared\\diplomacyConfig.js",
+        "SHA256":  "4DEAD57499855D9EC858F16E58319BE54818167EF5DFE2447E9D7123D4AB7795"
+    },
+    {
+        "Path":  "shared\\gameConfig.js",
+        "SHA256":  "8AB7F3AB7AEBF32E3742D3C037BEC7DB39E286A295344606D6A484695CB3B637"
+    },
+    {
+        "Path":  "shared\\gameModeConfig.js",
+        "SHA256":  "F46DCA9336BE58D65228C68889236E857AA4ABA0D0A017CC612D2E6521982AD0"
+    },
+    {
+        "Path":  "shared\\lakeEvents.js",
+        "SHA256":  "3EB59EFEFAD3D6214C49A103F6F80265E03CA100BCF0FF790DE7BC28A3C4CC31"
+    },
+    {
+        "Path":  "shared\\mapConfig.js",
+        "SHA256":  "38013432FDBDADC26348F04E9A17F4373B18D3C1ADC0507D75F684DF339E8CF0"
+    },
+    {
+        "Path":  "shared\\modifierConfig.js",
+        "SHA256":  "B9D9B0CBF8D55F6010DBD8FB0F210B5D4D92183E92324A977D4C69688709FE4F"
+    },
+    {
+        "Path":  "shared\\objectives.js",
+        "SHA256":  "F8BB28F594040C7D3413940ECFE06BECA3E9092719D684D8E0C6734046150CAD"
+    },
+    {
+        "Path":  "shared\\pointerMath.js",
+        "SHA256":  "50EA67C343007A77B49D2C8125C2F7CFA7130B55131B0B1C787735F519123165"
+    },
+    {
+        "Path":  "shared\\progressionConfig.js",
+        "SHA256":  "9240CE81E540E3594F6A71CE80A4595344B27CCDCEF7F16A50FBFDFF48BB8129"
+    },
+    {
+        "Path":  "shared\\sandboxConfig.js",
+        "SHA256":  "0A33F69CC71BFA80A801CCD0CBB9F807E80DE65CE364E95A8E9E64BCDAFBC014"
+    },
+    {
+        "Path":  "shared\\spawnConfig.js",
+        "SHA256":  "B802A4D2CAAA223159144E7D892A68E13D659C00BB4D2B51945E505931CE6AB9"
+    },
+    {
+        "Path":  "shared\\specialConfig.js",
+        "SHA256":  "9F6D92A6CA50ACCA73F4B2BE97C7555AE6D52B72616841A3635DD37449FE5C75"
+    },
+    {
+        "Path":  "shared\\teamConfig.js",
+        "SHA256":  "CE53747D429E357FB18CFB93A406B6CA88E5999228706AE38479BF0A97FEBB1D"
+    },
+    {
+        "Path":  "scripts\\accountPersistenceTest.js",
+        "SHA256":  "C5BDF2BAC8C80231731EE1FFE16D8C26D294C275020A41E1E851B6D62D73D285"
+    },
+    {
+        "Path":  "scripts\\criticalSystemsTest.js",
+        "SHA256":  "918B4ADEAAC992F1709CF7BBFD83BFF00B5BD9578C0E709E2E6144E5ED67111C"
+    },
+    {
+        "Path":  "scripts\\mobileFirstTest.js",
+        "SHA256":  "F411DA123A314DA84BC4B41A03FC27835299ECD59E73CC7BFF5A2D6D3D9FE915"
+    },
+    {
+        "Path":  "scripts\\oauthSecurityTest.js",
+        "SHA256":  "B37036949F5081862B9486F691A95AB844B0FC132239B8ADC65C70574EDFD7AE"
+    },
+    {
+        "Path":  "scripts\\pointerSpawnTest.js",
+        "SHA256":  "A8575D6B35940E7CB0348A86F1D7E37F160D0E357E36850EBB9CD72A70156670"
+    },
+    {
+        "Path":  "scripts\\qaPlaytest.js",
+        "SHA256":  "10E322B564F8A7409082609F94FF669CDE72479DBCFF715054C9962F2673B869"
+    },
+    {
+        "Path":  "scripts\\realGameModesTest.js",
+        "SHA256":  "CADFDD88C25564F22883757BFEDB5BF7D1EBEA615FD51CC2EEB1F420AA76BAD5"
+    },
+    {
+        "Path":  "scripts\\simulateBalance.js",
+        "SHA256":  "7B12C31FADD58BC2D1B1FB0DF7018C1F446B1D3C6290D532008C1A8764E4EBB1"
+    },
+    {
+        "Path":  "scripts\\spawnModesTest.js",
+        "SHA256":  "520B7B49D0AF2A0E6BF8511B3709021E74A78D9C9C19A3E8DFD0AC4F5D0B3C70"
+    },
+    {
+        "Path":  "scripts\\spawnVisibilityTest.js",
+        "SHA256":  "201117195F4ECAEEA99172D1DC934953F438714CA8E1E31EE72719A51FBB8510"
+    }
+]

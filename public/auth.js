@@ -84,12 +84,17 @@
 
     async submit() {
       const payload = {
-        username: this.nodes.username?.value || "",
+        username: (this.nodes.username?.value || "").trim(),
         password: this.nodes.password?.value || "",
         confirmPassword: this.nodes.confirm?.value || "",
       };
+      const validation = this.validate(payload);
+      if (validation) {
+        this.setError(validation);
+        return;
+      }
       const path = this.mode === "signup" ? "/api/auth/signup" : "/api/auth/login";
-      this.nodes.submit.disabled = true;
+      this.setSubmitLoading(true);
       this.setError("");
       try {
         const data = await this.request(path, { method: "POST", body: JSON.stringify(payload) });
@@ -100,8 +105,23 @@
       } catch (error) {
         this.setError(error.message || "Connection error.");
       } finally {
-        this.nodes.submit.disabled = false;
+        this.setSubmitLoading(false);
       }
+    }
+
+    validate(payload) {
+      if (!payload.username) return "Enter your username.";
+      if (!payload.password) return "Enter your password.";
+      if (this.mode === "signup" && payload.password.length < 6) return "Password must be at least 6 characters.";
+      if (this.mode === "signup" && payload.password !== payload.confirmPassword) return "Passwords do not match.";
+      return "";
+    }
+
+    setSubmitLoading(loading) {
+      if (!this.nodes.submit) return;
+      this.nodes.submit.disabled = loading;
+      this.nodes.submit.setAttribute("aria-busy", String(loading));
+      this.nodes.submit.textContent = loading ? (this.mode === "signup" ? "Creating account..." : "Signing in...") : this.mode === "signup" ? "Sign Up" : "Login";
     }
 
     async logout() {
@@ -239,7 +259,7 @@
     }
 
     async request(path, options = {}) {
-      const response = await fetch(path, { credentials: "same-origin", headers: { "Content-Type": "application/json" }, ...options });
+      const response = await fetch(path, { credentials: "include", headers: { "Content-Type": "application/json" }, ...options });
       const data = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(data.message || "Connection error.");
       return data;

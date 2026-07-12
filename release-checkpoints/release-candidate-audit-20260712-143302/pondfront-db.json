@@ -1,0 +1,185 @@
+{
+  "meta": {
+    "version": 1,
+    "createdAt": "2026-07-04T06:23:45.040Z",
+    "updatedAt": "2026-07-04T06:24:15.642Z"
+  },
+  "users": [
+    {
+      "id": "user_91dd9b0ad728734d20",
+      "username": "QA132414",
+      "usernameKey": "qa132414",
+      "email": "",
+      "passwordHash": "scrypt$16384$8$1$45a62e50dfc7986bd20c1a4931b8281e$8a83f21905f9b16be1cf238ba7eccf1b85508a95ac0c32f2c243de0c81adfb4fd1aff8455bfaf18faee7e97ea746679e4796be5fc3fa869147b738c3ea5c9853",
+      "createdAt": "2026-07-04T06:24:14.307Z",
+      "lastLoginAt": "2026-07-04T06:24:15.640Z",
+      "level": 3,
+      "xp": 420,
+      "coins": 107,
+      "selectedBadge": "first_win",
+      "selectedTitle": "pond_rookie",
+      "selectedCosmetic": "clear_ripple",
+      "unlockedBadges": [
+        "rookie",
+        "first_win",
+        "duck",
+        "defender"
+      ],
+      "unlockedTitles": [
+        "pond_rookie"
+      ],
+      "unlockedCosmetics": [
+        "clear_ripple",
+        "lily_glow"
+      ]
+    }
+  ],
+  "sessions": [
+    {
+      "token": "sess_a6c983d1ebea07723a",
+      "userId": "user_91dd9b0ad728734d20",
+      "userAgent": "Mozilla/5.0 (Windows NT; Windows NT 10.0; en-GB) WindowsPowerShell/5.1.26100.8655",
+      "createdAt": "2026-07-04T06:24:15.640Z",
+      "lastSeenAt": "2026-07-04T06:24:15.640Z",
+      "expiresAt": "2026-08-03T06:24:15.640Z"
+    }
+  ],
+  "playerStats": {
+    "user_91dd9b0ad728734d20": {
+      "userId": "user_91dd9b0ad728734d20",
+      "gamesPlayed": 1,
+      "wins": 1,
+      "losses": 0,
+      "eliminations": 0,
+      "totalTilesCaptured": 0,
+      "totalEnergyGenerated": 38,
+      "totalEnergySpent": 0,
+      "totalBuildingsBuilt": 0,
+      "totalBuildingUpgrades": 0,
+      "totalObjectivesCaptured": 0,
+      "totalAbilitiesUsed": 0,
+      "supportSent": 0,
+      "biggestAttackWave": 0,
+      "longestSurvivalTime": 0,
+      "comebackWins": 1,
+      "favoriteAnimal": "duck"
+    }
+  },
+  "animalStats": {
+    "user_91dd9b0ad728734d20:duck": {
+      "userId": "user_91dd9b0ad728734d20",
+      "animal": "duck",
+      "gamesPlayed": 1,
+      "wins": 1,
+      "losses": 0,
+      "abilitiesUsed": 0,
+      "tilesCaptured": 0,
+      "highestTerritoryPercent": 0.6,
+      "biggestAttackWave": 0,
+      "defenses": 0,
+      "highestIncome": 3.4494125493914964
+    },
+    "user_91dd9b0ad728734d20:snake": {
+      "userId": "user_91dd9b0ad728734d20",
+      "animal": "snake",
+      "gamesPlayed": 0,
+      "wins": 0,
+      "losses": 0,
+      "abilitiesUsed": 0,
+      "tilesCaptured": 0,
+      "highestTerritoryPercent": 0,
+      "biggestAttackWave": 0,
+      "defenses": 0,
+      "highestIncome": 0
+    },
+    "user_91dd9b0ad728734d20:frog": {
+      "userId": "user_91dd9b0ad728734d20",
+      "animal": "frog",
+      "gamesPlayed": 0,
+      "wins": 0,
+      "losses": 0,
+      "abilitiesUsed": 0,
+      "tilesCaptured": 0,
+      "highestTerritoryPercent": 0,
+      "biggestAttackWave": 0,
+      "defenses": 0,
+      "highestIncome": 0
+    },
+    "user_91dd9b0ad728734d20:turtle": {
+      "userId": "user_91dd9b0ad728734d20",
+      "animal": "turtle",
+      "gamesPlayed": 0,
+      "wins": 0,
+      "losses": 0,
+      "abilitiesUsed": 0,
+      "tilesCaptured": 0,
+      "highestTerritoryPercent": 0,
+      "biggestAttackWave": 0,
+      "defenses": 0,
+      "highestIncome": 0
+    },
+    "user_91dd9b0ad728734d20:carp": {
+      "userId": "user_91dd9b0ad728734d20",
+      "animal": "carp",
+      "gamesPlayed": 0,
+      "wins": 0,
+      "losses": 0,
+      "abilitiesUsed": 0,
+      "tilesCaptured": 0,
+      "highestTerritoryPercent": 0,
+      "biggestAttackWave": 0,
+      "defenses": 0,
+      "highestIncome": 0
+    }
+  },
+  "userAchievements": [
+    {
+      "userId": "user_91dd9b0ad728734d20",
+      "achievementId": "first_steps",
+      "unlockedAt": "2026-07-04T06:24:14.332Z"
+    },
+    {
+      "userId": "user_91dd9b0ad728734d20",
+      "achievementId": "pond_winner",
+      "unlockedAt": "2026-07-04T06:24:14.333Z"
+    },
+    {
+      "userId": "user_91dd9b0ad728734d20",
+      "achievementId": "duck_rush",
+      "unlockedAt": "2026-07-04T06:24:14.335Z"
+    },
+    {
+      "userId": "user_91dd9b0ad728734d20",
+      "achievementId": "comeback_animal",
+      "unlockedAt": "2026-07-04T06:24:14.335Z"
+    }
+  ],
+  "matchHistory": [
+    {
+      "id": "match_6c4c26a9f7a69ae983",
+      "userId": "user_91dd9b0ad728734d20",
+      "createdAt": "2026-07-04T06:24:14.330Z",
+      "matchId": "match_mr5z8nhn_5f86ec3e",
+      "animal": "duck",
+      "result": "win",
+      "rank": 1,
+      "territoryPercent": 0.6,
+      "eliminations": 0,
+      "tilesCaptured": 0,
+      "buildingsBuilt": 0,
+      "buildingUpgrades": 0,
+      "objectivesCaptured": 0,
+      "abilitiesUsed": 0,
+      "energySpent": 0,
+      "energyGenerated": 38,
+      "biggestAttackWave": 0,
+      "matchDuration": 0,
+      "supportSent": 0,
+      "defenses": 0,
+      "highestIncome": 3.4494125493914964,
+      "comebackWin": true,
+      "xpGained": 120,
+      "coinsGained": 12
+    }
+  ]
+}
