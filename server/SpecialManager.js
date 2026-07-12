@@ -305,6 +305,7 @@ class SpecialManager {
         {
           ready: Math.max(0, (cooldowns[id] || 0) - now) <= 0,
           cooldownLeft: Math.max(0, (cooldowns[id] || 0) - now),
+          cooldownEndsAt: cooldowns[id] || 0,
           cooldown: special.cooldown || 0,
           cost: this.costFor({ matchSettings: {} }, player || {}, id),
         },

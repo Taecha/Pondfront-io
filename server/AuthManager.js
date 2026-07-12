@@ -6,6 +6,7 @@ class AuthManager {
     this.cookieName = "pond_session";
     this.sessionSecret = process.env.SESSION_SECRET || "pondfront-local-development-session-secret";
     this.secureCookies = process.env.NODE_ENV === "production" || String(process.env.APP_BASE_URL || "").startsWith("https://");
+    this.available = process.env.NODE_ENV !== "production" || Boolean(process.env.SESSION_SECRET);
     if (process.env.NODE_ENV === "production" && !process.env.SESSION_SECRET) {
       console.warn("[AUTH] SESSION_SECRET is missing. Set it before accepting production logins.");
     }
@@ -34,29 +35,42 @@ class AuthManager {
   }
 
   signup(body = {}, req, res) {
+    if (!this.available) return this.unavailableResult();
     const username = this.cleanUsername(body.username);
     const password = String(body.password || "");
     const confirm = String(body.confirmPassword || body.confirm || "");
     const validation = this.validateSignup(username, password, confirm);
     if (validation) return { ok: false, status: 400, message: validation };
-    if (this.db.findUserByUsername(username)) return { ok: false, status: 409, message: "Username already taken." };
-    const user = this.db.createUser({ username, passwordHash: this.hashPassword(password), email: body.email });
-    const session = this.issueSession(user.id, req, res);
-    console.log(`[AUTH] user created id=${user.id} username=${user.username}`);
-    return { ok: true, status: 200, message: "Account created.", user: this.publicUser(user) };
+    try {
+      if (this.db.findUserByUsername(username)) return { ok: false, status: 409, message: "Username already exists." };
+      const user = this.db.createUser({ username, passwordHash: this.hashPassword(password), email: body.email });
+      if (!this.issueSession(user.id, req, res)) return { ok: false, status: 503, code: "SESSION_CREATE_FAILED", message: "Login session could not be created." };
+      console.log(`[AUTH] signup success userId=${user.id} cookieSecure=${this.secureCookies}`);
+      return { ok: true, status: 200, message: "Account created.", user: this.publicUser(user) };
+    } catch (error) {
+      console.error(`[AUTH] signup failed code=DATABASE_UNAVAILABLE cause=${error?.code || error?.name || "unknown"}`);
+      return { ok: false, status: 503, code: "DATABASE_UNAVAILABLE", message: "Database is temporarily unavailable." };
+    }
   }
 
   login(body = {}, req, res) {
+    if (!this.available) return this.unavailableResult();
     const username = this.cleanUsername(body.username);
     const password = String(body.password || "");
-    const user = this.db.findUserByUsername(username);
-    if (!user || !this.verifyPassword(password, user.passwordHash)) {
-      return { ok: false, status: 401, message: "Wrong username or password." };
+    try {
+      const user = this.db.findUserByUsername(username);
+      if (!user || !this.verifyPassword(password, user.passwordHash)) {
+        console.warn("[AUTH] login rejected code=INVALID_CREDENTIALS");
+        return { ok: false, status: 401, message: "Incorrect username or password." };
+      }
+      this.deleteCurrentSession(req);
+      if (!this.issueSession(user.id, req, res)) return { ok: false, status: 503, code: "SESSION_CREATE_FAILED", message: "Login session could not be created." };
+      console.log(`[AUTH] login success userId=${user.id} cookieSecure=${this.secureCookies}`);
+      return { ok: true, status: 200, message: "Logged in.", user: this.publicUser(this.db.findUserById(user.id)) };
+    } catch (error) {
+      console.error(`[AUTH] login failed code=DATABASE_UNAVAILABLE cause=${error?.code || error?.name || "unknown"}`);
+      return { ok: false, status: 503, code: "DATABASE_UNAVAILABLE", message: "Authentication service is temporarily unavailable." };
     }
-    this.deleteCurrentSession(req);
-    const session = this.issueSession(user.id, req, res);
-    console.log(`[AUTH] login success id=${user.id} username=${user.username}`);
-    return { ok: true, status: 200, message: "Logged in.", user: this.publicUser(user) };
   }
 
   logout(req, res) {
@@ -123,6 +137,11 @@ class AuthManager {
     const session = this.db.addSession(userId, req?.headers?.["user-agent"], this.storedSessionToken(rawToken));
     this.setSessionCookie(res, rawToken);
     return session;
+  }
+
+  unavailableResult() {
+    console.error("[AUTH] request rejected code=MISSING_SESSION_SECRET");
+    return { ok: false, status: 503, code: "AUTH_NOT_CONFIGURED", message: "Authentication service is temporarily unavailable." };
   }
 
   deleteCurrentSession(req) {

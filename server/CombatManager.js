@@ -1899,12 +1899,18 @@ class CombatManager {
 
   abilityStatus(player, now = Date.now() / 1000) {
     const animal = animals[player?.animal];
-    if (!player || !animal) return { abilityName: "", ready: false, cooldownLeft: 0, activeLeft: 0, activeEffect: null, realModifier: "" };
+    if (!player || !animal) return { abilityName: "", ready: false, cooldownLeft: 0, cooldownEndsAt: 0, activeLeft: 0, activeEndsAt: 0, activeEffect: null, realModifier: "" };
     const cooldownLeft = Math.max(0, (player.abilityReadyAt || 0) - now);
     const activeLeft = Math.max(0, (player.abilityActiveUntil || 0) - now);
     const cooldown = this.abilityCooldown(player, animal);
+    const timing = {
+      cooldownEndsAt: player.abilityReadyAt || 0,
+      activeEndsAt: player.abilityActiveUntil || 0,
+      serverNow: now,
+    };
     if (player.animal === "duck") {
       return {
+        ...timing,
         abilityName: animal.ability,
         ready: cooldownLeft <= 0,
         cooldownLeft,
@@ -1918,6 +1924,7 @@ class CombatManager {
     if (player.animal === "snake") {
       const ambushReady = Boolean(player.flags?.ambushReady && activeLeft > 0);
       return {
+        ...timing,
         abilityName: animal.ability,
         ready: cooldownLeft <= 0,
         cooldownLeft,
@@ -1933,6 +1940,7 @@ class CombatManager {
     }
     if (player.animal === "frog") {
       return {
+        ...timing,
         abilityName: animal.ability,
         ready: cooldownLeft <= 0,
         cooldownLeft,
@@ -1945,6 +1953,7 @@ class CombatManager {
     }
     if (player.animal === "turtle") {
       return {
+        ...timing,
         abilityName: animal.ability,
         ready: cooldownLeft <= 0,
         cooldownLeft,
@@ -1957,6 +1966,7 @@ class CombatManager {
     }
     if (player.animal === "carp") {
       return {
+        ...timing,
         abilityName: animal.ability,
         ready: cooldownLeft <= 0,
         cooldownLeft,
@@ -1968,6 +1978,7 @@ class CombatManager {
       };
     }
     return {
+      ...timing,
       abilityName: animal.ability,
       ready: cooldownLeft <= 0,
       cooldownLeft,

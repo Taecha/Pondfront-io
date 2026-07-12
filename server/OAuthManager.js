@@ -33,7 +33,7 @@ class OAuthManager {
         );
         const clientId = String(this.env[`${prefix}_CLIENT_ID`] || "").trim();
         const clientSecret = String(this.env[`${prefix}_CLIENT_SECRET`] || "").trim();
-        return [id, { ...definition, id, callback, clientId, clientSecret, enabled: Boolean(clientId && clientSecret && callback) }];
+        return [id, { ...definition, id, callback, clientId, clientSecret, enabled: Boolean(this.auth.available && clientId && clientSecret && callback) }];
       }),
     );
   }
@@ -129,7 +129,8 @@ class OAuthManager {
       const resolved = this.resolveAccount(identity, storedState);
       if (!resolved.ok) return this.callbackError(res, providerId, resolved.reason);
       this.auth.deleteCurrentSession(req);
-      this.auth.issueSession(resolved.user.id, req, res);
+      if (!this.auth.issueSession(resolved.user.id, req, res)) return this.callbackError(res, providerId, "server_error");
+      console.log(`[OAUTH] ${providerId} login success userId=${resolved.user.id}`);
       const result = storedState.mode === "link" ? "linked" : "success";
       return { ok: true, status: 302, location: `/?auth=${result}&provider=${encodeURIComponent(providerId)}` };
     } catch (error) {

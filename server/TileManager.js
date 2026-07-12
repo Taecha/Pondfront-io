@@ -534,6 +534,7 @@ class TileManager {
 
   logThemedTerrainStats(stats) {
     if (!this.map.theme || !stats || process.env.PONDFRONT_SILENT_MAP_LOGS === "1") return;
+    if (process.env.NODE_ENV !== "development" && process.env.PONDFRONT_MAP_LOGS !== "1") return;
     const label = this.map.label || this.map.id || this.map.theme;
     console.log(
       `[MAP GEN] ${label} water=${stats.pct.water}% reeds=${stats.pct.reeds}% mud=${stats.pct.mud}% lily=${stats.pct.lily}% blocked=${stats.pct.blocked}% nests=${stats.pct.nests}% objectives=${this.map.objectiveCount} spawns=${stats.counts.spawns} defaultBots=${this.map.defaultBots || "custom"}`,

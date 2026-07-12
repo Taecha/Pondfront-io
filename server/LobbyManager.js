@@ -57,6 +57,20 @@ class LobbyManager {
     const lobby = this.lobbies.get(normalized);
     if (!lobby) return { ok: false, message: "Lobby not found." };
     if (lobby.status !== "waiting") return { ok: false, message: "Lobby already started." };
+    const accountUserId = payload.accountUser?.id || payload.accountUserId || null;
+    const existing = accountUserId
+      ? lobby.players.find((player) => player.accountUserId === accountUserId)
+      : null;
+    if (existing) {
+      this.touch(lobby, existing);
+      this.playerLobby.set(existing.id, lobby.roomCode);
+      return {
+        ok: true,
+        message: "Lobby session restored.",
+        lobby: this.publicState(lobby, existing.id),
+        session: this.session(existing, lobby),
+      };
+    }
     const connectedPlayers = lobby.players.filter((player) => player.connected);
     if (connectedPlayers.length >= lobby.settings.maxPlayers) return { ok: false, message: "Lobby is full." };
 
