@@ -130,6 +130,18 @@ DISCORD_CALLBACK_URL=https://your-pondfront.onrender.com/api/auth/oauth/discord/
 
 Register those exact production callback URLs with Google and Discord too. Callback origins that differ from `APP_BASE_URL` are rejected.
 
+### Render account persistence
+
+Render's free web-service filesystem is ephemeral, so a SQLite account database on the free plan can disappear after a spin-down, restart, or deploy. This is a platform limitation, not a session-cookie setting. See the official [Render free service documentation](https://render.com/docs/free#local-files-lost-on-redeploy) and [persistent disk documentation](https://render.com/docs/disks).
+
+For durable SQLite accounts, upgrade the web service, mount a persistent disk at `/var/data`, and set:
+
+```text
+PONDFRONT_DB=/var/data/pondfront.db
+```
+
+Keep the generated `SESSION_SECRET` unchanged. Alternatively, migrate account storage to a durable relational database. Do not treat free-plan SQLite as permanent profile storage.
+
 ## Deploy From GitHub
 
 GitHub Pages cannot run the full game because PondFront.io needs a Node server for matchmaking, bots, combat, and accounts.

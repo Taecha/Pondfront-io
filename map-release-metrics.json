@@ -1,0 +1,89 @@
+{
+  "ok": true,
+  "maps": [
+    {
+      "id": "amazon",
+      "label": "Amazon River",
+      "grid": "150x90",
+      "terrainPct": {
+        "water": 63.3,
+        "reeds": 11.1,
+        "mud": 10.6,
+        "lily": 4.8,
+        "blocked": 10
+      },
+      "playableTiles": 12152,
+      "connectedComponents": 130,
+      "largestComponentPct": 98.39,
+      "averagePlayableNeighbors": 3.79,
+      "spawnCandidates": 24,
+      "validSpawnCandidates": 24,
+      "spawnsInLargestComponent": 24,
+      "configuredObjectives": 10,
+      "pass": true
+    },
+    {
+      "id": "mekong",
+      "label": "Mekong Delta",
+      "grid": "170x100",
+      "terrainPct": {
+        "water": 58.6,
+        "reeds": 10.6,
+        "mud": 13.3,
+        "lily": 5.4,
+        "blocked": 12
+      },
+      "playableTiles": 14961,
+      "connectedComponents": 157,
+      "largestComponentPct": 98.79,
+      "averagePlayableNeighbors": 3.86,
+      "spawnCandidates": 26,
+      "validSpawnCandidates": 26,
+      "spawnsInLargestComponent": 26,
+      "configuredObjectives": 12,
+      "pass": true
+    },
+    {
+      "id": "everglades",
+      "label": "Everglades Swamp",
+      "grid": "140x84",
+      "terrainPct": {
+        "water": 49.2,
+        "reeds": 17.3,
+        "mud": 12.7,
+        "lily": 11.6,
+        "blocked": 9
+      },
+      "playableTiles": 10701,
+      "connectedComponents": 115,
+      "largestComponentPct": 97.86,
+      "averagePlayableNeighbors": 3.78,
+      "spawnCandidates": 22,
+      "validSpawnCandidates": 22,
+      "spawnsInLargestComponent": 22,
+      "configuredObjectives": 9,
+      "pass": true
+    },
+    {
+      "id": "nile",
+      "label": "Nile River",
+      "grid": "92x142",
+      "terrainPct": {
+        "water": 66.1,
+        "reeds": 6.5,
+        "mud": 4.2,
+        "lily": 2.5,
+        "blocked": 20.6
+      },
+      "playableTiles": 10373,
+      "connectedComponents": 378,
+      "largestComponentPct": 90.54,
+      "averagePlayableNeighbors": 3.53,
+      "spawnCandidates": 20,
+      "validSpawnCandidates": 20,
+      "spawnsInLargestComponent": 20,
+      "configuredObjectives": 8,
+      "pass": true
+    }
+  ]
+}

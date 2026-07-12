@@ -1,0 +1,28 @@
+{
+  "ok": true,
+  "simulatedSeconds": 1200,
+  "ticks": 4800,
+  "map": "amazon",
+  "bots": 20,
+  "avgTickMs": 10.181,
+  "p95TickMs": 13.455,
+  "p99TickMs": 14.907,
+  "maxTickMs": 30.75,
+  "heapGrowthMb": 11.08,
+  "retainedEvents": 180,
+  "eventCap": 180,
+  "metrics": {
+    "attacks": 273,
+    "waveCaptures": 619,
+    "expansions": 2137,
+    "builds": 774,
+    "defenses": 1875,
+    "pings": 0,
+    "objectives": 10,
+    "camps": 9,
+    "specials": 558,
+    "lastTickMs": 10,
+    "lastBotThinkMs": 3,
+    "lastBotThinkers": 3
+  }
+}

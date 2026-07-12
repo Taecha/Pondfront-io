@@ -8,6 +8,7 @@ try {
 const fs = require("fs");
 const path = require("path");
 const crypto = require("crypto");
+const zlib = require("zlib");
 const config = require("./shared/gameConfig");
 const animals = require("./shared/animals");
 const balance = config.BALANCE;
@@ -82,6 +83,7 @@ class PondFrontServerGame {
     this.endMessage = "";
     this.events = [];
     this.eventId = 1;
+    this.actionReceipts = new Map();
     this.finalTideAnnounced = false;
     this.finalTideActive = false;
     this.finalTideStartedAt = 0;
@@ -312,6 +314,7 @@ class PondFrontServerGame {
   }
 
   logMatchStart() {
+    if (process.env.NODE_ENV !== "development") return;
     const map = this.matchSettings.map;
     console.log(
       [
@@ -585,6 +588,21 @@ class PondFrontServerGame {
 
   handleAction(body) {
     const actorId = body.playerId || config.HUMAN_ID;
+    const actionId = String(body.clientActionId || "");
+    const receiptKey = /^[a-zA-Z0-9:_-]{1,128}$/.test(actionId) ? `${actorId}:${actionId}` : "";
+    if (receiptKey && this.actionReceipts.has(receiptKey)) {
+      return { ...this.actionReceipts.get(receiptKey), duplicate: true };
+    }
+    const result = this.executeAction(body);
+    if (receiptKey) {
+      this.actionReceipts.set(receiptKey, { ...result });
+      while (this.actionReceipts.size > 128) this.actionReceipts.delete(this.actionReceipts.keys().next().value);
+    }
+    return result;
+  }
+
+  executeAction(body) {
+    const actorId = body.playerId || config.HUMAN_ID;
     const player = this.getPlayer(actorId);
     if (!player || player.defeated) return { ok: false, message: "You are out of the pond." };
     if (player.isBot) return { ok: false, message: "Bots cannot be controlled by this client." };
@@ -665,8 +683,29 @@ class PondFrontServerGame {
       const result = this.combat.activateAbility(this, player, {
         targetTileId: body.tileId,
       });
+      const cooldownEndsAt = Number(player.abilityReadyAt || 0);
+      player.abilityCooldownEndsAt = cooldownEndsAt;
+      if (result.ok) {
+        this.pushEvent({
+          kind: "abilityCooldownState",
+          playerId: player.id,
+          abilityId: player.animal,
+          cooldownEndsAt,
+          serverNow: this.now(),
+          at: this.now(),
+        });
+      }
       this.sandbox?.afterAction(this, player, body, result);
-      return result;
+      return {
+        ...result,
+        actionId: body.clientActionId || null,
+        success: Boolean(result.ok),
+        abilityId: player.animal,
+        activatedAt: result.ok ? this.now() : null,
+        cooldownEndsAt,
+        energyAfter: Math.round(player.energy),
+        failureReason: result.ok ? "" : result.message || "Ability rejected.",
+      };
     }
     if (body.type === "special") {
       const result = this.specials.activate(this, player, String(body.specialType || ""), Number(body.tileId), body);
@@ -824,6 +863,11 @@ class PondFrontServerGame {
       elapsed: Math.round(this.elapsed()),
       at: this.now(),
     });
+    if (process.env.NODE_ENV === "development") {
+      console.log(
+        `[MATCH END] mode=${this.matchSettings?.ruleMode || "unknown"} winner=${winnerId || winnerTeamId || "none"} reason="${reason}" remainingPlayers=${finalState.alivePlayers?.length || 0} remainingTeams=${finalState.aliveTeams?.length || 0}`,
+      );
+    }
     if (this.sandbox?.shouldSkipAccountRewards?.() || this.modifierManager?.shouldDisableProgression?.()) {
       this.pushEvent({
         kind: "notice",
@@ -932,9 +976,11 @@ class PondFrontServerGame {
     const ownedTilesBefore = Number.isFinite(options.ownedTilesBefore) ? options.ownedTilesBefore : this.ownedTileCount(player);
     const hadCore = typeof options.hasCoreBefore === "boolean" ? options.hasCoreBefore : this.hasOwnedCore(player);
     const territoryTransferred = Number(options.territoryTransferred || 0);
-    console.log(
-      `[ELIMINATION CHECK] player=${player.name} ownedTiles=${ownedTilesBefore} hasCore=${hadCore} lastStandUsed=${Boolean(player.flags?.lastStandUsed)} eliminated=true reason="${reason}"`,
-    );
+    if (process.env.NODE_ENV === "development") {
+      console.log(
+        `[ELIMINATION CHECK] player=${player.name} ownedTiles=${ownedTilesBefore} hasCore=${hadCore} lastStandUsed=${Boolean(player.flags?.lastStandUsed)} eliminated=true reason="${reason}"`,
+      );
+    }
     player.defeated = true;
     player.flags = player.flags || {};
     player.flags.eliminatedAt = this.now();
@@ -950,9 +996,11 @@ class PondFrontServerGame {
         message: attacker ? `${player.name} was eliminated by ${attacker.name}.` : `${player.name} was eliminated.`,
       });
     }
-    console.log(
-      `[ELIMINATION] player=${player.name} id=${player.id} reason="${reason}" ownedTilesBefore=${ownedTilesBefore} hasCore=${hadCore} killer=${attacker?.id || "none"} territoryTransferred=${territoryTransferred} matchMode=${this.matchSettings?.gameMode || this.matchSettings?.winCondition || "unknown"}`,
-    );
+    if (process.env.NODE_ENV === "development") {
+      console.log(
+        `[ELIMINATION] player=${player.name} id=${player.id} reason="${reason}" ownedTilesBefore=${ownedTilesBefore} hasCore=${hadCore} killer=${attacker?.id || "none"} territoryTransferred=${territoryTransferred} matchMode=${this.matchSettings?.gameMode || this.matchSettings?.winCondition || "unknown"}`,
+      );
+    }
     return true;
   }
 
@@ -1007,12 +1055,14 @@ class PondFrontServerGame {
       allies: [...player.allies],
       enemies: [...player.enemies],
       abilityReadyAt: player.abilityReadyAt,
+      abilityCooldownEndsAt: player.abilityReadyAt || 0,
       abilityActiveUntil: player.abilityActiveUntil,
       abilityStatus: this.combat.abilityStatus(player, this.now()),
       specialCooldowns: player.specialCooldowns || {},
       specialStatus: this.specials?.specialStatus(player, this.now()) || {},
       progression: this.progression.progress(player),
       attackCooldownUntil: player.attackCooldownUntil || 0,
+      defendCooldownUntil: player.defendCooldownUntil || 0,
       currentPushCooldownUntil: player.currentPushCooldownUntil || 0,
       supportReadyAt: player.supportReadyAt || 0,
       buildings: player.buildings,
@@ -1168,7 +1218,7 @@ class PondFrontServerGame {
     if (core?.owner === player.id) {
       core.defenseEnergy = Math.max(core.defenseEnergy || 0, (balance.coreDefenseEnergy || 50) + (balance.lastStandCoreDefenseEnergy || 34));
     }
-    console.log(`[LAST STAND] player=${player.name} trigger="${trigger}" duration=${duration}`);
+    if (process.env.NODE_ENV === "development") console.log(`[LAST STAND] player=${player.name} trigger="${trigger}" duration=${duration}`);
     this.pushEvent({
       kind: "lastStand",
       playerId: player.id,
@@ -1233,7 +1283,6 @@ class PondFrontServerGame {
   isPlayerAlive(player) {
     if (!player) return false;
     if (player.defeated || player.flags?.surrendered || player.removed || player.spectator) return false;
-    if (!player.isBot && player.connected === false) return false;
     if (this.phase !== spawnConfig.PHASES.PLAYING && this.phase !== spawnConfig.PHASES.ENDED) return true;
     return this.ownedTileCount(player) > 0 || this.hasOwnedCore(player);
   }
@@ -1388,6 +1437,21 @@ class PondFrontServerGame {
   }
 }
 
+function validateStartupConfiguration() {
+  const invalidMap = Object.entries(config.MAP_SIZES || {}).find(([, map]) => !Number.isInteger(map?.cols) || map.cols < 10 || !Number.isInteger(map?.rows) || map.rows < 10);
+  if (invalidMap) throw new Error(`[STARTUP] Invalid map configuration for ${invalidMap[0]}.`);
+  const implementedModes = Object.values(gameModeConfig.modes || {}).filter((mode) => mode?.implemented && mode.id !== "sandbox");
+  if (!implementedModes.length || implementedModes.some((mode) => !mode.id || !mode.winConditionType)) {
+    throw new Error("[STARTUP] Invalid implemented game-mode configuration.");
+  }
+}
+
+validateStartupConfiguration();
+
+if (process.env.NODE_ENV === "production" && !process.env.SESSION_SECRET) {
+  throw new Error("[STARTUP] SESSION_SECRET is required when NODE_ENV=production.");
+}
+
 const db = new PondDatabase();
 const authManager = new AuthManager(db);
 const oauthManager = new OAuthManager(db, authManager);
@@ -1409,12 +1473,18 @@ const lobbyManager = new LobbyManager();
 
 function sendJson(res, status, data) {
   const json = JSON.stringify(data);
-  res.writeHead(status, {
+  const acceptsGzip = /(?:^|,)\s*gzip\s*(?:,|$)/i.test(String(res.req?.headers?.["accept-encoding"] || ""));
+  const compressed = acceptsGzip && Buffer.byteLength(json) >= 16384;
+  const body = compressed ? zlib.gzipSync(json, { level: 4 }) : Buffer.from(json);
+  const headers = {
     "Content-Type": "application/json",
     "Cache-Control": "no-store",
-    "Content-Length": Buffer.byteLength(json),
-  });
-  res.end(json);
+    "Content-Length": body.length,
+    Vary: "Accept-Encoding",
+  };
+  if (compressed) headers["Content-Encoding"] = "gzip";
+  res.writeHead(status, headers);
+  res.end(body);
 }
 
 function sendRedirect(res, location, status = 302) {
@@ -1422,11 +1492,24 @@ function sendRedirect(res, location, status = 302) {
   res.end();
 }
 
+function applySecurityHeaders(res) {
+  res.setHeader("X-Content-Type-Options", "nosniff");
+  res.setHeader("X-Frame-Options", "DENY");
+  res.setHeader("Referrer-Policy", "same-origin");
+  res.setHeader("Permissions-Policy", "camera=(), microphone=(), geolocation=()");
+  if (process.env.NODE_ENV === "production") res.setHeader("Strict-Transport-Security", "max-age=31536000; includeSubDomains");
+}
+
 function sameOriginRequest(req) {
   const origin = String(req.headers.origin || "");
   if (!origin) return true;
   try {
-    const configured = process.env.APP_BASE_URL ? new URL(process.env.APP_BASE_URL).origin : `http://${req.headers.host || `localhost:${PORT}`}`;
+    const trustProxy = process.env.TRUST_PROXY === "1" || Boolean(process.env.RENDER);
+    const forwardedProto = trustProxy ? String(req.headers["x-forwarded-proto"] || "").split(",")[0].trim() : "";
+    const forwardedHost = trustProxy ? String(req.headers["x-forwarded-host"] || "").split(",")[0].trim() : "";
+    const protocol = forwardedProto || (req.socket?.encrypted ? "https" : "http");
+    const host = forwardedHost || req.headers.host || `localhost:${PORT}`;
+    const configured = process.env.APP_BASE_URL ? new URL(process.env.APP_BASE_URL).origin : `${protocol}://${host}`;
     return new URL(origin).origin === configured;
   } catch {
     return false;
@@ -1448,6 +1531,31 @@ function readJson(req) {
       }
     });
   });
+}
+
+const authAttempts = new Map();
+function clientAddress(req) {
+  const trustProxy = process.env.TRUST_PROXY === "1" || Boolean(process.env.RENDER);
+  const forwarded = trustProxy ? String(req.headers["x-forwarded-for"] || "").split(",")[0].trim() : "";
+  return forwarded || req.socket?.remoteAddress || "unknown";
+}
+
+function allowAuthAttempt(req, route, now = Date.now()) {
+  const key = `${clientAddress(req)}:${route}`;
+  const windowMs = 5 * 60 * 1000;
+  const limit = route === "signup" ? 8 : 16;
+  if (authAttempts.size > 2000) {
+    for (const [attemptKey, attempt] of authAttempts) {
+      if (now - attempt.startedAt >= windowMs) authAttempts.delete(attemptKey);
+    }
+  }
+  const current = authAttempts.get(key);
+  if (!current || now - current.startedAt >= windowMs) {
+    authAttempts.set(key, { startedAt: now, count: 1 });
+    return true;
+  }
+  current.count += 1;
+  return current.count <= limit;
 }
 
 function requireAccount(req, res) {
@@ -1501,11 +1609,11 @@ function actionResponse(match, body, viewerId) {
     match.economy.recalculate(match.players, match.now(), match);
     match.missions.update(match);
   }
-  if (result.message) match.pushEvent({ kind: "notice", message: result.message, ok: result.ok, at: match.now() });
+  if (result.message && !result.duplicate) match.pushEvent({ kind: "notice", message: result.message, ok: result.ok, at: match.now() });
   const processedAt = Date.now();
   const events = match.events.filter((event) => event.id >= beforeEventId);
   const serverProcessMs = processedAt - serverReceivedTime;
-  if (body.latencyDebug || process.env.NODE_ENV === "development") {
+  if (process.env.NODE_ENV === "development") {
     console.log(
       `[EXPAND SERVER] actionId=${body.clientActionId || "-"} playerId=${body.playerId || viewerId || "-"} receivedAt=${serverReceivedTime} processedAt=${processedAt} processMs=${serverProcessMs} changedTiles=${collectChangedTileIds(match, body, result, events).size}`,
     );
@@ -1577,7 +1685,7 @@ function stateResponse(match, viewerId, query = {}) {
       endReason: match.endReason,
       endMessage: match.endMessage,
       changedTiles: changedTiles.map((tile) => tileDelta(match, tile.id)).filter(Boolean),
-      players: match.players.map((player) => playerDelta(player)).filter(Boolean),
+      players: match.players.map((player) => playerDelta(match, player)).filter(Boolean),
       activeAttacks: match.combat.snapshot(now),
       activeExpansions: match.combat.expansionSnapshot(),
       specials: match.specials?.snapshot(now) || { pending: [], zones: [] },
@@ -1626,7 +1734,7 @@ function actionDelta(match, body, result, events, timing, viewerId = config.HUMA
     endReason: match.endReason,
     endMessage: match.endMessage,
     changedTiles: [...changedTileIds].map((id) => tileDelta(match, id)).filter(Boolean),
-    players: [...playerIds].map((id) => playerDelta(match.getPlayer(id))).filter(Boolean),
+    players: [...playerIds].map((id) => playerDelta(match, match.getPlayer(id))).filter(Boolean),
     activeAttacks: match.combat.snapshot(match.now()),
     activeExpansions: match.combat.expansionSnapshot(),
     specials: match.specials?.snapshot(match.now()) || { pending: [], zones: [] },
@@ -1713,7 +1821,7 @@ function tileDelta(match, id) {
   };
 }
 
-function playerDelta(player) {
+function playerDelta(match, player) {
   if (!player) return null;
   return {
     id: player.id,
@@ -1726,9 +1834,12 @@ function playerDelta(player) {
     ownedTiles: player.territory,
     defeated: player.defeated,
     abilityReadyAt: player.abilityReadyAt,
+    abilityCooldownEndsAt: player.abilityReadyAt || 0,
     abilityActiveUntil: player.abilityActiveUntil,
+    abilityStatus: match?.combat?.abilityStatus(player, match.now()) || null,
     specialCooldowns: player.specialCooldowns || {},
     attackCooldownUntil: player.attackCooldownUntil || 0,
+    defendCooldownUntil: player.defendCooldownUntil || 0,
     currentPushCooldownUntil: player.currentPushCooldownUntil || 0,
     supportReadyAt: player.supportReadyAt || 0,
     buildings: player.buildings,
@@ -1745,10 +1856,10 @@ function lobbyQuery(url) {
   };
 }
 
-const server = http.createServer(async (req, res) => {
+async function handleRequest(req, res) {
   const url = new URL(req.url, `http://${req.headers.host || "localhost"}`);
 
-  if (req.method === "POST" && (url.pathname.startsWith("/api/auth/") || url.pathname.startsWith("/api/profile/")) && !sameOriginRequest(req)) {
+  if (req.method === "POST" && url.pathname.startsWith("/api/") && !sameOriginRequest(req)) {
     sendJson(res, 403, { ok: false, message: "Request origin was not accepted." });
     return;
   }
@@ -1763,6 +1874,10 @@ const server = http.createServer(async (req, res) => {
   }
 
   if (req.method === "POST" && url.pathname === "/api/auth/signup") {
+    if (!allowAuthAttempt(req, "signup")) {
+      sendJson(res, 429, { ok: false, message: "Too many signup attempts. Wait a few minutes and try again." });
+      return;
+    }
     const body = await readJson(req);
     const result = authManager.signup(body, req, res);
     sendJson(res, result.status || (result.ok ? 200 : 400), result);
@@ -1770,6 +1885,10 @@ const server = http.createServer(async (req, res) => {
   }
 
   if (req.method === "POST" && url.pathname === "/api/auth/login") {
+    if (!allowAuthAttempt(req, "login")) {
+      sendJson(res, 429, { ok: false, message: "Too many login attempts. Wait a few minutes and try again." });
+      return;
+    }
     const body = await readJson(req);
     const result = authManager.login(body, req, res);
     sendJson(res, result.status || (result.ok ? 200 : 400), result);
@@ -2056,16 +2175,41 @@ const server = http.createServer(async (req, res) => {
     return;
   }
   serveFile(res, filePath);
+}
+
+const server = http.createServer((req, res) => {
+  applySecurityHeaders(res);
+  Promise.resolve(handleRequest(req, res)).catch((error) => {
+    console.error(`[HTTP] request failed method=${req.method} path=${String(req.url || "").split("?")[0]} cause=${error?.code || error?.name || "unknown"}`);
+    if (res.headersSent) res.destroy();
+    else sendJson(res, 500, { ok: false, message: "The server could not complete that request." });
+  });
 });
 
 if (require.main === module) {
+  process.on("unhandledRejection", (error) => {
+    console.error(`[PROCESS] unhandled rejection cause=${error?.code || error?.name || "unknown"}`);
+  });
+  process.on("uncaughtException", (error) => {
+    console.error(`[PROCESS] uncaught exception cause=${error?.code || error?.name || "unknown"}`);
+    process.exitCode = 1;
+    server.close(() => process.exit(1));
+  });
   let lastTick = Date.now();
+  let lastTickErrorAt = 0;
   setInterval(() => {
     const now = Date.now();
     const dt = Math.min(1, (now - lastTick) / 1000);
     lastTick = now;
-    game.tick(dt);
-    lobbyManager.tick(dt);
+    try {
+      game.tick(dt);
+      lobbyManager.tick(dt);
+    } catch (error) {
+      if (now - lastTickErrorAt >= 5000) {
+        lastTickErrorAt = now;
+        console.error(`[TICK] update failed cause=${error?.code || error?.name || "unknown"}`);
+      }
+    }
   }, config.TICK_RATE_MS);
 
   server.listen(PORT, () => {

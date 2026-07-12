@@ -11,3 +11,13 @@ Map size selected: Nile River | Grid: 92 x 142 | Bot count: 20 | Mode: solo | Sp
 [LAST STAND] player=Rivergold trigger="low territory" duration=28
 [ELIMINATION CHECK] player=Baikal Leap ownedTiles=0 hasCore=false lastStandUsed=true eliminated=true reason="no territory"
 [ELIMINATION] player=Baikal Leap id=b18 reason="no territory" ownedTilesBefore=0 hasCore=false killer=b1 territoryTransferred=0 matchMode=solo
+[ELIMINATION CHECK] player=Rivergold ownedTiles=0 hasCore=false lastStandUsed=true eliminated=true reason="no territory"
+[ELIMINATION] player=Rivergold id=b19 reason="no territory" ownedTilesBefore=0 hasCore=false killer=b9 territoryTransferred=0 matchMode=solo
+[LAST STAND] player=Ripple Duck trigger="low territory" duration=28
+[LAST STAND] player=Mud Coil trigger="low territory" duration=28
+[LAST STAND] player=Reedback trigger="low territory" duration=28
+[ELIMINATION CHECK] player=Mud Coil ownedTiles=0 hasCore=false lastStandUsed=true eliminated=true reason="no territory"
+[ELIMINATION] player=Mud Coil id=b9 reason="no territory" ownedTilesBefore=0 hasCore=false killer=b14 territoryTransferred=0 matchMode=solo
+[LAST STAND] player=Moss Stripe trigger="low territory" duration=28
+[LAST STAND] player=Player trigger="low territory" duration=28
+[LAST STAND] player=Lotus Scale trigger="low territory" duration=28
