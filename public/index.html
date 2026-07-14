@@ -3,7 +3,7 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>PondFront.io — Update 1</title>
+    <title>PondFront.io - Update 1.01</title>
     <link rel="stylesheet" href="./style.css" />
   </head>
   <body>
@@ -11,7 +11,7 @@
       <div class="launch-water" aria-hidden="true"><i></i><i></i><i></i></div>
       <div class="launch-card">
         <div class="launch-brand" aria-hidden="true">PF</div>
-        <span id="launchUpdateBadge" class="release-badge">Update 1</span>
+        <span id="launchUpdateBadge" class="release-badge">Update 1.01</span>
         <h1>PondFront.io</h1>
         <p>A living pond. Five animal strategies. One habitat to command.</p>
         <div class="launch-facts">
@@ -39,7 +39,7 @@
         <div class="start-card lobby-card">
           <section class="lobby-hero">
             <p class="eyebrow">Real-time Pond Territory Strategy</p>
-            <div class="release-title-row"><h1>PondFront.io</h1><span class="release-badge">Update 1</span></div>
+            <div class="release-title-row"><h1>PondFront.io</h1><span class="release-badge">Update 1.01</span></div>
             <p class="start-copy">Expand your pond empire, manage Animal Energy, form alliances, and be the last animal standing.</p>
             <div class="release-status-line"><span id="lobbyServerStatus" class="server-status checking">Checking server</span><span id="lobbyVersion">Version 1.0.0</span></div>
             <div class="lobby-badges">
@@ -267,6 +267,14 @@
                 <option value="bots">Bots Only</option>
                 <option value="everyone">Everyone</option>
               </select>
+              <details class="world-match-options">
+                <summary>Living World Rules</summary>
+                <label for="worldPhaseMode">Starting time</label><select id="worldPhaseMode"><option value="cycle" selected>Natural cycle</option><option value="sunrise">Fixed Sunrise</option><option value="day">Fixed Day</option><option value="sunset">Fixed Sunset</option><option value="night">Fixed Night</option></select>
+                <label for="worldSeasonMode">Season</label><select id="worldSeasonMode"><option value="random" selected>Random per match</option><option value="spring">Spring</option><option value="summer">Summer</option><option value="autumn">Autumn</option><option value="winter">Winter</option></select>
+                <label for="worldCycleLength">Day cycle</label><select id="worldCycleLength"><option value="960">16 minutes</option><option value="1200" selected>20 minutes</option><option value="1440">24 minutes</option></select>
+                <label for="worldWeatherFrequency">Weather</label><select id="worldWeatherFrequency"><option value="off">Off</option><option value="low">Low</option><option value="normal" selected>Normal</option><option value="high">High</option></select>
+                <label class="check-row" for="worldGameplayImpacts"><input id="worldGameplayImpacts" type="checkbox" checked /> Equal gameplay effects</label>
+              </details>
               <label class="coop-option" for="coopTeammates">Teammates</label>
               <select class="coop-option" id="coopTeammates">
                 <option value="1">1</option>
@@ -724,6 +732,11 @@
 
         <section class="play-area">
           <canvas id="mapCanvas" aria-label="PondFront strategy map"></canvas>
+          <section id="worldStatusPanel" class="world-status-hud" aria-live="polite">
+            <button id="worldStatusToggle" type="button" aria-expanded="true" aria-label="Collapse world status">-</button>
+            <div class="world-status-summary"><span id="worldPhaseIcon">S</span><p><strong id="worldPhaseName">Sunrise</strong><small id="worldSeasonName">Spring</small></p><time id="worldNextPhase">Next phase 03:00</time></div>
+            <div id="worldModifierList" class="world-modifier-list"></div>
+          </section>
           <section id="modeObjectivePanel" class="mode-objective-panel" aria-live="polite">
             <span id="modeObjectiveIcon" class="mode-objective-icon">CE</span>
             <div class="mode-objective-copy">
@@ -927,6 +940,11 @@
             </div>
             <button id="coachHintClose" type="button" aria-label="Hide hint">OK</button>
           </div>
+          <section id="performanceSuggestion" class="performance-suggestion hidden" aria-live="polite">
+            <div><strong>Smoother pond?</strong><span>Low frame rate has continued for a while. Adaptive Quality can temporarily reduce nonessential effects without changing your saved visual choices.</span></div>
+            <button id="performanceSuggestionDismiss" class="secondary-button" type="button">Not Now</button>
+            <button id="performanceSuggestionEnable" class="primary" type="button">Enable</button>
+          </section>
           <div id="matchIntroCard" class="match-intro-card hidden" aria-live="polite">
             <span id="matchIntroMap">The pond awakens</span>
             <strong id="matchIntroTitle">Factions entering the water</strong>
@@ -1052,131 +1070,66 @@
             </div>
           </section>
           <section id="settingsPanel" class="settings-panel hidden" aria-modal="true" role="dialog" aria-labelledby="settingsTitle">
-            <div class="settings-card">
-              <header>
-                <div>
-                  <span class="label">Pond Controls</span>
-                  <h2 id="settingsTitle">Settings</h2>
-                </div>
+            <div class="settings-card settings-shell">
+              <header class="settings-header">
+                <div class="settings-title-block"><span class="label">Pond Controls</span><h2 id="settingsTitle">Settings</h2></div>
+                <label class="settings-search"><span>Search</span><input id="settingsSearch" type="search" placeholder="Find a setting" autocomplete="off" /></label>
                 <button id="settingsCloseButton" class="icon-button" type="button" aria-label="Close settings">X</button>
               </header>
-              <div class="settings-grid">
-                <section class="settings-section">
-                  <h3>Map Readability</h3>
-                  <label><input id="strategicView" type="checkbox" checked /> Strategic view</label>
-                  <label><input id="autoStrategicView" type="checkbox" checked /> Auto strategic</label>
-                  <label><input id="showIcons" type="checkbox" /> Tile icons</label>
-                  <label><input id="showAnimalIcons" type="checkbox" checked /> Animal icons</label>
-                  <label><input id="showAnimalSprites" type="checkbox" checked /> Animal sprites</label>
-                  <label><input id="showAnimalAnimations" type="checkbox" checked /> Animal motion</label>
-                  <label><input id="showBorderStatus" type="checkbox" checked /> Border status</label>
-                  <label><input id="mapDecorations" type="checkbox" checked /> Decorations</label>
-                  <label><input id="livingWorld" type="checkbox" checked /> Living world</label>
-                  <label><input id="cameraEffects" type="checkbox" checked /> Camera effects</label>
-                </section>
-                <section class="settings-section">
-                  <h3>Interface</h3>
-                  <p id="matchRulesSummary" class="settings-note">Surrender: Off</p>
-                  <label>
-                    Visual preset
-                    <select id="visualPreset" aria-label="Visual preset">
-                      <option value="simple">Simple</option>
-                      <option value="balanced" selected>Balanced</option>
-                      <option value="high">High</option>
-                      <option value="ultra">Ultra</option>
-                    </select>
-                  </label>
-                  <label>
-                    UI scale
-                    <select id="uiScale" aria-label="UI scale">
-                      <option value="tiny">Tiny</option>
-                      <option value="compact" selected>Compact</option>
-                      <option value="normal">Normal</option>
-                      <option value="large">Large</option>
-                    </select>
-                  </label>
-                  <label>
-                    Color vision
-                    <select id="colorVisionMode" aria-label="Color vision mode">
-                      <option value="standard" selected>Standard</option>
-                      <option value="deuteranopia">Green-red support</option>
-                      <option value="protanopia">Red-green support</option>
-                      <option value="tritanopia">Blue-yellow support</option>
-                    </select>
-                  </label>
-                  <label>
-                    Visual quality
-                    <select id="visualQuality" aria-label="Visual quality">
-                      <option value="ultra">Ultra</option>
-                      <option value="high">High</option>
-                      <option value="medium" selected>Medium</option>
-                      <option value="low">Low</option>
-                    </select>
-                  </label>
-                  <div class="settings-actions">
-                    <button id="resetVisualsButton" class="secondary-button" type="button">Reset Visuals</button>
-                    <button id="restoreBalancedButton" class="secondary-button" type="button">Restore Balanced</button>
+              <div class="settings-mobile-category"><label>Category<select id="settingsCategorySelect"><option value="gameplay">Gameplay</option><option value="controls">Controls</option><option value="graphics">Graphics</option><option value="effects">Effects</option><option value="audio">Audio</option><option value="camera">Camera</option><option value="accessibility">Accessibility</option><option value="world">World</option><option value="performance">Performance</option><option value="account">Account</option></select></label></div>
+              <div class="settings-body">
+                <nav class="settings-nav" aria-label="Settings categories">
+                  <button class="active" data-settings-nav="gameplay" type="button">Gameplay</button><button data-settings-nav="controls" type="button">Controls</button><button data-settings-nav="graphics" type="button">Graphics</button><button data-settings-nav="effects" type="button">Effects</button><button data-settings-nav="audio" type="button">Audio</button><button data-settings-nav="camera" type="button">Camera</button><button data-settings-nav="accessibility" type="button">Accessibility</button><button data-settings-nav="world" type="button">World</button><button data-settings-nav="performance" type="button">Performance</button><button data-settings-nav="account" type="button">Account</button>
+                </nav>
+                <form id="settingsForm" class="settings-content-scroll" autocomplete="off">
+                  <div id="settingsScroll" class="settings-pages">
+                    <section class="settings-page active" data-settings-page="gameplay"><div class="settings-page-heading"><span class="settings-page-icon">G</span><div><h3>Gameplay</h3><p>Map information and match guidance.</p></div></div><p id="matchRulesSummary" class="settings-note">Surrender: Off</p>
+                      <label class="setting-row"><span><b>Strategic view</b><small>Prioritize borders and territory colors.</small></span><input id="strategicView" name="strategicView" type="checkbox" checked /></label>
+                      <label class="setting-row"><span><b>Automatic strategic view</b><small>Switch to clarity mode when zoomed out.</small></span><input id="autoStrategicView" name="autoStrategicView" type="checkbox" checked /></label>
+                      <label class="setting-row"><span><b>Coach hints</b><small>Show contextual help during matches.</small></span><input id="showCoachHints" name="showCoachHints" type="checkbox" checked /></label>
+                      <label class="setting-row"><span><b>Debug stats</b><small>Show performance diagnostics.</small></span><input id="showDebugStats" name="showDebugStats" type="checkbox" /></label>
+                      <label id="showTileHitboxesRow" class="setting-row hidden"><span><b>Tile hitboxes</b><small>Developer pointer overlay.</small></span><input id="showTileHitboxes" name="showTileHitboxes" type="checkbox" /></label>
+                    </section>
+                    <section class="settings-page" data-settings-page="controls"><div class="settings-page-heading"><span class="settings-page-icon">C</span><div><h3>Controls</h3><p>Touch targets and action behavior.</p></div></div>
+                      <label class="setting-row"><span><b>Action dock</b><small>Preferred mobile control position.</small></span><select id="mobileDockSide" name="mobileDockSide"><option value="right">Right-handed</option><option value="left">Left-handed</option><option value="center">Centered</option></select></label>
+                      <label class="setting-row"><span><b>Button size</b><small>Touch target scale.</small></span><select id="mobileButtonSize" name="mobileButtonSize"><option value="compact">Compact</option><option value="normal">Normal</option><option value="large">Large</option></select></label>
+                      <label class="setting-row"><span><b>Tap sensitivity</b><small>How far a pointer may move during a tap.</small></span><select id="mobileTapSensitivity" name="mobileTapSensitivity"><option value="precise">Precise</option><option value="normal">Normal</option><option value="relaxed">Relaxed</option></select></label>
+                      <label class="setting-row"><span><b>Long press</b><small>Hold time before contextual actions open.</small></span><select id="mobileLongPress" name="mobileLongPress"><option value="420">Fast (0.42s)</option><option value="540">Normal (0.54s)</option><option value="680">Slow (0.68s)</option></select></label>
+                      <label class="setting-row"><span><b>Double tap</b><small>Action performed on a second tap.</small></span><select id="mobileDoubleTap" name="mobileDoubleTap"><option value="actions">Open actions</option><option value="info">Open info</option><option value="none">Do nothing</option></select></label>
+                      <label class="setting-row"><span><b>Vibration feedback</b><small>Short haptics for accepted actions.</small></span><input id="mobileVibration" name="mobileVibration" type="checkbox" checked /></label>
+                    </section>
+                    <section class="settings-page" data-settings-page="graphics"><div class="settings-page-heading"><span class="settings-page-icon">V</span><div><h3>Graphics</h3><p>Map detail and visual readability.</p></div></div>
+                      <label class="setting-row"><span><b>Visual preset</b><small>Adjusts the related graphics controls below.</small></span><select id="visualPreset" name="visualPreset"><option value="simple">Simple</option><option value="balanced">Balanced</option><option value="high">High</option><option value="ultra">Ultra</option></select></label>
+                      <label class="setting-row"><span><b>Visual quality</b><small>Canvas detail and map texture quality.</small></span><select id="visualQuality" name="visualQuality"><option value="low">Low</option><option value="medium">Medium</option><option value="high">High</option><option value="ultra">Ultra</option></select></label>
+                      <label class="setting-row"><span><b>Tile icons</b><small>Show special terrain symbols when useful.</small></span><input id="showIcons" name="showIcons" type="checkbox" /></label>
+                      <label class="setting-row"><span><b>Animal icons</b><small>Show faction identity beside player labels.</small></span><input id="showAnimalIcons" name="showAnimalIcons" type="checkbox" checked /></label>
+                      <label class="setting-row"><span><b>Animal sprites</b><small>Show animated pond faction markers.</small></span><input id="showAnimalSprites" name="showAnimalSprites" type="checkbox" checked /></label>
+                      <label class="setting-row"><span><b>Animal motion</b><small>Animate animal markers on the map.</small></span><input id="showAnimalAnimations" name="showAnimalAnimations" type="checkbox" checked /></label>
+                      <label class="setting-row"><span><b>Border status</b><small>Show contested and reinforced frontlines.</small></span><input id="showBorderStatus" name="showBorderStatus" type="checkbox" checked /></label>
+                      <label class="setting-row"><span><b>Map decorations</b><small>Static reeds, lilies, and shoreline details.</small></span><input id="mapDecorations" name="mapDecorations" type="checkbox" checked /></label>
+                      <label class="setting-row"><span><b>Living world</b><small>Ambient pond wildlife and gentle movement.</small></span><input id="livingWorld" name="livingWorld" type="checkbox" checked /></label>
+                    </section>
+                    <section class="settings-page" data-settings-page="effects"><div class="settings-page-heading"><span class="settings-page-icon">E</span><div><h3>Effects</h3><p>Combat feedback and motion.</p></div></div>
+                      <label class="setting-row"><span><b>Effects quality</b><small>Overall animation richness.</small></span><select id="effectsLevel" name="effectsLevel"><option value="low">Low</option><option value="medium">Medium</option><option value="high">High</option><option value="ultra">Ultra</option></select></label>
+                      <label class="setting-row"><span><b>Particles</b><small>Ripple, splash, and building particles.</small></span><select id="particlesLevel" name="particlesLevel"><option value="low">Low</option><option value="medium">Medium</option><option value="high">High</option><option value="ultra">Ultra</option></select></label>
+                      <label class="setting-row"><span><b>Floating text</b><small>Energy and action values over the map.</small></span><input id="floatingText" name="floatingText" type="checkbox" checked /></label>
+                      <label class="setting-row"><span><b>Attack arrows</b><small>Keep frontline direction visible.</small></span><input id="attackArrows" name="attackArrows" type="checkbox" checked /></label>
+                      <label class="setting-row"><span><b>Ability markers</b><small>Show ability ranges and target warnings.</small></span><input id="abilityEffects" name="abilityEffects" type="checkbox" checked /></label>
+                      <label class="setting-row"><span><b>Screen shake</b><small>Subtle impact response for major actions.</small></span><input id="screenShake" name="screenShake" type="checkbox" checked /></label>
+                    </section>
+                    <section class="settings-page" data-settings-page="audio"><div class="settings-page-heading"><span class="settings-page-icon">A</span><div><h3>Audio</h3><p>Mix pond ambience, combat, and interface sound.</p></div></div>
+                      <label class="setting-row"><span><b>Sound</b><small>Enable all game audio.</small></span><input id="soundEnabled" name="soundEnabled" type="checkbox" checked /></label><label class="setting-row"><span><b>Ambience</b><small>Music and ambient pond layers.</small></span><input id="musicEnabled" name="musicEnabled" type="checkbox" checked /></label><label class="setting-row"><span><b>UI sound</b><small>Clicks and confirmations.</small></span><input id="uiSounds" name="uiSounds" type="checkbox" checked /></label><label class="setting-row"><span><b>Mute all</b><small>Temporarily silence every channel.</small></span><input id="muteAll" name="muteAll" type="checkbox" /></label><label class="setting-row"><span><b>Background audio</b><small>Continue quiet ambience when unfocused.</small></span><input id="backgroundAudio" name="backgroundAudio" type="checkbox" /></label><label class="setting-row"><span><b>Reduced sound</b><small>Limit layered and repeated effects.</small></span><input id="reducedSound" name="reducedSound" type="checkbox" /></label><label class="setting-row"><span><b>Audio quality</b><small>Maximum simultaneous sound detail.</small></span><select id="audioQuality" name="audioQuality"><option value="low">Low</option><option value="standard">Standard</option><option value="high">High</option></select></label>
+                      <label class="setting-row range-setting"><span><b>Master</b><small>All channels</small></span><input id="masterVolume" name="masterVolume" type="range" min="0" max="1" step="0.05" /><output data-setting-value-for="masterVolume">72%</output></label><label class="setting-row range-setting"><span><b>SFX</b><small>General effects</small></span><input id="sfxVolume" name="sfxVolume" type="range" min="0" max="1" step="0.05" /><output data-setting-value-for="sfxVolume">78%</output></label><label class="setting-row range-setting"><span><b>Music</b><small>Background score</small></span><input id="musicVolume" name="musicVolume" type="range" min="0" max="1" step="0.05" /><output data-setting-value-for="musicVolume">28%</output></label><label class="setting-row range-setting"><span><b>Environment</b><small>Water and weather</small></span><input id="ambientVolume" name="ambientVolume" type="range" min="0" max="1" step="0.05" /><output data-setting-value-for="ambientVolume">100%</output></label><label class="setting-row range-setting"><span><b>Combat</b><small>Attacks and defense</small></span><input id="combatVolume" name="combatVolume" type="range" min="0" max="1" step="0.05" /><output data-setting-value-for="combatVolume">85%</output></label><label class="setting-row range-setting"><span><b>Animals</b><small>Faction identity sounds</small></span><input id="animalVolume" name="animalVolume" type="range" min="0" max="1" step="0.05" /><output data-setting-value-for="animalVolume">80%</output></label><label class="setting-row range-setting"><span><b>Buildings</b><small>Construction feedback</small></span><input id="buildingVolume" name="buildingVolume" type="range" min="0" max="1" step="0.05" /><output data-setting-value-for="buildingVolume">80%</output></label><label class="setting-row range-setting"><span><b>Interface</b><small>Menus and buttons</small></span><input id="uiVolume" name="uiVolume" type="range" min="0" max="1" step="0.05" /><output data-setting-value-for="uiVolume">75%</output></label>
+                    </section>
+                    <section class="settings-page" data-settings-page="camera"><div class="settings-page-heading"><span class="settings-page-icon">M</span><div><h3>Camera</h3><p>Map navigation and cinematic motion.</p></div></div><label class="setting-row"><span><b>Camera effects</b><small>Smooth focus and match intro movement.</small></span><input id="cameraEffects" name="cameraEffects" type="checkbox" checked /></label><label class="setting-row range-setting"><span><b>Pan sensitivity</b><small>Mouse and touch camera response.</small></span><input id="cameraSensitivity" name="cameraSensitivity" type="range" min="0.5" max="1.5" step="0.1" /><output data-setting-value-for="cameraSensitivity">100%</output></label><label class="setting-row"><span><b>Minimap size</b><small>Compact map size on touch screens.</small></span><select id="mobileMinimapSize" name="mobileMinimapSize"><option value="small">Small</option><option value="medium">Medium</option><option value="large">Large</option></select></label></section>
+                    <section class="settings-page" data-settings-page="accessibility"><div class="settings-page-heading"><span class="settings-page-icon">R</span><div><h3>Accessibility</h3><p>Comfort, scale, and color support.</p></div></div><label class="setting-row"><span><b>UI scale</b><small>Resize the game interface without changing the map.</small></span><select id="uiScale" name="uiScale"><option value="tiny">Tiny</option><option value="compact">Compact</option><option value="normal">Normal</option><option value="large">Large</option></select></label><label class="setting-row"><span><b>Color vision</b><small>Adjust territory palettes for clearer separation.</small></span><select id="colorVisionMode" name="colorVisionMode"><option value="standard">Standard</option><option value="deuteranopia">Green-red support</option><option value="protanopia">Red-green support</option><option value="tritanopia">Blue-yellow support</option></select></label><label class="setting-row"><span><b>Reduced motion</b><small>Minimize camera and large map movement.</small></span><input id="reducedMotion" name="reducedMotion" type="checkbox" /></label></section>
+                    <section class="settings-page" data-settings-page="world"><div class="settings-page-heading"><span class="settings-page-icon">W</span><div><h3>World</h3><p>Visual and audio presentation only. Gameplay modifiers are equal for everyone.</p></div></div><label class="setting-row"><span><b>Day and night visuals</b><small>Render the server-synchronized light cycle.</small></span><input id="dayNightVisuals" name="dayNightVisuals" type="checkbox" checked /></label><label class="setting-row"><span><b>Transition quality</b><small>Visual blending between world phases.</small></span><select id="timeTransitionQuality" name="timeTransitionQuality"><option value="instant">Instant</option><option value="smooth">Smooth</option><option value="cinematic">Cinematic</option></select></label><label class="setting-row"><span><b>Seasonal decorations</b><small>Spring blooms, autumn leaves, and winter frost.</small></span><input id="seasonalDecorations" name="seasonalDecorations" type="checkbox" checked /></label><label class="setting-row"><span><b>Weather effects</b><small>Rain, wind, and mist layers.</small></span><input id="weatherEffects" name="weatherEffects" type="checkbox" checked /></label><label class="setting-row"><span><b>Fireflies</b><small>Nighttime firefly particles.</small></span><input id="fireflies" name="fireflies" type="checkbox" checked /></label><label class="setting-row"><span><b>Fog effects</b><small>Mist and low cloud overlays.</small></span><input id="fogEffects" name="fogEffects" type="checkbox" checked /></label><label class="setting-row"><span><b>Water reflections</b><small>Soft highlights on open water.</small></span><input id="waterReflections" name="waterReflections" type="checkbox" checked /></label><label class="setting-row"><span><b>Decorative animals</b><small>Ambient fish, frogs, ducks, and dragonflies.</small></span><input id="decorativeAnimals" name="decorativeAnimals" type="checkbox" checked /></label><label class="setting-row"><span><b>Ambient world sounds</b><small>Seasonal wildlife and weather ambience.</small></span><input id="ambientWorldSounds" name="ambientWorldSounds" type="checkbox" checked /></label><label class="setting-row"><span><b>World Status HUD</b><small>Show the current phase, season, and global effects.</small></span><input id="worldStatusHud" name="worldStatusHud" type="checkbox" checked /></label><label class="setting-row"><span><b>Modifier details</b><small>Show numeric world effect breakdowns.</small></span><input id="showWorldModifiers" name="showWorldModifiers" type="checkbox" checked /></label><label class="setting-row"><span><b>Reduced world animation</b><small>Keep atmosphere while limiting motion.</small></span><input id="reducedWorldAnimation" name="reducedWorldAnimation" type="checkbox" /></label></section>
+                    <section class="settings-page" data-settings-page="performance"><div class="settings-page-heading"><span class="settings-page-icon">P</span><div><h3>Performance</h3><p>Frame pacing and temporary quality assistance.</p></div></div><label class="setting-row"><span><b>Adaptive quality</b><small>Temporarily reduces nonessential effects during sustained low FPS. It never changes saved choices.</small></span><input id="autoLowPerformance" name="adaptiveQuality" type="checkbox" /></label><label class="setting-row"><span><b>Battery saver</b><small>Use a lighter visual profile while enabled.</small></span><input id="batterySaver" name="batterySaver" type="checkbox" /></label><label class="setting-row"><span><b>Frame limit</b><small>Maximum canvas refresh rate.</small></span><select id="fpsLimit" name="fpsLimit"><option value="30">30 FPS</option><option value="60">60 FPS</option><option value="120">120 FPS</option></select></label><div class="settings-callout"><b>Performance suggestions are optional.</b><p>PondFront will ask before enabling Adaptive Quality after repeated low frame-rate sessions.</p></div></section>
+                    <section class="settings-page" data-settings-page="account"><div class="settings-page-heading"><span class="settings-page-icon">U</span><div><h3>Account</h3><p>Settings backup and tutorial controls.</p></div></div><div class="settings-account-actions"><button id="resetTutorialButton" class="secondary-button" type="button">Reset Tutorial</button><button id="settingsExportButton" class="secondary-button" type="button">Export Settings</button><button id="settingsImportButton" class="secondary-button" type="button">Import Settings</button><input id="settingsImportInput" class="hidden" type="file" accept="application/json,.json" /></div><p class="settings-note">Imported settings are reviewed as a draft. Press Apply to save them.</p></section>
                   </div>
-                  <label><input id="floatingText" type="checkbox" checked /> Floating text</label>
-                  <label><input id="attackArrows" type="checkbox" checked /> Attack arrows</label>
-                  <label><input id="abilityEffects" type="checkbox" checked /> Ability markers</label>
-                  <label><input id="showCoachHints" type="checkbox" checked /> Coach hints</label>
-                  <label><input id="showDebugStats" type="checkbox" /> Debug stats</label>
-                  <label id="showTileHitboxesRow" class="hidden"><input id="showTileHitboxes" type="checkbox" /> Show Tile Hitboxes</label>
-                  <label>Action dock<select id="mobileDockSide"><option value="right">Right-handed</option><option value="left">Left-handed</option><option value="center" selected>Centered</option></select></label>
-                  <label>Button size<select id="mobileButtonSize"><option value="compact">Compact</option><option value="normal" selected>Normal</option><option value="large">Large</option></select></label>
-                  <label>Tap sensitivity<select id="mobileTapSensitivity"><option value="precise">Precise</option><option value="normal" selected>Normal</option><option value="relaxed">Relaxed</option></select></label>
-                  <label>Long press<select id="mobileLongPress"><option value="420">Fast (0.42s)</option><option value="540" selected>Normal (0.54s)</option><option value="680">Slow (0.68s)</option></select></label>
-                  <label>Double tap<select id="mobileDoubleTap"><option value="actions" selected>Open actions</option><option value="info">Open info</option><option value="none">Do nothing</option></select></label>
-                  <label><input id="mobileVibration" type="checkbox" checked /> Vibration feedback</label>
-                </section>
-                <section class="settings-section">
-                  <h3>Effects</h3>
-                  <label>
-                    Effects
-                    <select id="effectsLevel" aria-label="Effects level">
-                      <option value="ultra">Ultra</option>
-                      <option value="high">High</option>
-                      <option value="medium" selected>Medium</option>
-                      <option value="low">Low</option>
-                    </select>
-                  </label>
-                  <label>
-                    Particles
-                    <select id="particlesLevel" aria-label="Particle level">
-                      <option value="high">High</option>
-                      <option value="ultra">Ultra</option>
-                      <option value="medium" selected>Medium</option>
-                      <option value="low">Low</option>
-                    </select>
-                  </label>
-                  <label><input id="screenShake" type="checkbox" checked /> Screen shake</label>
-                  <label><input id="reducedMotion" type="checkbox" /> Reduced motion</label>
-                  <label><input id="autoLowPerformance" type="checkbox" checked /> Auto low performance</label>
-                  <label><input id="batterySaver" type="checkbox" /> Battery saver</label>
-                  <label>FPS limit<select id="fpsLimit"><option value="30">30 FPS</option><option value="60" selected>60 FPS</option></select></label>
-                  <label>Minimap size<select id="mobileMinimapSize"><option value="small">Small</option><option value="medium" selected>Medium</option><option value="large">Large</option></select></label>
-                </section>
-                <section class="settings-section">
-                  <h3>Audio</h3>
-                  <label><input id="soundEnabled" type="checkbox" checked /> Sound</label>
-                  <label><input id="musicEnabled" type="checkbox" checked /> Ambience</label>
-                  <label><input id="uiSounds" type="checkbox" checked /> UI SFX</label>
-                  <label><input id="muteAll" type="checkbox" /> Mute all</label>
-                  <label><input id="backgroundAudio" type="checkbox" /> Background audio</label>
-                  <label><input id="reducedSound" type="checkbox" /> Reduced sound mode</label>
-                  <label>Audio quality<select id="audioQuality"><option value="low">Low</option><option value="standard" selected>Standard</option><option value="high">High</option></select></label>
-                  <label class="range-setting">Master <input id="masterVolume" type="range" min="0" max="1" step="0.05" value="0.72" /></label>
-                  <label class="range-setting">SFX <input id="sfxVolume" type="range" min="0" max="1" step="0.05" value="0.78" /></label>
-                  <label class="range-setting">Music <input id="musicVolume" type="range" min="0" max="1" step="0.05" value="0.28" /></label>
-                  <label class="range-setting">Environment <input id="ambientVolume" type="range" min="0" max="1" step="0.05" value="1" /></label>
-                  <label class="range-setting">Combat <input id="combatVolume" type="range" min="0" max="1" step="0.05" value="0.85" /></label>
-                  <label class="range-setting">Animals <input id="animalVolume" type="range" min="0" max="1" step="0.05" value="0.8" /></label>
-                  <label class="range-setting">Buildings <input id="buildingVolume" type="range" min="0" max="1" step="0.05" value="0.8" /></label>
-                  <label class="range-setting">UI <input id="uiVolume" type="range" min="0" max="1" step="0.05" value="0.75" /></label>
-                  <button id="resetTutorialButton" class="secondary-button" type="button">Reset Tutorial</button>
-                </section>
+                </form>
               </div>
+              <footer class="settings-footer"><span id="settingsDirtyStatus">All changes saved</span><div class="settings-footer-tools"><button id="settingsResetCategoryButton" class="secondary-button" type="button">Reset Category</button><button id="settingsRestoreButton" class="secondary-button" type="button">Restore Defaults</button></div><div class="settings-footer-actions"><button id="settingsCancelButton" class="secondary-button" type="button">Cancel</button><button id="settingsApplyButton" class="primary" type="button">Apply</button></div></footer>
             </div>
           </section>
         </section>
@@ -1345,7 +1298,7 @@
     <section id="releaseModal" class="release-modal hidden" aria-modal="true" role="dialog" aria-labelledby="releaseModalTitle">
       <div class="release-card">
         <header>
-          <div><span class="label">PondFront.io</span><h2 id="releaseModalTitle">Update 1</h2></div>
+          <div><span class="label">PondFront.io</span><h2 id="releaseModalTitle">Update 1.01</h2></div>
           <button id="releaseModalClose" class="icon-button" type="button" aria-label="Close">X</button>
         </header>
         <nav class="release-tabs" aria-label="Release information">
@@ -1357,6 +1310,7 @@
     </section>
 
     <script src="/shared/releaseConfig.js"></script>
+    <script src="/shared/settingsConfig.js"></script>
     <script src="/shared/balanceConfig.js"></script>
     <script src="/shared/mapConfig.js"></script>
     <script src="/shared/gameConfig.js"></script>
@@ -1394,6 +1348,7 @@
     <script src="./vfx.js"></script>
     <script src="./livingWorld.js"></script>
     <script src="./render.js"></script>
+    <script src="./settingsManager.js"></script>
     <script src="./ui.js"></script>
     <script src="./sandboxPanel.js"></script>
     <script src="./game.js"></script>

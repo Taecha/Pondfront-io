@@ -77,6 +77,7 @@
       this.serverClock = { time: 0, receivedAt: performance.now() };
       this.performanceLowSince = 0;
       this.performanceAutoLow = false;
+      this.adaptiveSuggestionShown = false;
       this.runtimeVisualState = {
         temporaryPerformanceLevel: 0,
         autoReducedEffects: false,
@@ -1149,6 +1150,7 @@
         objectives: delta.objectives || this.state.objectives,
         camps: delta.camps || this.state.camps,
         lakeEvent: delta.lakeEvent || this.state.lakeEvent,
+        worldState: delta.worldState || this.state.worldState,
         finalTide: delta.finalTide || this.state.finalTide,
         missions: delta.missions || this.state.missions,
         relationships: delta.relationships || this.state.relationships,
@@ -1494,6 +1496,10 @@
         }
         if (tile.owner === this.state.humanId && context.canDefend) {
           await this.handleAction({ type: "defend", percent: this.ui.percent });
+          return;
+        }
+        if (tile.owner && tile.owner !== this.state.humanId && context.canAttack) {
+          await this.handleAction({ type: "attack", percent: this.ui.percent });
           return;
         }
       }
@@ -2307,6 +2313,7 @@
         }
         this.lastRenderAt = now;
         const view = this.ui.viewOptions();
+        if (this.state) this.state.estimatedServerTime = this.estimatedServerNow();
         this.recordFrame(now, view);
         this.renderer.draw({
           ...view,
@@ -2386,6 +2393,14 @@
       const runtime = this.runtimeVisualState;
       if (!autoEnabled) {
         if (runtime.temporaryPerformanceLevel > 0 || this.performanceAutoLow) this.clearRuntimeVisualReduction("auto performance disabled", { silent: true });
+        if (fps < 40) {
+          this.performanceLowSince = this.performanceLowSince || now;
+          if (!this.adaptiveSuggestionShown && now - this.performanceLowSince > 8000) {
+            this.adaptiveSuggestionShown = this.ui.offerAdaptiveQuality?.() !== false;
+          }
+        } else {
+          this.performanceLowSince = 0;
+        }
         return;
       }
       const cooldownReady = now - (runtime.lastAutoChangeTime || 0) > 10000;

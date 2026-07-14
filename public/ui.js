@@ -155,6 +155,11 @@
         botCount: document.querySelector("#botCount"),
         matchLength: document.querySelector("#matchLength"),
         surrenderMode: document.querySelector("#surrenderMode"),
+        worldPhaseMode: document.querySelector("#worldPhaseMode"),
+        worldSeasonMode: document.querySelector("#worldSeasonMode"),
+        worldCycleLength: document.querySelector("#worldCycleLength"),
+        worldWeatherFrequency: document.querySelector("#worldWeatherFrequency"),
+        worldGameplayImpacts: document.querySelector("#worldGameplayImpacts"),
         coopTeammates: document.querySelector("#coopTeammates"),
         teamBotDifficulty: document.querySelector("#teamBotDifficulty"),
         teamCount: document.querySelector("#teamCount"),
@@ -171,6 +176,13 @@
         settingsButton: document.querySelector("#settingsButton"),
         settingsPanel: document.querySelector("#settingsPanel"),
         settingsCloseButton: document.querySelector("#settingsCloseButton"),
+        worldStatusPanel: document.querySelector("#worldStatusPanel"),
+        worldStatusToggle: document.querySelector("#worldStatusToggle"),
+        worldPhaseIcon: document.querySelector("#worldPhaseIcon"),
+        worldPhaseName: document.querySelector("#worldPhaseName"),
+        worldSeasonName: document.querySelector("#worldSeasonName"),
+        worldNextPhase: document.querySelector("#worldNextPhase"),
+        worldModifierList: document.querySelector("#worldModifierList"),
         matchRulesSummary: document.querySelector("#matchRulesSummary"),
         togglePanelsButton: document.querySelector("#togglePanelsButton"),
         difficulty: document.querySelector("#difficulty"),
@@ -272,6 +284,9 @@
         coachHintTitle: document.querySelector("#coachHintTitle"),
         coachHintText: document.querySelector("#coachHintText"),
         coachHintClose: document.querySelector("#coachHintClose"),
+        performanceSuggestion: document.querySelector("#performanceSuggestion"),
+        performanceSuggestionDismiss: document.querySelector("#performanceSuggestionDismiss"),
+        performanceSuggestionEnable: document.querySelector("#performanceSuggestionEnable"),
         matchIntroCard: document.querySelector("#matchIntroCard"),
         matchIntroMap: document.querySelector("#matchIntroMap"),
         matchIntroTitle: document.querySelector("#matchIntroTitle"),
@@ -310,6 +325,7 @@
         mapDecorations: document.querySelector("#mapDecorations"),
         livingWorld: document.querySelector("#livingWorld"),
         cameraEffects: document.querySelector("#cameraEffects"),
+        cameraSensitivity: document.querySelector("#cameraSensitivity"),
         floatingText: document.querySelector("#floatingText"),
         attackArrows: document.querySelector("#attackArrows"),
         abilityEffects: document.querySelector("#abilityEffects"),
@@ -320,6 +336,19 @@
         screenShake: document.querySelector("#screenShake"),
         reducedMotion: document.querySelector("#reducedMotion"),
         autoLowPerformance: document.querySelector("#autoLowPerformance"),
+        dayNightVisuals: document.querySelector("#dayNightVisuals"),
+        timeTransitionQuality: document.querySelector("#timeTransitionQuality"),
+        seasonalDecorations: document.querySelector("#seasonalDecorations"),
+        weatherEffects: document.querySelector("#weatherEffects"),
+        fireflies: document.querySelector("#fireflies"),
+        fogEffects: document.querySelector("#fogEffects"),
+        waterReflections: document.querySelector("#waterReflections"),
+        decorativeAnimals: document.querySelector("#decorativeAnimals"),
+        ambientWorldSounds: document.querySelector("#ambientWorldSounds"),
+        worldStatusHud: document.querySelector("#worldStatusHud"),
+        worldStatusToggle: document.querySelector("#worldStatusToggle"),
+        showWorldModifiers: document.querySelector("#showWorldModifiers"),
+        reducedWorldAnimation: document.querySelector("#reducedWorldAnimation"),
         mobileDockSide: document.querySelector("#mobileDockSide"),
         mobileButtonSize: document.querySelector("#mobileButtonSize"),
         mobileTapSensitivity: document.querySelector("#mobileTapSensitivity"),
@@ -407,9 +436,7 @@
         if (this.nodes.screenShake) this.nodes.screenShake.checked = false;
         if (this.nodes.showAnimalAnimations) this.nodes.showAnimalAnimations.checked = false;
       }
-      this.loadMobilePreferences();
-      this.setUiScale(localStorage.getItem("pondfront:ui-scale") || "compact");
-      this.syncAudioControls();
+      this.settingsManager = root.PondSettingsManager ? new root.PondSettingsManager(this) : null;
       this.tooltips = root.PondTooltips ? new root.PondTooltips() : null;
       this.helpMenu = root.PondHelpMenu ? new root.PondHelpMenu(this.nodes.helpButton) : null;
       this.mobileControls = root.PondMobileControls
@@ -629,7 +656,7 @@
       this.nodes.coachHintClose?.addEventListener("click", () => {
         this.nodes.coachHint?.classList.add("hidden");
         if (this.nodes.showCoachHints) this.nodes.showCoachHints.checked = false;
-        localStorage.setItem("pondfront:coachHints", "off");
+        this.settingsManager?.setRuntimeValue("showCoachHints", false);
       });
       this.nodes.diplomacyButtons.forEach((button) => {
         button.addEventListener("click", () => this.emit("diplomacy", button.dataset.command || button.dataset.diplomacy));
@@ -657,83 +684,11 @@
       this.nodes.playAgain.addEventListener("click", () => this.emit("start", this.startPayload()));
       this.nodes.viewProfileFromResult?.addEventListener("click", () => this.emit("openProfile"));
       this.nodes.backToLobbyFromResult?.addEventListener("click", () => this.emit("home"));
-      this.nodes.strategicView.addEventListener("change", () => this.emit("viewChanged"));
-      this.nodes.autoStrategicView.addEventListener("change", () => this.emit("viewChanged"));
-      this.nodes.showIcons.addEventListener("change", () => this.emit("viewChanged"));
-      this.nodes.showAnimalIcons?.addEventListener("change", () => this.emit("viewChanged"));
-      this.nodes.showAnimalSprites?.addEventListener("change", () => this.emit("viewChanged"));
-      this.nodes.showAnimalAnimations?.addEventListener("change", () => this.emit("viewChanged"));
-      this.nodes.showBorderStatus?.addEventListener("change", () => this.emit("viewChanged"));
-      this.nodes.uiScale?.addEventListener("change", () => this.setUiScale(this.nodes.uiScale.value));
-      this.nodes.visualPreset?.addEventListener("change", () => {
-        this.applyVisualPreset(this.nodes.visualPreset.value);
-        this.emit("viewChanged");
-      });
-      this.nodes.colorVisionMode?.addEventListener("change", () => {
-        const mode = this.nodes.colorVisionMode.value || "standard";
-        localStorage.setItem("pondfront:color-vision", mode);
-        document.body.dataset.colorVision = mode;
-        this.emit("viewChanged");
-      });
-      this.nodes.resetVisualsButton?.addEventListener("click", () => this.emit("restoreVisuals", { preset: null }));
-      this.nodes.restoreBalancedButton?.addEventListener("click", () => {
-        this.applyVisualPreset("balanced");
-        this.emit("restoreVisuals", { preset: "balanced" });
-      });
-      this.nodes.effectsLevel.addEventListener("change", () => this.emit("viewChanged"));
-      this.nodes.visualQuality?.addEventListener("change", () => this.emit("viewChanged"));
-      this.nodes.particlesLevel?.addEventListener("change", () => this.emit("viewChanged"));
-      this.nodes.mapDecorations?.addEventListener("change", () => this.emit("viewChanged"));
-      this.nodes.livingWorld?.addEventListener("change", () => this.emit("viewChanged"));
-      this.nodes.cameraEffects?.addEventListener("change", () => this.emit("viewChanged"));
-      this.nodes.floatingText.addEventListener("change", () => this.emit("viewChanged"));
-      this.nodes.attackArrows.addEventListener("change", () => this.emit("viewChanged"));
-      this.nodes.abilityEffects?.addEventListener("change", () => this.emit("viewChanged"));
-      this.nodes.showCoachHints?.addEventListener("change", () => {
-        localStorage.setItem("pondfront:coachHints", this.nodes.showCoachHints.checked ? "on" : "off");
-        this.updateCoachHint(this.lastState, this.lastTile, this.lastContext);
-      });
-      this.nodes.showDebugStats?.addEventListener("change", () => {
-        this.updateDebugStats(this.lastState);
-        this.emit("viewChanged");
-      });
-      this.nodes.showTileHitboxes?.addEventListener("change", () => this.emit("viewChanged"));
-      this.nodes.screenShake?.addEventListener("change", () => this.emit("viewChanged"));
-      this.nodes.reducedMotion.addEventListener("change", () => this.emit("viewChanged"));
-      this.nodes.autoLowPerformance.addEventListener("change", () => this.emit("viewChanged"));
-      [
-        this.nodes.mobileDockSide,
-        this.nodes.mobileButtonSize,
-        this.nodes.mobileTapSensitivity,
-        this.nodes.mobileLongPress,
-        this.nodes.mobileDoubleTap,
-        this.nodes.mobileVibration,
-        this.nodes.batterySaver,
-        this.nodes.fpsLimit,
-        this.nodes.mobileMinimapSize,
-      ].forEach((node) => node?.addEventListener("change", () => this.saveMobilePreferences()));
-      [
-        this.nodes.soundEnabled,
-        this.nodes.musicEnabled,
-        this.nodes.uiSounds,
-        this.nodes.muteAll,
-        this.nodes.masterVolume,
-        this.nodes.sfxVolume,
-        this.nodes.musicVolume,
-        this.nodes.ambientVolume,
-        this.nodes.combatVolume,
-        this.nodes.animalVolume,
-        this.nodes.buildingVolume,
-        this.nodes.uiVolume,
-        this.nodes.backgroundAudio,
-        this.nodes.reducedSound,
-        this.nodes.audioQuality,
-      ].forEach((node) => node?.addEventListener("input", () => this.updateAudioSettings()));
       this.nodes.mobileMuteButton?.addEventListener("click", () => {
         this.audio?.unlock();
         const muted = !this.audio?.settings?.muted;
         if (this.nodes.muteAll) this.nodes.muteAll.checked = muted;
-        this.updateAudioSettings();
+        this.settingsManager?.setRuntimeValue("muteAll", muted);
         this.audio?.play(muted ? "warning" : "click", { ui: true, cooldown: 0 });
       });
       document.addEventListener("pointerover", (event) => {
@@ -752,7 +707,21 @@
       this.nodes.mobileStrategicButton?.addEventListener("click", () => {
         this.nodes.strategicView.checked = !this.nodes.strategicView.checked;
         this.nodes.mobileStrategicButton.classList.toggle("active", this.nodes.strategicView.checked);
-        this.emit("viewChanged");
+        this.settingsManager?.setRuntimeValue("strategicView", this.nodes.strategicView.checked);
+      });
+      this.nodes.worldStatusToggle?.addEventListener("click", () => {
+        const collapsed = this.nodes.worldStatusPanel?.classList.toggle("collapsed");
+        this.nodes.worldStatusToggle.textContent = collapsed ? "+" : "-";
+        this.nodes.worldStatusToggle.setAttribute("aria-expanded", String(!collapsed));
+      });
+      this.nodes.performanceSuggestionEnable?.addEventListener("click", () => {
+        this.settingsManager?.setRuntimeValue("adaptiveQuality", true);
+        this.nodes.performanceSuggestion?.classList.add("hidden");
+        this.toast("Adaptive Quality enabled. Saved visual choices stay intact.");
+      });
+      this.nodes.performanceSuggestionDismiss?.addEventListener("click", () => {
+        localStorage.setItem("pondfront:adaptive-suggestion-after", String(Date.now() + 7 * 24 * 60 * 60 * 1000));
+        this.nodes.performanceSuggestion?.classList.add("hidden");
       });
       this.nodes.collapseUiButton?.addEventListener("click", () => {
         document.body.classList.toggle("ui-collapsed");
@@ -832,6 +801,7 @@
     }
 
     openSettings() {
+      this.settingsManager?.open();
       this.nodes.settingsPanel?.classList.remove("hidden");
       this.nodes.settingsButton?.setAttribute("aria-expanded", "true");
       document.body.classList.add("settings-open");
@@ -929,6 +899,11 @@
     }
 
     closeSettings() {
+      if (this.settingsManager) return this.settingsManager.closeWithCancel();
+      this.hideSettingsPanel();
+    }
+
+    hideSettingsPanel() {
       this.nodes.settingsPanel?.classList.add("hidden");
       this.nodes.settingsButton?.setAttribute("aria-expanded", "false");
       document.body.classList.remove("settings-open");
@@ -1051,6 +1026,7 @@
         backgroundAudio: Boolean(this.nodes.backgroundAudio?.checked),
         reducedSound: Boolean(this.nodes.reducedSound?.checked),
         audioQuality: this.nodes.audioQuality?.value || "standard",
+        ambientWorldSounds: this.nodes.ambientWorldSounds?.checked !== false,
       });
       this.updateMuteButton();
     }
@@ -1062,6 +1038,12 @@
       button.textContent = muted ? "Mute" : "Sound";
       button.classList.toggle("muted", muted);
       button.title = muted ? "Turn sound on" : "Mute sound";
+    }
+
+    offerAdaptiveQuality() {
+      if (this.nodes.autoLowPerformance?.checked || Date.now() < Number(localStorage.getItem("pondfront:adaptive-suggestion-after") || 0)) return false;
+      this.nodes.performanceSuggestion?.classList.remove("hidden");
+      return true;
     }
 
     startPayload(overrides = {}) {
@@ -1080,6 +1062,14 @@
         botCount: Number(this.nodes.botCount?.value || 12),
         matchLength: this.nodes.matchLength?.value || "standard",
         surrenderMode: this.nodes.surrenderMode?.value || "off",
+        privateMatch: true,
+        world: {
+          phaseMode: this.nodes.worldPhaseMode?.value || "cycle",
+          seasonMode: this.nodes.worldSeasonMode?.value || "random",
+          cycleSeconds: Number(this.nodes.worldCycleLength?.value || 1200),
+          weatherFrequency: this.nodes.worldWeatherFrequency?.value || "normal",
+          gameplayImpacts: this.nodes.worldGameplayImpacts?.checked !== false,
+        },
         coopTeammates: Number(this.nodes.coopTeammates?.value || 2),
         teamBotDifficulty: this.nodes.teamBotDifficulty?.value || "normal",
         teamCount: Number(this.nodes.teamCount?.value || 2),
@@ -1107,6 +1097,7 @@
         surrenderMode: this.nodes.createSurrenderMode?.value || fallback.surrenderMode || "off",
         allowBots: this.nodes.createAllowBots?.checked !== false,
         matchLength: fallback.matchLength,
+        world: fallback.world,
         coopTeammates: fallback.coopTeammates,
         teamBotDifficulty: fallback.teamBotDifficulty,
       };
@@ -2289,7 +2280,8 @@
         phase: { label: "Bright Day" },
         weather: { label: "Clear Water" },
       };
-      this.nodes.worldAtmosphereStatus.textContent = `${atmosphere.phase.label} | ${atmosphere.weather.label}`;
+      this.nodes.worldAtmosphereStatus.textContent = `${atmosphere.phase.label} | ${atmosphere.season?.label || "Pond Season"}`;
+      this.updateWorldStatus(state, atmosphere);
       const important = (state.events || [])
         .slice(-100)
         .map((event) => this.worldActivityEntry(event, state))
@@ -2299,7 +2291,7 @@
       const atmosphereRow = {
         icon: atmosphere.weather.visual === "rain" || atmosphere.weather.visual === "storm" ? "R" : atmosphere.weather.visual === "fog" ? "F" : atmosphere.weather.visual === "wind" ? "W" : "S",
         title: atmosphere.phase.label,
-        detail: `${atmosphere.weather.label}. Visual atmosphere only.`,
+        detail: `${atmosphere.weather.label}. Global effects are equal for every player.`,
         tone: "weather",
       };
       this.nodes.worldActivityList.innerHTML = [atmosphereRow, ...important]
@@ -2310,6 +2302,39 @@
           </div>`,
         )
         .join("");
+    }
+
+    updateWorldSettings() {
+      const visible = this.nodes.worldStatusHud?.checked !== false;
+      this.nodes.worldStatusPanel?.classList.toggle("hidden", !visible);
+      this.nodes.worldModifierList?.classList.toggle("hidden", this.nodes.showWorldModifiers?.checked === false);
+    }
+
+    updateWorldStatus(state, atmosphere = null) {
+      if (!this.nodes.worldStatusPanel) return;
+      this.updateWorldSettings();
+      const world = state?.worldState;
+      const display = atmosphere || root.PondWorldAtmosphere?.atmosphereFor?.(state) || world;
+      const phase = display?.phase || { id: "day", label: "Day", remaining: 0, icon: "D" };
+      const season = display?.season || world?.season || { label: "Pond Season" };
+      const remaining = Number.isFinite(phase.remaining) ? phase.remaining : Number(world?.phase?.remaining || 0);
+      if (this.nodes.worldPhaseIcon) this.nodes.worldPhaseIcon.textContent = phase.icon || phase.label.slice(0, 2).toUpperCase();
+      if (this.nodes.worldPhaseName) this.nodes.worldPhaseName.textContent = phase.label;
+      if (this.nodes.worldSeasonName) this.nodes.worldSeasonName.textContent = `${season.label} | ${display?.weather?.label || world?.weather?.label || "Clear Water"}`;
+      if (this.nodes.worldNextPhase) {
+        const minutes = Math.floor(Math.max(0, remaining) / 60);
+        const seconds = Math.floor(Math.max(0, remaining) % 60);
+        this.nodes.worldNextPhase.textContent = Number.isFinite(remaining) ? `${phase.nextLabel || "Next phase"} ${minutes}:${String(seconds).padStart(2, "0")}` : "Fixed phase";
+      }
+      const modifiers = world?.modifiers?.breakdown || [];
+      if (this.nodes.worldModifierList) {
+        this.nodes.worldModifierList.innerHTML = modifiers.length
+          ? modifiers
+              .slice(0, 5)
+              .map((entry) => `<span>${this.escape(entry.label)} ${Number(entry.value) >= 0 ? "+" : ""}${Math.round(Number(entry.value || 0) * 100)}%</span>`)
+              .join("")
+          : `<span>World gameplay effects off</span>`;
+      }
     }
 
     worldActivityEntry(event, state) {
@@ -2657,8 +2682,22 @@
           abilityEffects: this.nodes.abilityEffects?.checked !== false,
           screenShake: !batterySaver && this.nodes.screenShake?.checked !== false,
           reducedMotion: batterySaver || this.nodes.reducedMotion.checked,
-          autoLowPerformance: this.nodes.autoLowPerformance.checked,
+          autoLowPerformance: this.nodes.autoLowPerformance?.checked === true,
           batterySaver,
+        },
+        world: {
+          dayNightVisuals: this.nodes.dayNightVisuals?.checked !== false,
+          transitionQuality: this.nodes.timeTransitionQuality?.value || "smooth",
+          seasonalDecorations: this.nodes.seasonalDecorations?.checked !== false,
+          weatherEffects: this.nodes.weatherEffects?.checked !== false,
+          fireflies: this.nodes.fireflies?.checked !== false,
+          fogEffects: this.nodes.fogEffects?.checked !== false,
+          waterReflections: this.nodes.waterReflections?.checked !== false,
+          decorativeAnimals: this.nodes.decorativeAnimals?.checked !== false,
+          ambientWorldSounds: this.nodes.ambientWorldSounds?.checked !== false,
+          worldStatusHud: this.nodes.worldStatusHud?.checked !== false,
+          showModifiers: this.nodes.showWorldModifiers?.checked !== false,
+          reducedAnimation: this.nodes.reducedWorldAnimation?.checked === true,
         },
       };
     }

@@ -70,8 +70,7 @@
         this.render();
       }));
       this.nodes.settings?.addEventListener("click", () => {
-        document.querySelector("#settingsPanel")?.classList.remove("hidden");
-        document.body.classList.add("settings-open");
+        document.querySelector("#settingsButton")?.click();
       });
       this.nodes.achievements?.addEventListener("click", () => root.PondProfile?.open("achievements"));
       this.nodes.animals?.addEventListener("click", () => document.querySelector(".animal-select-panel")?.scrollIntoView({ behavior: "smooth", block: "center" }));

@@ -17,6 +17,7 @@
     backgroundAudio: false,
     reducedSound: false,
     audioQuality: "standard",
+    ambientWorldSounds: true,
   };
 
   class PondAudioManager {
@@ -73,6 +74,7 @@
         backgroundAudio: Boolean(next.backgroundAudio ?? this.settings.backgroundAudio),
         reducedSound: Boolean(next.reducedSound ?? this.settings.reducedSound),
         audioQuality: ["low", "standard", "high"].includes(next.audioQuality) ? next.audioQuality : (this.settings.audioQuality || "standard"),
+        ambientWorldSounds: Boolean(next.ambientWorldSounds ?? this.settings.ambientWorldSounds),
       };
       localStorage.setItem(STORAGE_KEY, JSON.stringify(this.settings));
       this.applyVolumes();
@@ -351,6 +353,7 @@
           const sound = event.visual === "lily" ? "lakeBloom" : event.visual === "fog" ? "lakeFog" : "expandProgress";
           this.play(sound, { cooldown: 520, intensity: 0.72 });
         }
+        if (event.kind === "worldPhase") this.play("objectiveSpawn", { cooldown: 800, intensity: 0.58 });
         if (event.kind === "diplomacy" && ["alliance", "allianceAccepted"].includes(event.subtype)) this.play("alliance", { cooldown: 180 });
         if (event.kind === "diplomacy" && ["broken", "war", "enemy"].includes(event.subtype)) this.play("allianceBreak", { cooldown: 180 });
         if (event.kind === "notice" && event.ok === false) this.play("warning", { cooldown: 140 });
@@ -519,8 +522,10 @@
     }
 
     playAmbientMoment() {
+      if (this.settings.ambientWorldSounds === false) return;
       const atmosphere = root.PondWorldAtmosphere?.atmosphereFor?.(this.lastState || {}) || {};
       const phase = atmosphere.phase?.id || "day";
+      const season = atmosphere.season?.id || "spring";
       const weather = atmosphere.weather?.visual || "clear";
       let choices = phase === "night"
         ? ["ambientWater", "ambientCrickets", "ambientFrog", "ambientBubbles"]
@@ -528,6 +533,10 @@
       if (weather === "rain") choices = ["ambientRain", "ambientWater", "ambientReeds"];
       if (weather === "storm") choices = ["ambientRain", "ambientThunder", "ambientWater"];
       if (weather === "wind") choices = ["ambientReeds", "ambientWater", "ambientBird"];
+      if (season === "spring" && weather === "clear") choices.push("ambientBird", "ambientInsects");
+      if (season === "summer" && weather === "clear") choices.push("ambientFrog", "ambientInsects");
+      if (season === "autumn" && weather === "clear") choices.push("ambientReeds");
+      if (season === "winter" && weather === "clear") choices = choices.filter((name) => !["ambientInsects", "ambientFrog"].includes(name));
       if (this.settings.reducedSound) choices = choices.filter((name) => ["ambientWater", "ambientReeds", "ambientRain", "ambientCrickets"].includes(name));
       if (!choices.length) return;
       let name = choices[Math.floor(Math.random() * choices.length)];

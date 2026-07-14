@@ -7,7 +7,8 @@ const root = path.join(__dirname, "..");
 const read = (file) => fs.readFileSync(path.join(root, file), "utf8");
 const pkg = JSON.parse(read("package.json"));
 
-assert.strictEqual(release.CURRENT.label, "Update 1", "public launch label must be Update 1");
+assert.strictEqual(release.CURRENT.label, "Update 1.01", "current public label must be Update 1.01");
+assert.ok(release.HISTORY.some((entry) => entry.label === "Update 1"), "Update 1 must remain in release history");
 assert.strictEqual(release.CURRENT.version, pkg.version, "shared and package versions must match");
 assert.strictEqual(release.updateLabel(1, 1), "Update 1.01", "future patch labels must be supported");
 assert.strictEqual(release.updateLabel(1, 4), "Update 1.04", "future patch labels must remain zero-padded");

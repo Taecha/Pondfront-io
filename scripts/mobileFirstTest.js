@@ -42,6 +42,7 @@ check("touch panning starts only after movement threshold", gameSource.includes(
 check("mobile double tap keeps its configurable action-menu behavior", gameSource.includes('doubleTap || "actions"') && gameSource.includes('event?.pointerType !== "touch"'));
 check("desktop double click uses Expand on a valid neutral border", /!tile\.owner && context\.canExpand[\s\S]{0,180}handleAction\(\{ type: "expand"/.test(gameSource));
 check("desktop double click uses Reinforce on a valid owned border", /tile\.owner === this\.state\.humanId && context\.canDefend[\s\S]{0,180}handleAction\(\{ type: "defend"/.test(gameSource));
+check("desktop double click attacks a valid connected enemy border", /tile\.owner && tile\.owner !== this\.state\.humanId && context\.canAttack[\s\S]{0,180}handleAction\(\{ type: "attack"/.test(gameSource));
 check("mobile action dock caps primary actions at four", mobileSource.includes(".slice(0, 4)"));
 check("mobile dock uses shared available actions", mobileSource.includes("context.availableActions"));
 check("targeted actions require mobile confirmation", gameSource.includes("confirmMobileTarget") && gameSource.includes("Target adjusted"));

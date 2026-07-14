@@ -6,11 +6,11 @@ const atmosphere = require("../shared/worldAtmosphereConfig");
 const root = path.join(__dirname, "..");
 const read = (file) => fs.readFileSync(path.join(root, file), "utf8");
 
-const phases = [0, 60, 180, 240].map((elapsed) => atmosphere.phaseAt(elapsed).id);
-assert.deepStrictEqual(phases, ["morning", "day", "sunset", "night"], "day cycle phases should remain ordered");
+const phases = [0, 240, 720, 960].map((elapsed) => atmosphere.phaseAt(elapsed).id);
+assert.deepStrictEqual(phases, ["sunrise", "day", "sunset", "night"], "day cycle phases should remain ordered");
 assert.strictEqual(atmosphere.ambientWeatherAt(90, 2).id, atmosphere.ambientWeatherAt(90, 2).id, "weather must be deterministic");
 assert.strictEqual(atmosphere.eventWeather({ type: "rainstorm" }).visual, "storm", "lake events should override ambient weather visuals");
-assert.strictEqual(atmosphere.atmosphereFor({ elapsed: 10, cols: 20, rows: 20 }).phase.id, "morning", "state atmosphere should use elapsed match time");
+assert.strictEqual(atmosphere.phaseAt(10, { cycleSeconds: 1200, startOffset: 0 }).id, "sunrise", "state atmosphere should use elapsed match time");
 
 const livingWorld = read("public/livingWorld.js");
 assert.match(livingWorld, /this\.pool = \[\]/, "living world should pool transient entities");
