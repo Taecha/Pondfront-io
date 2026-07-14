@@ -45,6 +45,7 @@ class EconomyManager {
   recalculate(players, now = Date.now() / 1000, game = null) {
     const playerById = new Map(players.map((player) => [player.id, player]));
     const playable = this.tileManager.playableCount || this.tileManager.playable().length || 1;
+    const worldModifiers = game?.world?.modifiers(game) || {};
     players.forEach((player) => {
       const preservedFlags = player.flags || {};
       player.territory = 0;
@@ -56,10 +57,16 @@ class EconomyManager {
         objectiveDefenseBonus: 0,
         abilityCooldownReduction: 0,
         routePowerBonus: 0,
+        worldBuildTimeMultiplier: 1 / (1 + Math.max(worldModifiers.constructionSpeed || 0, worldModifiers.upgradeSpeed || 0)),
+        worldAbilityCostMultiplier: 1 - (worldModifiers.abilityCostDiscount || 0),
+        worldDefenseMultiplier: 1 + (worldModifiers.territoryDefense || 0),
+        worldReedGuardDefenseMultiplier: 1 + (worldModifiers.reedGuardDefense || 0),
+        worldExpansionDiscount: worldModifiers.expansionDiscount || 0,
+        worldExpansionSpeed: worldModifiers.expansionSpeed || 0,
       };
       player.buildings = { nest: 0, lilyFarm: 0, reedGuard: 0, mudTunnel: 0, jumpPad: 0 };
       player.incomeBreakdown = {
-        base: balance.baseIncome,
+        base: balance.baseIncome * (1 + (worldModifiers.baseEnergyRegen || 0)),
         territory: 0,
         terrain: 0,
         buildings: 0,
@@ -98,7 +105,7 @@ class EconomyManager {
         player.incomeBreakdown.temporary += balance.lilyBloomIncomeBonus || 0.18;
       }
 
-      this.applyBuilding(player, tile, now);
+      this.applyBuilding(player, tile, now, worldModifiers);
       this.applyObjective(player, tile, game);
     });
 
@@ -156,7 +163,7 @@ class EconomyManager {
     });
   }
 
-  applyBuilding(player, tile, now) {
+  applyBuilding(player, tile, now, worldModifiers = {}) {
     if (!tile.building) return;
     const level = Math.max(1, Math.min(3, Number(tile.buildingLevel) || 1));
     const boost = 1 + (level - 1) * 0.42;
@@ -166,13 +173,13 @@ class EconomyManager {
     const activeBoost = boost * effectMultiplier;
     if (tile.building === "nest") {
       player.maxEnergy += balance.nestMaxEnergyBonus * activeBoost;
-      player.incomeBreakdown.buildings += balance.nestIncomeBonus * level * effectMultiplier;
+      player.incomeBreakdown.buildings += balance.nestIncomeBonus * level * effectMultiplier * (1 + (worldModifiers.economyBuildingIncome || 0));
     }
     if (tile.building === "lilyFarm") {
       const nearEnemy = tile.neighbors?.some((neighbor) => neighbor.owner && neighbor.owner !== player.id) ? balance.farmBorderPenalty : 0;
       const efficiency = this.farmEfficiency(player);
       const farmGain = Math.max(0.25, (balance.farmIncomeBonus + (tile.type === "lily" ? balance.farmLilyBonus : 0) - nearEnemy) * boost * efficiency);
-      player.incomeBreakdown.buildings += farmGain * effectMultiplier;
+      player.incomeBreakdown.buildings += farmGain * effectMultiplier * (1 + (worldModifiers.farmIncome || 0)) * (1 + (worldModifiers.economyBuildingIncome || 0));
       if (player.animal === "frog") player.incomeBreakdown.animal += balance.farmFrogBonus * level * effectMultiplier;
     }
     if (tile.building === "reedGuard") {

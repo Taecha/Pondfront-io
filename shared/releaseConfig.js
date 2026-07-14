@@ -3,7 +3,7 @@
   if (typeof module !== "undefined" && module.exports) module.exports = value;
   else root.PondRelease = value;
 })(typeof globalThis !== "undefined" ? globalThis : this, function createReleaseConfig() {
-  const CURRENT = Object.freeze({
+  const UPDATE_1 = Object.freeze({
     id: "update-1",
     label: "Update 1",
     displayName: "PondFront.io — Update 1",
@@ -45,6 +45,49 @@
     ]),
   });
 
+  const CURRENT = Object.freeze({
+    id: "update-1-01",
+    label: "Update 1.01",
+    displayName: "PondFront.io - Update 1.01",
+    version: "1.0.1",
+    title: "Living World & Settings Rework",
+    date: "2026-07-14",
+    new: Object.freeze([
+      "Server-authoritative sunrise, day, sunset, and night cycle",
+      "One server-selected season per match: Spring, Summer, Autumn, or Winter",
+      "World Status HUD with weather, next phase, and global modifier breakdowns",
+      "Private and Sandbox match controls for time, season, weather, and equal world effects",
+      "Settings search, category navigation, category reset, and JSON import/export",
+    ]),
+    improved: Object.freeze([
+      "Settings now use one responsive scroller with a sticky header and action footer",
+      "Desktop settings use focused category pages while mobile uses a full-screen one-column layout",
+      "Settings are edited as a draft and are saved only after Apply",
+      "Adaptive Quality is opt-in, temporary, and never overwrites saved visual choices",
+      "Seasonal wildlife, light, weather, reflections, and ambient audio respect performance limits",
+    ]),
+    balance: Object.freeze([
+      "Sunrise: construction and upgrade speed +4%",
+      "Day: Lily Farm income +4% and economy building income +2%",
+      "Sunset: animal ability recovery +4%",
+      "Night: territory defense +4% and Reed Guard defense +2%",
+      "Season bonuses use global caps for income, defense, expansion, construction, and cooldowns",
+    ]),
+    fixed: Object.freeze([
+      "Fixed Settings content becoming unreachable at the bottom on short and mobile screens",
+      "Removed nested Settings scrolling and footer overlap",
+      "Fixed Cancel and close actions accidentally retaining uncommitted visual or audio changes",
+      "Migrated scattered legacy preference keys into one versioned settings document",
+      "Changed automatic low-performance mode into disabled-by-default Adaptive Quality with explicit opt-in",
+      "Synchronized world phase, season, weather, and gameplay calculations from server time",
+    ]),
+    knownIssues: Object.freeze([
+      "Google and Discord sign-in still require host-provided credentials and callback URLs.",
+      "World gameplay settings are intentionally restricted to private, custom, and Sandbox matches.",
+      "The generated Web Audio ambience uses synthesized pond sounds rather than licensed recordings.",
+    ]),
+  });
+
   const TIPS = Object.freeze([
     "Large attacks consume more Animal Energy.",
     "Buildings remain on a tile when that territory is captured.",
@@ -71,7 +114,7 @@
 
   return Object.freeze({
     CURRENT,
-    HISTORY: Object.freeze([CURRENT]),
+    HISTORY: Object.freeze([CURRENT, UPDATE_1]),
     TIPS,
     CREDITS,
     VIEWED_STORAGE_KEY: "pondfront:latest-update-viewed",

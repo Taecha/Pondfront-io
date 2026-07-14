@@ -254,7 +254,8 @@ class CombatManager {
 
   processExpansionWave(game, wave, now, force = false) {
     if (wave.finished) return false;
-    if (!force && now - wave.lastTick < (wave.tickRate || EXPANSION_TICK_SECONDS)) return true;
+    const playerSpeed = game.getPlayer(wave.playerId)?.flags?.worldExpansionSpeed || 0;
+    if (!force && now - wave.lastTick < (wave.tickRate || EXPANSION_TICK_SECONDS) / (1 + playerSpeed)) return true;
 
     const player = game.getPlayer(wave.playerId);
     if (!player || player.defeated) {
@@ -1429,6 +1430,10 @@ class CombatManager {
     if (game.eventsManager?.isActive("mudslide") && tile.type === "mud") cost *= balance.mudslideDefenseMultiplier || 1.22;
     cost += game.objectives?.tileCostBonus(tile) || 0;
     cost *= game.specials?.waveCostMultiplier(defender, tile, game.now()) || 1;
+    if (defender) {
+      cost *= defender.flags?.worldDefenseMultiplier || 1;
+      if (this.reedGuardBonus(defender.id, tile, defender) > 0) cost *= defender.flags?.worldReedGuardDefenseMultiplier || 1;
+    }
     if (!rough && wave.remainingPower / Math.max(1, wave.spentEnergy) < 0.18) cost *= COMBAT_FORMULA.lowPowerFatigueMultiplier;
 
     const pressure = this.attackPressure(tile, attacker.id);
@@ -1571,8 +1576,19 @@ class CombatManager {
       this.debugAbility(game, player, animal.ability, beforeEnergy, cooldownBefore, result, options);
       return result;
     }
+    const abilityCost = Number(((balance.abilityEnergyCost || 0) * (player.flags?.worldAbilityCostMultiplier || 1)).toFixed(1));
+    if (player.energy < abilityCost) {
+      const result = { ok: false, message: `Need ${Math.ceil(abilityCost - player.energy)} more Animal Energy for ${animal.ability}.`, energyCost: abilityCost };
+      this.debugAbility(game, player, animal.ability, beforeEnergy, cooldownBefore, result, options);
+      return result;
+    }
+    const commitAbility = () => {
+      player.energy = Math.max(0, player.energy - abilityCost);
+      player.stats.energyUsed = (player.stats.energyUsed || 0) + abilityCost;
+    };
 
     if (player.animal === "duck") {
+      commitAbility();
       const duration = Math.round((animal.duration + ((player.level || 1) >= 3 ? balance.level3DuckDurationBonus || 4 : 0)) * (player.flags?.modifierAbilityPower ? 1.2 : 1));
       player.abilityActiveUntil = now + duration;
       player.abilityReadyAt = now + this.abilityCooldown(player, animal);
@@ -1586,6 +1602,7 @@ class CombatManager {
         effectApplied: true,
         gameplayChanges: ["Open-water neutral expansion cost x0.65", "Small temporary income boost"],
         affectedTiles: [],
+        spentEnergy: abilityCost,
       };
       this.pushEvent({
         kind: "ability",
@@ -1601,6 +1618,7 @@ class CombatManager {
     }
 
     if (player.animal === "snake") {
+      commitAbility();
       player.flags.ambushReady = true;
       player.abilityActiveUntil = now + Math.round(animal.duration * (player.flags?.modifierAbilityPower ? 1.2 : 1));
       player.abilityReadyAt = now + this.abilityCooldown(player, animal);
@@ -1614,6 +1632,7 @@ class CombatManager {
         effectApplied: true,
         gameplayChanges: ["Next reed/mud attack power x1.40", "That attack wave reduces enemy border costs x0.80"],
         affectedTiles: [],
+        spentEnergy: abilityCost,
       };
       this.pushEvent({
         kind: "ability",
@@ -1629,6 +1648,7 @@ class CombatManager {
     }
 
     if (player.animal === "turtle") {
+      commitAbility();
       player.abilityActiveUntil = now + Math.round(animal.duration * (player.flags?.modifierAbilityPower ? 1.2 : 1));
       player.abilityReadyAt = now + this.abilityCooldown(player, animal);
       player.stats.abilitiesUsed = (player.stats.abilitiesUsed || 0) + 1;
@@ -1646,6 +1666,7 @@ class CombatManager {
         effectApplied: true,
         gameplayChanges: ["Enemy capture cost x1.35 against Turtle borders", "Defended Turtle tiles gain extra resistance"],
         affectedTiles,
+        spentEnergy: abilityCost,
       };
       this.pushEvent({
         kind: "ability",
@@ -1662,6 +1683,7 @@ class CombatManager {
     }
 
     if (player.animal === "carp") {
+      commitAbility();
       player.abilityActiveUntil = now + Math.round(animal.duration * (player.flags?.modifierAbilityPower ? 1.2 : 1));
       player.abilityReadyAt = now + this.abilityCooldown(player, animal);
       player.stats.abilitiesUsed = (player.stats.abilitiesUsed || 0) + 1;
@@ -1679,6 +1701,7 @@ class CombatManager {
         effectApplied: true,
         gameplayChanges: ["Income +30%", "Open-water expansion cost x0.80", "Lily expansion cost x0.70"],
         affectedTiles,
+        spentEnergy: abilityCost,
       };
       this.pushEvent({
         kind: "ability",
@@ -1709,6 +1732,7 @@ class CombatManager {
         this.debugAbility(game, player, animal.ability, beforeEnergy, cooldownBefore, result, options);
         return result;
       }
+      commitAbility();
       player.abilityReadyAt = now + this.abilityCooldown(player, animal);
       player.stats.abilitiesUsed = (player.stats.abilitiesUsed || 0) + 1;
       const result = {
@@ -1720,6 +1744,7 @@ class CombatManager {
         effectApplied: true,
         gameplayChanges: [`Captured ${leap.captured} neutral leap tiles`, "Can cross one small blocked gap within range"],
         affectedTiles: leap.affectedTiles,
+        spentEnergy: abilityCost,
       };
       this.pushEvent({
         kind: "ability",
@@ -1812,6 +1837,10 @@ class CombatManager {
     if (attacker.animal === "snake" && (target.type === "reeds" || target.type === "mud")) cost *= 0.84;
     if (attacker.animal === "carp" && game.now() < (attacker.abilityActiveUntil || 0) && target.type === "water") cost *= balance.goldenCurrentWaterCostMultiplier || 0.8;
     if (attacker.animal === "carp" && game.now() < (attacker.abilityActiveUntil || 0) && target.type === "lily") cost *= balance.goldenCurrentLilyCostMultiplier || 0.7;
+    if (defender) {
+      cost *= defender.flags?.worldDefenseMultiplier || 1;
+      if (this.reedGuardBonus(defender.id, target, defender) > 0) cost *= defender.flags?.worldReedGuardDefenseMultiplier || 1;
+    }
     return Math.max(6, cost);
   }
 
@@ -1835,6 +1864,7 @@ class CombatManager {
       evolved: (player.level || 1) >= 5,
       comebackCore: this.nearCore(player, target) && territoryPct < comebackThreshold,
       comebackSmall: target.neighbors.some((neighbor) => neighbor.owner === player.id) && territoryPct < comebackThreshold,
+      worldExpansionDiscount: player.flags?.worldExpansionDiscount || 0,
     });
   }
 

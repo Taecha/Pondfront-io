@@ -16,6 +16,7 @@
     expansionStrategicPenalty: 1.5,
 
     baseIncome: 0.95,
+    abilityEnergyCost: 18,
     territoryIncome: 0.048,
     terrainIncomeMultiplier: 0.72,
     frogLilyBonus: 0.11,

@@ -86,7 +86,7 @@
     const costInfo = buildingCostDetails(player, buildingType, gameConfig, configBalance);
     const playerEnergy = Math.max(0, Math.round(number(player?.energy, 0)));
     const cost = Number.isFinite(costInfo.cost) ? costInfo.cost : 0;
-    const buildTimeMultiplier = Math.max(0.05, number(player?.flags?.modifierBuildTimeMultiplier, 1));
+    const buildTimeMultiplier = Math.max(0.05, number(player?.flags?.modifierBuildTimeMultiplier, 1) * number(player?.flags?.worldBuildTimeMultiplier, 1));
     const buildTime = instantBuild ? 0 : Math.max(0, number(configBalance.buildTimeSeconds, 10) * buildTimeMultiplier);
     const requirements = [];
     let reason = "";
@@ -166,7 +166,7 @@
     const costInfo = upgradeCostDetails(player, tile, gameConfig, balance);
     const configBalance = balanceSet(gameConfig, balance);
     const playerEnergy = Math.max(0, Math.round(number(player?.energy, 0)));
-    const buildTimeMultiplier = Math.max(0.05, number(player?.flags?.modifierBuildTimeMultiplier, 1));
+    const buildTimeMultiplier = Math.max(0.05, number(player?.flags?.modifierBuildTimeMultiplier, 1) * number(player?.flags?.worldBuildTimeMultiplier, 1));
     const upgradeTime = instantBuild ? 0 : Math.max(0, number(configBalance.upgradeTimeSeconds, number(configBalance.buildTimeSeconds, 8)) * buildTimeMultiplier);
     const constructionRemaining = Math.max(0, Math.ceil(number(tile?.buildingActiveAt, 0) - number(now, 0)));
     let reason = "";

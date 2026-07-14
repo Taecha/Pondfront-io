@@ -246,6 +246,7 @@
     if (modifiers.specialCostBonus) {
       cost += Number(modifiers.specialCostBonus) || 0;
     }
+    cost *= 1 - Math.max(0, Math.min(0.1, Number(modifiers.worldExpansionDiscount || 0)));
 
     return Math.max(1, Math.round(cost));
   }
