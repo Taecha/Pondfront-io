@@ -1466,7 +1466,10 @@ function validateStartupConfiguration() {
 validateStartupConfiguration();
 
 if (process.env.NODE_ENV === "production" && !process.env.SESSION_SECRET) {
-  throw new Error("[STARTUP] SESSION_SECRET is required when NODE_ENV=production.");
+  throw new Error(
+    "[STARTUP] SESSION_SECRET is required when NODE_ENV=production. " +
+      "On Render, open the service Environment page, add SESSION_SECRET with a generated secret value, then save and deploy.",
+  );
 }
 
 const db = new PondDatabase();
