@@ -8,6 +8,7 @@ class BotManager {
     this.timers = new Map();
     this.expansionTargets = new Map();
     this.borderContacts = new Map();
+    this.nextReactionAt = 0;
   }
 
   update(dt) {
@@ -83,7 +84,10 @@ class BotManager {
     const profile = this.difficultyProfile(bot);
     if (bot.difficulty === "passive" || profile.label === "Passive") return;
     if (this.trySandboxLimitedTurn(bot, phase)) return;
-    if (bot.energy < 8) return;
+    if (bot.energy < 8) {
+      this.react(bot, "Low on energy");
+      return;
+    }
     const enemy = this.game.tileManager
       .capturable(bot.id)
       .filter((tile) => tile.owner && tile.owner !== bot.id && this.game.diplomacy.canAttack(bot.id, tile.owner, now).ok);
@@ -1061,6 +1065,7 @@ class BotManager {
     const result = this.game.combat.expandOrAttack(this.game, bot, tile.id, percent);
     this.debugAttackDecision(bot, tile, { ok: result.ok, reason: result.resultType || result.message, percent, spend: plannedSpend }, result);
     bot.aiAttackCooldownUntil = this.game.now() + (result.ok ? this.attackCooldownSeconds(bot, phase) : 2.5);
+    if (result.ok) this.react(bot, phase === "surge" ? "Committing to a major attack" : "Preparing a border attack", tile.id);
     return result.ok;
   }
 
@@ -1086,6 +1091,7 @@ class BotManager {
         const result = this.game.economy.build(bot, tile, buildingType, this.game.now(), this.game);
         if (result.ok) {
           this.game.pushEvent({ kind: "buildStarted", playerId: bot.id, to: tile.id, buildingType, finishesAt: result.buildingActiveAt, at: this.game.now() });
+          this.react(bot, buildingType === "reedGuard" ? "Building defenses" : buildingType === "lilyFarm" ? "Growing the pond economy" : "Developing territory", tile.id);
         }
         return result.ok;
       }
@@ -1118,8 +1124,9 @@ class BotManager {
               : 0.38;
       const wantsPeace = bot.personality === "peaceful" || bot.personality === "loyalAlly";
       if ((targetStronger || commonEnemy || leaderThreat || wantsPeace) && Math.random() < chance) {
-        this.game.diplomacy.handle(this.game, bot, id, "requestAlliance");
-        return true;
+        const result = this.game.diplomacy.handle(this.game, bot, id, "requestAlliance");
+        if (result.ok) this.react(bot, "Seeking an alliance");
+        return result.ok;
       }
       return false;
     });
@@ -1288,7 +1295,24 @@ class BotManager {
     if (!border) return false;
     const result = this.game.combat.defend(bot, border.id, bot.personality === "defensive" ? 0.26 : bot.difficulty === "easy" ? 0.16 : 0.2, now);
     bot.aiDefendCooldownUntil = now + (result.ok ? this.randomRange(this.difficultyProfile(bot).defenseCooldown, [12, 20]) : 4);
+    if (result.ok) this.react(bot, "Reinforcing a threatened border", border.id);
     return result.ok;
+  }
+
+  react(bot, message, tileId = null) {
+    const now = this.game.now();
+    if (!bot || !message || now < this.nextReactionAt || now < (bot.aiReactionMessageAt || 0)) return false;
+    this.nextReactionAt = now + 5;
+    bot.aiReactionMessageAt = now + 24 + Math.random() * 16;
+    this.game.pushEvent({
+      kind: "botReaction",
+      playerId: bot.id,
+      personality: bot.personality,
+      message,
+      to: tileId,
+      at: now,
+    });
+    return true;
   }
 
   botDefenseMistake(bot) {
