@@ -10,6 +10,7 @@ const path = require("path");
 const crypto = require("crypto");
 const zlib = require("zlib");
 const config = require("./shared/gameConfig");
+const releaseConfig = require("./shared/releaseConfig");
 const animals = require("./shared/animals");
 const balance = config.BALANCE;
 const progressionConfig = require("./shared/progressionConfig");
@@ -87,6 +88,7 @@ class PondFrontServerGame {
     this.finalTideAnnounced = false;
     this.finalTideActive = false;
     this.finalTideStartedAt = 0;
+    this.nextFinalTideCheckAt = 0;
     this.metrics = {
       attacks: 0,
       waveCaptures: 0,
@@ -1192,7 +1194,8 @@ class PondFrontServerGame {
     const playable = this.tileManager.playable().length || 1;
     this.players.forEach((player) => {
       if (!player || player.defeated || player.flags?.lastStandUsed || player.territory <= 0) return;
-      const ownedTiles = this.ownedTileCount(player);
+      // Economy recalculates this authoritative count immediately before survival checks.
+      const ownedTiles = Math.max(0, Number(player.territory || 0));
       const territoryPct = ownedTiles / playable;
       player.stats.territoryPeak = Math.max(player.stats.territoryPeak || 0, ownedTiles);
       const lostGround = ownedTiles < Math.max(balance.lastStandTriggerTiles || 10, (player.stats.territoryPeak || ownedTiles) * 0.55);
@@ -1234,6 +1237,9 @@ class PondFrontServerGame {
 
   updateFinalTideState() {
     if (this.ended || this.matchSettings?.sandbox?.enabled) return false;
+    const now = this.now();
+    if (now < this.nextFinalTideCheckAt) return this.finalTideActive;
+    this.nextFinalTideCheckAt = now + 1;
     const state = this.winCheckState();
     const contenders = this.teamManager?.active() ? state.aliveTeams : state.alivePlayers;
     const count = contenders.length;
@@ -1868,6 +1874,9 @@ async function handleRequest(req, res) {
     sendJson(res, 200, {
       ok: true,
       name: "PondFront.io",
+      version: releaseConfig.CURRENT.version,
+      update: releaseConfig.CURRENT.label,
+      release: releaseConfig.CURRENT.title,
       uptime: Math.round(process.uptime()),
     });
     return;

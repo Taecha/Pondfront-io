@@ -1,212 +1,273 @@
 # PondFront.io
 
-PondFront.io is an original animal-themed real-time territory strategy prototype in development. Players lead pond animals across a giant lake, expand tile by tile, spend Animal Energy on committed attack waves, build compact upgrades, form alliances, and fight to control the pond.
+**Update 1 — Full Public Release**
 
-The game is inspired by the broad strategy-game idea of territory expansion, borders, energy economy, diplomacy, bots, and domination. It does not use or copy OpenFront.io assets, code, branding, names, sounds, or UI.
+PondFront.io is a server-authoritative animal territory strategy game set across living ponds, lakes, rivers, and wetlands. Choose an animal faction, expand your habitat, build structures, manage Animal Energy, use unique abilities, form alliances, and compete to become the final surviving species.
 
-## Current Features
+The game takes inspiration from the broad real-time territory strategy genre, including OpenFront.io. PondFront.io uses its own animal factions, pond rules, interface, visuals, names, sounds, and code.
 
-- Five playable animals: Duck, Snake, Frog, Turtle, and Carp.
-- Server-authoritative map ownership, energy, combat, bots, diplomacy, buildings, objectives, and win checks.
-- Canvas strategy map with zoom, pan, minimap, clean borders, region names, water texture, sparse terrain accents, and optional decorations.
-- Animal Energy economy with territory income, max energy scaling, lily income, buildings, and defensive spending.
-- No-cooldown normal border attacks: Bite, Push, Wave, and Max spend energy immediately and push until spent.
-- Special cooldown actions still exist for animal abilities, Current Push, diplomacy/pings, reinforce, and construction.
-- Same-target attack merging so repeated hits feed an active wave instead of cluttering the map.
-- Frontline combat, weakened borders, reinforcement, terrain defense, contested waves, Current Push, and bot attacks.
-- Diplomacy with alliances, peace, enemy marking, warnings, support, betrayal timers, and team/co-op modes.
-- Lobby system with solo, practice, sandbox, private lobbies, map size, bot difficulty, and team settings.
-- Player accounts, Google/Discord sign-in, linked accounts, profiles, XP, badges, achievements, match history, missions, and local persistence.
-- Pond specials: Lily Barrage, Dragonfly Guard, and Reed Shield, with server-side costs, cooldowns, targeting, and counterplay.
-- Smarter bot personalities, including Expander, Defender, Fighter, Objective Hunter, Leader Hunter, and Supporter behavior.
-- First-match tutorial and compact coach hints for expansion, attacking, building, defense, objectives, and specials.
-- Mobile support with tap controls, compact action cards, mobile attack buttons, safe-area UI, and touch-friendly sheets.
-- Settings for strategic view, animal visuals, audio, effect quality, coach hints, and a debug stats overlay.
+## About The Game
+
+Every match begins with an animal and a small habitat. Players claim connected neutral tiles to grow their income and maximum Animal Energy, then spend that energy on construction, reinforcement, abilities, specials, and committed border attacks. Terrain matters: open water, lily pads, reeds, mud, rocks, and nest zones create different routes and defensive positions.
+
+The server owns territory, energy, combat results, buildings, bots, diplomacy, cooldowns, objectives, progression, and victory checks. The browser sends player intentions and renders the accepted state on a responsive Canvas map.
+
+## Key Features
+
+- Five playable factions: Duck, Snake, Frog, Turtle, and Carp.
+- Connected territory expansion with visible costs and server validation.
+- Animal Energy economy based on habitat size, terrain, buildings, and faction perks.
+- Committed frontline attacks with Bite, Push, Wave, and Max energy sends.
+- Reinforcement, terrain defense, Current Push, and three counterable pond specials.
+- Constructible Nests, Lily Farms, Reed Guards, Mud Tunnels, and Jump Pads.
+- Alliances, peace requests, enemy marking, warnings, support, and betrayal timers.
+- Server-controlled bots with multiple difficulty levels and strategic personalities.
+- Classic Elimination, Golden Lily Control, Flood Survival, Last Nest, Co-op, Team Battle, Practice, and Sandbox play.
+- Spawn selection, minimap, camera pan and zoom, strategy view, objectives, map events, and match results.
+- Guest play, local accounts, optional Google and Discord OAuth, profiles, XP, badges, achievements, missions, and match history.
+- Desktop and mobile controls with touch sheets, pinch zoom, safe-area layout, UI scaling, and low-performance presets.
+- Adaptive Web Audio ambience, spatial map feedback, distinct animal sounds, and a seven-channel mixer.
 
 ## How To Play
 
-1. Choose an animal and enter a match.
-2. Expand into neutral pond tiles to grow income and max Animal Energy.
-3. Build Nest, Lily Farm, Reed Guard, Mud Tunnel, or Jump Pad on owned tiles.
-4. Attack connected enemy borders by choosing Bite, Push, Wave, or Max.
-5. Reinforce important fronts and use terrain bonuses.
-6. Use animal abilities, Current Push, and pond specials at the right moment.
-7. Watch bot personalities and diplomacy before choosing enemies.
-8. Win by controlling the lake or outlasting the other animals/teams.
+1. Choose an animal and a game mode.
+2. Select a valid spawn area when the match requests one.
+3. Expand into connected neutral territory.
+4. Generate Animal Energy and keep enough in reserve.
+5. Build structures that improve income, capacity, defense, or mobility.
+6. Reinforce important borders before rival waves arrive.
+7. Attack a connected enemy border with an appropriate energy send.
+8. Use abilities, specials, and diplomacy at the right moment.
+9. Complete the selected mode objective or remain the final faction.
 
-## Animals
+The first match shows a short introduction. Coach hints continue on the map and can be disabled or reset in Settings.
 
-- Duck: beginner-friendly open-water expansion, higher max energy, Flock Rush.
-- Snake: reed and mud pressure, Ambush attack power, stronger defensive terrain play.
-- Frog: lily income and jump tactics, Big Leap neutral captures.
-- Turtle: strong borders and Shell Guard defense, slower but hard to break.
-- Carp: economy scaling through water and lily income, Golden Current growth window.
+## Animal Factions
 
-## Combat
+### Duck
 
-Normal border attacks do not use cooldowns. If the target is valid, connected, not allied, not protected by truce, and the player has enough Animal Energy, the server starts or merges a committed attack wave immediately.
+- Role: fast, beginner-friendly expansion.
+- Passive: cheaper and faster open-water growth with slightly higher capacity.
+- Ability: **Flock Rush**, a short open-water expansion and attack boost.
+- Weakness: less effective in reed fights.
 
-Attack pacing is controlled by:
+### Snake
 
-- Animal Energy spent.
-- Minimum useful attack energy.
-- Defender energy and tile defense.
-- Terrain and building bonuses.
-- Active wave limit.
-- Same-target energy merging.
-- Bot thinking intervals.
+- Role: ambush and defensive border control.
+- Passive: stronger pressure around reeds and mud.
+- Ability: **Ambush**, empowering the next valid reed or mud attack.
+- Weakness: slower open-water expansion.
 
-Current Push is different: it is a special long-range water-route attack and still has cooldown.
+### Frog
 
-## Specials
+- Role: mobility and objective tactics.
+- Passive: lily income and short gap-jump expansion.
+- Ability: **Big Leap**, capturing a nearby valid neutral cluster.
+- Weakness: lower open-water defense.
 
-- Lily Barrage: expensive long-range pressure that weakens a small enemy cluster and can capture a few undefended tiles.
-- Dragonfly Guard: anti-strike defense that reduces Lily Barrage and Current Push impact in a protected area.
-- Reed Shield: border defense that slows normal committed waves and slightly softens strike damage.
+### Turtle
 
-Specials are intentionally costly. Spending energy on a special can leave your borders weaker if the attack fails.
+- Role: durable borders and defensive control.
+- Passive: stronger borders with slower early expansion.
+- Ability: **Shell Guard**, temporarily slowing pressure against defended fronts.
+- Weakness: limited early growth speed.
 
-## Bots
+### Carp
 
-Bots are server-controlled and use difficulty profiles, reaction delays, mistakes, build choices, diplomacy, abilities, specials, and personalities. Easy bots expand and attack slowly. Normal bots are meant to feel fair. Hard and Chaos are more aggressive.
+- Role: economy scaling and water control.
+- Passive: stronger water and lily income with weaker defense.
+- Ability: **Golden Current**, briefly improving income for a larger follow-up play.
+- Weakness: vulnerable to early pressure.
 
-Selected bot info panels show animal, level, difficulty, personality, relationship, and strength estimate so rival behavior is easier to read.
+## Buildings
+
+- **Nest** increases maximum Animal Energy.
+- **Lily Farm** increases income and is especially efficient for Carp.
+- **Reed Guard** improves nearby border defense.
+- **Mud Tunnel** improves Snake movement through mud and reeds.
+- **Jump Pad** supports Frog mobility.
+
+Buildings require time to complete. Their cost scales through the shared building rules, and the server revalidates cost, ownership, terrain, construction state, and cooldown before accepting a build. Captured buildings transfer with their tile and enter a short conversion period.
+
+## Combat And Specials
+
+Normal border attacks spend energy immediately and do not use a general attack cooldown. A valid attack must be connected, hostile, permitted by diplomacy, and funded with enough Animal Energy. Repeated sends to the same valid front merge into the active wave.
+
+- **Bite**, **Push**, **Wave**, and **Max** commit increasing percentages of energy.
+- **Current Push** is a cooldown-based water-route attack.
+- **Lily Barrage** pressures a small distant enemy cluster after a warning.
+- **Dragonfly Guard** protects an area from Lily Barrage and Current Push.
+- **Reed Shield** strengthens a selected friendly border against normal waves.
+
+Every special is expensive, server-validated, cooldown-limited, and designed with counterplay.
+
+## Game Modes
+
+- **Classic Elimination**: the final valid faction or team wins.
+- **Golden Lily Control**: hold Golden Lilies to reach the score target.
+- **Flood Survival**: endure the configured flood waves.
+- **Last Nest**: protect your Core Nest and capture opposing cores.
+- **Solo**: one player against server-controlled animals.
+- **Co-op Team**: human teammates share the survival objective.
+- **Team Battle**: configured teams compete under the selected rules.
+- **Practice**: private bot match with low pressure.
+- **Sandbox**: testing controls with progression disabled.
+
+Modes marked Coming Soon in the interface are intentionally disabled and rejected by the server.
 
 ## Controls
 
-- Left click or tap a tile to select it.
-- Drag or pan to move around the map.
-- Mouse wheel or zoom buttons to zoom.
-- Click Expand, Attack, Defend, Build, Ability, Special, or Current Push after selecting a tile.
-- Right click enemy/player territory for diplomacy and signals.
-- On mobile, tap a tile and use the compact action card.
-- Open Settings to change view mode, effects, audio, coach hints, UI scale, or debug stats.
+### Desktop
 
-## Run Locally
+- Left click a tile to select it.
+- Double-click a valid neutral border to expand, or an owned border to reinforce.
+- Drag the map or use `WASD` / arrow keys to pan.
+- Use the mouse wheel or zoom controls to zoom.
+- Use the bottom action bar for energy percentage, expansion, attacks, defense, buildings, abilities, and specials.
+- Right-click territory for contextual diplomacy and territory commands.
+- Press `Escape` to close an open dialog or sheet.
 
-Install Node.js 22 or newer, then run:
+### Mobile
+
+- Tap a tile to select it and use the compact action card.
+- Double-tap a valid neutral border to expand, or an owned border to reinforce.
+- Drag to pan and pinch to zoom.
+- Long-press for contextual actions.
+- Open More for buildings, specials, diplomacy, and secondary commands.
+
+## Technology And Architecture
+
+- Node.js HTTP server and authoritative match simulation.
+- Canvas 2D client map renderer with camera, minimap, interpolation, and pooled effects.
+- Shared CommonJS/browser configuration modules for costs, factions, modes, maps, objectives, releases, and balance rules.
+- Server managers for tiles, economy, combat, bots, diplomacy, teams, buildings, specials, objectives, events, spawns, modes, accounts, and progression.
+- SQLite persistence for accounts, sessions, profiles, achievements, badges, and history.
+- Cookie-backed authenticated sessions with request validation, rate limits, security headers, and OAuth state checks.
+- Web Audio synthesis with adaptive music states, spatial attenuation, randomized ambience, cooldowns, and simultaneous-voice limits.
+
+## Running Locally
+
+### Requirements
+
+- Node.js 22 or newer.
+- A modern browser with Canvas, Fetch, Pointer Events, and Web Audio support.
+
+### Start
+
+This project currently has no required third-party runtime packages. From the project folder, run:
 
 ```bash
 npm start
 ```
 
-Open:
+Then open:
 
 ```text
 http://localhost:5173/
 ```
 
-If `localhost refused to connect`, the server is not running. Start it again with `npm start` from this folder.
+`npm run dev` currently starts the same local server. On Windows, `Open PondFront.bat` or `Start-PondFront.ps1` starts the game and opens the browser.
 
-## Google And Discord Sign-In
+### Environment Variables
 
-PondFront uses server-side OAuth authorization-code flows. Players authenticate on Google or Discord; PondFront never receives provider passwords and does not retain provider access tokens.
+Copy `.env.example` to `.env` when accounts or deployment settings are needed. Important variables are:
 
-1. Duplicate `.env.example` as `.env` for local development.
-2. Generate a long random `SESSION_SECRET`.
-3. In Google Cloud, create an OAuth 2.0 **Web application** and add this exact authorized redirect URI:
+- `APP_BASE_URL`: public origin without a trailing slash.
+- `SESSION_SECRET`: private random session secret, at least 32 bytes in production.
+- `TRUST_PROXY`: set to `1` behind a trusted HTTPS reverse proxy.
+- `PONDFRONT_DB`: SQLite database path; use a persistent disk in production.
+- `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `GOOGLE_CALLBACK_URL`: optional Google OAuth configuration.
+- `DISCORD_CLIENT_ID`, `DISCORD_CLIENT_SECRET`, `DISCORD_CALLBACK_URL`: optional Discord OAuth configuration.
 
-```text
-http://localhost:5173/api/auth/oauth/google/callback
-```
+OAuth buttons remain disabled when their provider is not configured. Never commit `.env` or provider secrets.
 
-4. In the Discord Developer Portal, create an application, open OAuth2, and add this exact redirect URI:
-
-```text
-http://localhost:5173/api/auth/oauth/discord/callback
-```
-
-5. Put the client IDs and secrets in `.env`, then restart `npm start`.
-
-Only basic identity scopes are requested: Google `openid email profile`, and Discord `identify email`. Missing credentials leave that provider button disabled without stopping the game. Never commit `.env`; it is ignored by Git.
-
-For Render, set the same variables in **Environment** and replace every localhost value with the service's exact HTTPS origin. For example:
-
-```text
-APP_BASE_URL=https://your-pondfront.onrender.com
-GOOGLE_CALLBACK_URL=https://your-pondfront.onrender.com/api/auth/oauth/google/callback
-DISCORD_CALLBACK_URL=https://your-pondfront.onrender.com/api/auth/oauth/discord/callback
-```
-
-Register those exact production callback URLs with Google and Discord too. Callback origins that differ from `APP_BASE_URL` are rejected.
-
-### Render account persistence
-
-Render's free web-service filesystem is ephemeral, so a SQLite account database on the free plan can disappear after a spin-down, restart, or deploy. This is a platform limitation, not a session-cookie setting. See the official [Render free service documentation](https://render.com/docs/free#local-files-lost-on-redeploy) and [persistent disk documentation](https://render.com/docs/disks).
-
-For durable SQLite accounts, upgrade the web service, mount a persistent disk at `/var/data`, and set:
-
-```text
-PONDFRONT_DB=/var/data/pondfront.db
-```
-
-Keep the generated `SESSION_SECRET` unchanged. Alternatively, migrate account storage to a durable relational database. Do not treat free-plan SQLite as permanent profile storage.
-
-## Deploy From GitHub
-
-GitHub Pages cannot run the full game because PondFront.io needs a Node server for matchmaking, bots, combat, and accounts.
-
-Use GitHub as the code home, then deploy to a Node host such as Render, Railway, Fly.io, or another service that can run:
-
-```bash
-npm start
-```
-
-Render setup:
-
-1. Create a new GitHub repository.
-2. Upload or push this `pondfront` folder, including `public`, `server`, `shared`, `data`, `package.json`, and `server.js`.
-3. Create a Render Web Service from the GitHub repo.
-4. Use build command `npm install`.
-5. Use start command `npm start`.
-6. Use health check path `/health`.
-7. Open the public Render URL after deploy.
-
-## Project Layout
-
-```text
-server.js                 Node web server, match loop, API routes
-public/                   Browser UI, Canvas renderer, controls, VFX, audio
-server/                   Server-authoritative gameplay managers
-shared/                   Shared animals, combat, map, balance, bot configs
-scripts/                  Simulation and balance checks
-data/                     Local account/profile persistence
-docs/screenshots/         Screenshot placeholders and capture notes
-```
-
-Key files:
-
-- `server/BotManager.js` - bot pacing, personalities, skirmishes, diplomacy, and surrender rules.
-- `server/CombatManager.js` - expansion, committed attacks, defense, Current Push, and ability combat.
-- `server/SpecialManager.js` - Lily Barrage, Dragonfly Guard, and Reed Shield validation/effects.
-- `public/ui.js` - lobby, panels, mobile action cards, coach hints, settings, and debug stats.
-- `public/render.js` and `public/vfx.js` - Canvas rendering, strategic map visuals, particles, and feedback.
-- `shared/balanceConfig.js`, `shared/botDifficultyConfig.js`, and `shared/specialConfig.js` - tuning values.
-
-## Screenshots
-
-Add screenshots to `docs/screenshots/` when you want a visual README.
-
-- `docs/screenshots/lobby.png` - polished lobby and animal selection.
-- `docs/screenshots/strategy-map.png` - clean territory map with borders.
-- `docs/screenshots/combat-wave.png` - committed energy wave attacking a border.
-- `docs/screenshots/mobile.png` - mobile action card and attack buttons.
-- `docs/screenshots/sandbox.png` - sandbox testing tools.
-
-## Developer Checks
+### Validation
 
 ```bash
 npm run check
-npm run test:accounts
-npm run test:oauth
-npm run simulate:balance
+npm run test:critical-systems
+npm run test:mobile
+npm run test:release-rules
+npm run test:update-one
 ```
 
-## Roadmap Ideas
+Additional focused tests are available in `package.json` for lobbies, accounts, OAuth, spawn selection, game modes, security, maps, living-world effects, and long-match stability.
 
-- More lake maps and biome layouts.
-- Match replay viewer.
-- More readable team battle overlays.
-- Ranked/custom lobby settings.
-- More animal cosmetics, badges, and seasonal pond events.
-- More tutorial missions and post-match analytics.
+### Production
+
+The app does not require a separate client build step. The Node server serves `public/` and `shared/` directly. The included `render.yaml` uses:
+
+```text
+Build: npm install
+Start: npm start
+Health: /health
+```
+
+Production deployments must set a strong `SESSION_SECRET`, the correct HTTPS `APP_BASE_URL`, trusted-proxy behavior, and persistent storage. Free hosts with ephemeral filesystems will not retain SQLite data after redeploys.
+
+## Project Structure
+
+```text
+public/    Browser UI, Canvas rendering, audio, controls, and effects
+server/    Authoritative game, account, persistence, lobby, and bot managers
+shared/    Configuration and formulas used by both server and browser
+scripts/   Regression, QA, balance, security, mobile, and stability tests
+data/      Local runtime data such as the SQLite database
+docs/      Supporting design and audit documentation
+server.js  HTTP routes, sessions, lobby transport, and match orchestration
+```
+
+## Screenshots
+
+Release screenshots are planned for the repository gallery. Until they are added, launch the local game to view the lobby, spawn selection, main strategy map, mobile action dock, and results screen directly.
+
+## Update History
+
+### Update 1 — Full Public Release
+
+- Added a shared release/version source, launch presentation, live server status, rotating tips, Updates tab, unread badge, and Credits.
+- Improved lobby navigation, animal comparisons, tutorial access, and mobile release panels.
+- Added a complete audio mixer with environment, animals, combat, buildings, and UI routing; pond ambience; animal selection identities; adaptive music; and voice limits.
+- Corrected stale version wording, lobby Settings access, tutorial replay, building audio routing, and health response metadata.
+- Preserved the existing authoritative gameplay balance while expanding regression coverage.
+
+The exact in-game changelog is stored in `shared/releaseConfig.js`. Future labels such as Update 1.01, Update 1.02, and later entries can be added there without rebuilding the release interface.
+
+## Roadmap
+
+These are ideas, not completed features:
+
+- More verified map themes and spectator tools.
+- Additional licensed wildlife recordings and biome sound packs.
+- Improved reconnect recovery for interrupted live multiplayer sessions.
+- Optional external database adapters for multi-instance hosting.
+- Additional animal factions after balance testing.
+
+## Contributing
+
+Bug reports and focused improvement proposals are welcome. Keep changes scoped, preserve server authority, use the shared configuration modules instead of duplicating displayed values, and add a regression test when changing gameplay rules.
+
+Before proposing a change, run the relevant package tests and describe any intentional balance impact. Do not submit copied assets, branding, UI, sounds, or code from another game.
+
+## Bug Reports
+
+Include:
+
+- What happened and what you expected.
+- Exact steps to reproduce it.
+- Device, operating system, browser, and orientation.
+- Game mode, map, animal, and bot difficulty.
+- Whether you were a guest or signed-in player.
+- Screenshot or short video when useful.
+- Browser console error and server log excerpt, with private data removed.
+
+## Credits
+
+- Design, code, and pond world: PondFront.io project contributors.
+- Genre inspiration: real-time territory strategy games, including OpenFront.io.
+- Runtime technology: Node.js, Canvas 2D, Web Audio, and SQLite.
+- PondFront.io uses its own faction names, visuals, rules, sounds, and interface.
+
+## License
+
+`package.json` currently declares `UNLICENSED`. No open-source license has been selected. All rights are reserved unless the project owner publishes a separate license.
