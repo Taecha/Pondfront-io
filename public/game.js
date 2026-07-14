@@ -49,6 +49,7 @@
       this.resizeObserver = null;
       this.minimapPointerId = null;
       this.minimapShrinkTimer = null;
+      this.matchIntroTimer = null;
       this.pollTimer = null;
       this.lobbyPollTimer = null;
       this.lobbySession = null;
@@ -521,11 +522,17 @@
         delta: Boolean(options.delta),
         changedTiles: options.changedTiles || [],
       });
+      if (state.phase === "PLAYING" && previousPhase && previousPhase !== "PLAYING") this.playMatchIntro(state);
       if (state.phase === "SPAWN_SELECTION" && previousPhase !== "SPAWN_SELECTION") this.renderer.fit(true);
       if (state.phase !== "SPAWN_SELECTION" && state.phase !== "COUNTDOWN") this.spawnInspection = null;
       const newEvents = state.events.filter((event) => !this.seenEventIds.has(event.id));
       state.events.forEach((event) => this.seenEventIds.add(event.id));
-      this.audio?.addEvents(newEvents, state);
+      this.audio?.addEvents(newEvents, state, {
+        camera: this.renderer.camera,
+        width: this.canvas.clientWidth,
+        height: this.canvas.clientHeight,
+        baseTile: this.renderer.baseTile,
+      });
       this.renderer.addEvents(newEvents);
       this.pruneSelection();
       if (!options.silent) this.showEventToasts(newEvents);
@@ -538,6 +545,16 @@
       this.clearRuntimeVisualReduction("settings changed", { silent: true });
       this.renderer.invalidateVisualCaches?.("settings changed");
       this.updateUi();
+    }
+
+    playMatchIntro(state) {
+      this.ui.showMatchIntro?.(state);
+      clearTimeout(this.matchIntroTimer);
+      if (this.ui.viewOptions?.().cameraEffects === false) return;
+      const human = state.players?.find((player) => player.id === state.humanId);
+      const targetTileId = human?.coreTileId ?? state.tiles?.find((tile) => tile.owner === state.humanId)?.id;
+      this.renderer.fit(true);
+      this.matchIntroTimer = setTimeout(() => this.renderer.animateToTile?.(targetTileId, 880, this.isTouchLayout() ? 0.76 : 0.9), 360);
     }
 
     restoreVisuals(payload = {}) {
@@ -568,6 +585,11 @@
         }
         if (event.kind === "ended") {
           this.ui.toast(event.message || "Match over.");
+          if (this.ui.viewOptions?.().cameraEffects !== false) {
+            const winner = this.player(event.winnerId || this.state?.winnerId);
+            const targetTileId = winner?.coreTileId ?? this.state?.tiles?.find((tile) => tile.owner === winner?.id)?.id;
+            if (targetTileId != null) this.renderer.animateToTile?.(targetTileId, 1200, Math.max(this.renderer.camera.zoom, 0.72));
+          }
         }
         if (event.kind === "profileRewards" && this.involvesHuman(event)) {
           this.ui.toast(event.message || `Saved rewards: +${event.xpGained || 0} XP.`);
@@ -689,6 +711,8 @@
     returnHome() {
       clearInterval(this.pollTimer);
       this.pollTimer = null;
+      clearTimeout(this.matchIntroTimer);
+      this.matchIntroTimer = null;
       this.clearLobbyPolling();
       this.lobbySession = null;
       this.saveLobbySession();

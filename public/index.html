@@ -3,22 +3,45 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>PondFront.io</title>
+    <title>PondFront.io — Update 1</title>
     <link rel="stylesheet" href="./style.css" />
   </head>
   <body>
+    <section id="launchScreen" class="launch-screen" aria-label="Loading PondFront.io">
+      <div class="launch-water" aria-hidden="true"><i></i><i></i><i></i></div>
+      <div class="launch-card">
+        <div class="launch-brand" aria-hidden="true">PF</div>
+        <span id="launchUpdateBadge" class="release-badge">Update 1</span>
+        <h1>PondFront.io</h1>
+        <p>A living pond. Five animal strategies. One habitat to command.</p>
+        <div class="launch-facts">
+          <span><small>Map</small><strong id="launchMap">Medium Lake</strong></span>
+          <span><small>Mode</small><strong id="launchMode">Classic Elimination</strong></span>
+          <span><small>Version</small><strong id="launchVersion">1.0.0</strong></span>
+        </div>
+        <div class="launch-progress" aria-hidden="true"><b></b></div>
+        <div class="launch-status-row"><span id="launchStatus" class="server-status checking">Connecting</span><span id="launchTip">Preparing the pond...</span></div>
+      </div>
+    </section>
     <main class="shell">
       <section id="startScreen" class="start-screen">
         <div class="lobby-bg" aria-hidden="true">
           <i></i>
           <i></i>
           <i></i>
+          <span class="lobby-leaf one"></span>
+          <span class="lobby-leaf two"></span>
+          <span class="lobby-fish one"></span>
+          <span class="lobby-fish two"></span>
+          <span class="lobby-dragonfly"></span>
+          <span class="lobby-bubbles"></span>
         </div>
         <div class="start-card lobby-card">
           <section class="lobby-hero">
             <p class="eyebrow">Real-time Pond Territory Strategy</p>
-            <h1>PondFront.io</h1>
+            <div class="release-title-row"><h1>PondFront.io</h1><span class="release-badge">Update 1</span></div>
             <p class="start-copy">Expand your pond empire, manage Animal Energy, form alliances, and be the last animal standing.</p>
+            <div class="release-status-line"><span id="lobbyServerStatus" class="server-status checking">Checking server</span><span id="lobbyVersion">Version 1.0.0</span></div>
             <div class="lobby-badges">
               <span>84x54 lake</span>
               <span>Animal powers</span>
@@ -76,6 +99,15 @@
               <button id="sandboxButton" class="secondary-button sandbox-lobby-button" type="button">Sandbox Mode</button>
               <button id="lobbyHelpButton" class="secondary-button" type="button">How to Play</button>
             </div>
+            <nav class="lobby-utility-nav" aria-label="PondFront menu">
+              <button id="lobbyAnimalButton" type="button">Animals</button>
+              <button id="lobbyCoopButton" type="button">Co-op</button>
+              <button id="lobbyAchievementsButton" type="button">Achievements</button>
+              <button id="lobbySettingsButton" type="button">Settings</button>
+              <button id="lobbyUpdatesButton" type="button">Updates <span id="newUpdateBadge" class="new-update-badge">New</span></button>
+              <button id="lobbyCreditsButton" type="button">Credits</button>
+              <button id="lobbyTutorialButton" type="button">Replay Tutorial</button>
+            </nav>
           </section>
 
           <section class="animal-select-panel">
@@ -161,9 +193,11 @@
                 <p id="selectedAnimalSummary">Duck is best for fast early expansion. Use Flock Rush to claim open water quickly before enemies reach your border.</p>
               </div>
               <dl id="selectedAnimalStats">
-                <dt>Ability</dt><dd>Flock Rush</dd>
+                <dt>Active</dt><dd>Flock Rush - 45s</dd>
+                <dt>Passive</dt><dd>Fast open-water expansion</dd>
                 <dt>Best Terrain</dt><dd>Open Water</dd>
                 <dt>Weakness</dt><dd>Reed fights</dd>
+                <dt>Playstyle</dt><dd>Beginner expansion</dd>
               </dl>
             </div>
 
@@ -847,8 +881,9 @@
             </div>
             <div class="right-panel-tabs" role="tablist" aria-label="Right panel">
               <button class="active" data-right-panel-tab="leaderboard" type="button">Leaders</button>
-              <button data-right-panel-tab="objectives" type="button">Objectives</button>
-              <button data-right-panel-tab="missions" type="button">Missions</button>
+              <button data-right-panel-tab="objectives" type="button" title="Lake objectives">Goals</button>
+              <button data-right-panel-tab="missions" type="button" title="Match missions">Tasks</button>
+              <button data-right-panel-tab="world" type="button">World</button>
             </div>
             <div class="panel leaderboard-panel right-tab-panel active" data-right-panel="leaderboard">
               <div class="panel-head-row">
@@ -874,6 +909,13 @@
               </div>
               <div id="missionList" class="compact-list"></div>
             </div>
+            <div class="panel world-panel right-tab-panel" data-right-panel="world">
+              <div class="panel-head-row">
+                <span class="label">World Activity</span>
+                <small id="worldAtmosphereStatus">Bright Day</small>
+              </div>
+              <div id="worldActivityList" class="compact-list" aria-live="polite"></div>
+            </div>
           </aside>
 
           <div id="toast" class="toast hidden"></div>
@@ -884,6 +926,11 @@
               <span id="coachHintText">Select a glowing neutral border tile, then Expand.</span>
             </div>
             <button id="coachHintClose" type="button" aria-label="Hide hint">OK</button>
+          </div>
+          <div id="matchIntroCard" class="match-intro-card hidden" aria-live="polite">
+            <span id="matchIntroMap">The pond awakens</span>
+            <strong id="matchIntroTitle">Factions entering the water</strong>
+            <small id="matchIntroMeta">Clear Water</small>
           </div>
           <div id="debugStatsPanel" class="debug-stats-panel hidden" aria-live="polite"></div>
           <section id="sandboxPanel" class="sandbox-panel hidden" aria-modal="true" role="dialog">
@@ -1024,6 +1071,8 @@
                   <label><input id="showAnimalAnimations" type="checkbox" checked /> Animal motion</label>
                   <label><input id="showBorderStatus" type="checkbox" checked /> Border status</label>
                   <label><input id="mapDecorations" type="checkbox" checked /> Decorations</label>
+                  <label><input id="livingWorld" type="checkbox" checked /> Living world</label>
+                  <label><input id="cameraEffects" type="checkbox" checked /> Camera effects</label>
                 </section>
                 <section class="settings-section">
                   <h3>Interface</h3>
@@ -1114,10 +1163,18 @@
                   <label><input id="musicEnabled" type="checkbox" checked /> Ambience</label>
                   <label><input id="uiSounds" type="checkbox" checked /> UI SFX</label>
                   <label><input id="muteAll" type="checkbox" /> Mute all</label>
+                  <label><input id="backgroundAudio" type="checkbox" /> Background audio</label>
+                  <label><input id="reducedSound" type="checkbox" /> Reduced sound mode</label>
+                  <label>Audio quality<select id="audioQuality"><option value="low">Low</option><option value="standard" selected>Standard</option><option value="high">High</option></select></label>
                   <label class="range-setting">Master <input id="masterVolume" type="range" min="0" max="1" step="0.05" value="0.72" /></label>
                   <label class="range-setting">SFX <input id="sfxVolume" type="range" min="0" max="1" step="0.05" value="0.78" /></label>
                   <label class="range-setting">Music <input id="musicVolume" type="range" min="0" max="1" step="0.05" value="0.28" /></label>
-                  <label class="range-setting">Ambient <input id="ambientVolume" type="range" min="0" max="1" step="0.05" value="1" /></label>
+                  <label class="range-setting">Environment <input id="ambientVolume" type="range" min="0" max="1" step="0.05" value="1" /></label>
+                  <label class="range-setting">Combat <input id="combatVolume" type="range" min="0" max="1" step="0.05" value="0.85" /></label>
+                  <label class="range-setting">Animals <input id="animalVolume" type="range" min="0" max="1" step="0.05" value="0.8" /></label>
+                  <label class="range-setting">Buildings <input id="buildingVolume" type="range" min="0" max="1" step="0.05" value="0.8" /></label>
+                  <label class="range-setting">UI <input id="uiVolume" type="range" min="0" max="1" step="0.05" value="0.75" /></label>
+                  <button id="resetTutorialButton" class="secondary-button" type="button">Reset Tutorial</button>
                 </section>
               </div>
             </div>
@@ -1159,17 +1216,23 @@
 
         <section id="tutorial" class="tutorial">
           <div>
-            <span class="label">Quick Start</span>
+            <span class="label">Welcome to PondFront.io</span>
             <h2 id="tutorialModeTitle">Be the last animal standing</h2>
+            <p>Choose an animal, grow your habitat, manage energy, and use your unique ability to become the final surviving faction.</p>
             <ol id="tutorialModeSteps">
-              <li>Click a glowing neutral border tile, then Expand.</li>
-              <li>Animal Energy grows with territory and special zones.</li>
-              <li>Use Bite, Push, Wave, or Max only on connected enemy borders.</li>
-              <li>Defend border tiles and build farms, nests, and guards.</li>
-              <li>Capture objectives, use specials carefully, and protect your Core Nest.</li>
-              <li>Control the pond or outlast the other animals to win.</li>
+              <li>Your selected animal has a passive perk and one active ability.</li>
+              <li>Select a glowing neutral border tile and press Expand.</li>
+              <li>The preview shows how much Animal Energy the expansion spends.</li>
+              <li>Energy regenerates from territory and income tiles.</li>
+              <li>Build a Lily Farm on a valid owned tile for more income.</li>
+              <li>Only connected border tiles can expand or attack.</li>
+              <li>Select a weak enemy border and start with a small Bite.</li>
+              <li>Use your animal ability when its cooldown is ready.</li>
+              <li>Select another player to request peace or an alliance.</li>
+              <li>Complete the mode objective or remain the final faction to win.</li>
             </ol>
-            <button id="closeTutorial" class="primary">Play</button>
+            <p class="tutorial-note">Coach hints will continue on the map and react to your next action.</p>
+            <div class="tutorial-actions"><button id="closeTutorial" class="primary">Start Guided Match</button><button id="skipTutorial" class="secondary-button" type="button">Skip</button></div>
           </div>
         </section>
 
@@ -1279,6 +1342,21 @@
       </section>
     </main>
 
+    <section id="releaseModal" class="release-modal hidden" aria-modal="true" role="dialog" aria-labelledby="releaseModalTitle">
+      <div class="release-card">
+        <header>
+          <div><span class="label">PondFront.io</span><h2 id="releaseModalTitle">Update 1</h2></div>
+          <button id="releaseModalClose" class="icon-button" type="button" aria-label="Close">X</button>
+        </header>
+        <nav class="release-tabs" aria-label="Release information">
+          <button class="active" data-release-tab="updates" type="button">Updates</button>
+          <button data-release-tab="credits" type="button">Credits</button>
+        </nav>
+        <div id="releaseModalBody" class="release-body"></div>
+      </div>
+    </section>
+
+    <script src="/shared/releaseConfig.js"></script>
     <script src="/shared/balanceConfig.js"></script>
     <script src="/shared/mapConfig.js"></script>
     <script src="/shared/gameConfig.js"></script>
@@ -1298,6 +1376,7 @@
     <script src="/shared/animalVisuals.js"></script>
     <script src="/shared/objectives.js"></script>
     <script src="/shared/lakeEvents.js"></script>
+    <script src="/shared/worldAtmosphereConfig.js"></script>
     <script src="/shared/actionConfig.js"></script>
     <script src="/shared/progressionConfig.js"></script>
     <script src="/shared/badgeConfig.js"></script>
@@ -1313,9 +1392,11 @@
     <script src="./profile.js"></script>
     <script src="./auth.js"></script>
     <script src="./vfx.js"></script>
+    <script src="./livingWorld.js"></script>
     <script src="./render.js"></script>
     <script src="./ui.js"></script>
     <script src="./sandboxPanel.js"></script>
     <script src="./game.js"></script>
+    <script src="./releaseUI.js"></script>
   </body>
 </html>

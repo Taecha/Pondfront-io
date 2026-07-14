@@ -9,6 +9,7 @@
       this.dpr = 1;
       this.baseTile = 26;
       this.camera = { x: 0, y: 0, zoom: 1 };
+      this.cameraMotion = null;
       this.eventAnims = [];
       this.ownerTransitions = new Map();
       this.pendingActions = new Map();
@@ -19,6 +20,7 @@
       this.lastVisibleTileCount = 0;
       this.activeColorVisionMode = "standard";
       this.vfx = root.PondVFX ? new root.PondVFX(this) : null;
+      this.livingWorld = root.PondLivingWorld ? new root.PondLivingWorld(this) : null;
       this.fitted = false;
       this.resize();
     }
@@ -56,6 +58,7 @@
       this.miniMapDirty = true;
       this.eventAnims = this.eventAnims.slice(-80);
       this.vfx?.trim?.();
+      this.livingWorld?.trim?.();
       this.lastVisualInvalidateReason = reason;
     }
 
@@ -73,6 +76,7 @@
           return !oldTile || oldTile.owner !== tile.owner || oldTile.type !== tile.type || oldTile.objectiveId !== tile.objectiveId || oldTile.campId !== tile.campId || oldTile.isCore !== tile.isCore;
         });
       this.state = state;
+      this.livingWorld?.setState?.(state);
       if (deltaMode) {
         deltaTiles.forEach((tile) => {
           const resolved = state.tiles[tile.id] || { ...(previousTileMap.get(tile.id) || {}), ...tile };
@@ -175,6 +179,7 @@
     }
 
     pan(dx, dy) {
+      this.cameraMotion = null;
       this.camera.x -= dx / this.camera.zoom;
       this.camera.y -= dy / this.camera.zoom;
       this.clampCamera();
@@ -185,6 +190,7 @@
     }
 
     zoomAtFactor(screenX, screenY, factor) {
+      this.cameraMotion = null;
       const before = this.screenToWorld(screenX, screenY);
       const next = Math.max(this.minZoom(), Math.min(this.maxZoom(), this.camera.zoom * factor));
       this.camera.zoom = next;
@@ -203,9 +209,39 @@
       if (!this.state || tileId == null) return;
       const tile = this.tileMap.get(tileId);
       if (!tile) return;
+      this.cameraMotion = null;
       this.camera.x = (tile.x + 0.5) * this.baseTile;
       this.camera.y = (tile.y + 0.5) * this.baseTile;
       this.clampCamera();
+    }
+
+    animateToTile(tileId, duration = 760, targetZoom = null) {
+      if (!this.state || tileId == null) return false;
+      const tile = this.tileMap.get(tileId);
+      if (!tile) return false;
+      this.cameraMotion = {
+        startedAt: performance.now(),
+        duration: Math.max(180, Number(duration || 760)),
+        from: { ...this.camera },
+        to: {
+          x: (tile.x + 0.5) * this.baseTile,
+          y: (tile.y + 0.5) * this.baseTile,
+          zoom: Math.max(this.minZoom(), Math.min(this.maxZoom(), Number(targetZoom || Math.max(this.camera.zoom, 0.82)))),
+        },
+      };
+      return true;
+    }
+
+    updateCameraMotion(now = performance.now()) {
+      const motion = this.cameraMotion;
+      if (!motion) return;
+      const raw = Math.max(0, Math.min(1, (now - motion.startedAt) / motion.duration));
+      const eased = raw < 0.5 ? 4 * raw * raw * raw : 1 - Math.pow(-2 * raw + 2, 3) / 2;
+      this.camera.x = motion.from.x + (motion.to.x - motion.from.x) * eased;
+      this.camera.y = motion.from.y + (motion.to.y - motion.from.y) * eased;
+      this.camera.zoom = motion.from.zoom + (motion.to.zoom - motion.from.zoom) * eased;
+      this.clampCamera();
+      if (raw >= 1) this.cameraMotion = null;
     }
 
     centerOnMiniMap(clientX, clientY) {
@@ -313,6 +349,7 @@
     }
 
     draw(options) {
+      this.updateCameraMotion(performance.now());
       const drawOptions = this.effectiveOptions(options);
       this.activeColorVisionMode = drawOptions.colorVisionMode || "standard";
       this.vfx?.configure({
@@ -321,6 +358,7 @@
         mapDecorations: drawOptions.mapDecorations,
         isMobile: Boolean(drawOptions.isMobile),
       });
+      this.livingWorld?.configure?.(drawOptions);
       const rect = this.drawingSize();
       const ctx = this.ctx;
       ctx.clearRect(0, 0, rect.width, rect.height);
@@ -567,6 +605,8 @@
       if (!cleanMode) this.drawTerrainEdges(ctx, visibleTiles, options);
       this.drawLakeEventArea(ctx, visibleTiles, options);
       if (!cleanMode) this.drawMapDecorations(ctx, visibleTiles, options);
+      if (!cleanMode) this.livingWorld?.drawGround?.(ctx, visibleTiles, options);
+      if (!cleanMode) this.livingWorld?.drawLighting?.(ctx, this.drawingSize(), options);
       visibleTiles.forEach((tile) => this.drawBorders(ctx, tile));
       if (!cleanMode) this.drawLocalGlow(ctx, visibleTiles);
       if (!cleanMode) this.drawRegionNames(ctx);
@@ -582,6 +622,7 @@
       this.drawActiveAttacks(ctx);
       this.drawSpecialOverlays(ctx);
       this.vfx?.draw(ctx);
+      if (!cleanMode) this.livingWorld?.drawForeground?.(ctx, visibleTiles, options);
       this.drawAnimalPresence(ctx, options);
       this.drawNames(ctx);
       ctx.restore();
@@ -825,6 +866,7 @@
 
     drawMapDecorations(ctx, visibleTiles, options) {
       if (!options.mapDecorations || options.visualQuality === "low" || this.camera.zoom < 0.42) return;
+      const now = performance.now();
       const ultra = options.visualQuality === "ultra";
       const high = options.visualQuality === "high" || ultra;
       const limit = options.isMobile ? 32 : ultra ? 170 : high ? 116 : 72;
@@ -854,7 +896,7 @@
           tile.type === "rock" ||
           typeInfo.blocks
         ) {
-          this.drawTerrainAccent(ctx, tile, p.x, p.y, size);
+          this.drawTerrainAccent(ctx, tile, p.x, p.y, size, now);
           drawn += 1;
         } else if (tile.owner && this.camera.zoom > 0.9) {
           const player = this.playerMap.get(tile.owner);
@@ -980,16 +1022,17 @@
       ctx.restore();
     }
 
-    drawTerrainAccent(ctx, tile, x, y, size) {
+    drawTerrainAccent(ctx, tile, x, y, size, now = performance.now()) {
       if (size < 10) return;
       const cx = x + size * this.tileNoise(tile.id + 25, 0.35, 0.68);
       const cy = y + size * this.tileNoise(tile.id + 31, 0.35, 0.68);
+      const sway = Math.sin(now * 0.00135 + tile.id * 0.71);
       ctx.save();
       if (tile.type === "lily") {
         ctx.globalAlpha = 0.52;
         ctx.fillStyle = "#baf2ac";
         ctx.beginPath();
-        ctx.ellipse(cx, cy, size * 0.12, size * 0.065, -0.35, 0, Math.PI * 2);
+        ctx.ellipse(cx + sway * size * 0.012, cy, size * 0.12, size * 0.065, -0.35 + sway * 0.04, 0, Math.PI * 2);
         ctx.fill();
       } else if (tile.type === "reeds") {
         ctx.globalAlpha = 0.42;
@@ -998,7 +1041,7 @@
         for (let i = -1; i <= 1; i += 1) {
           ctx.beginPath();
           ctx.moveTo(cx + i * size * 0.05, cy + size * 0.16);
-          ctx.quadraticCurveTo(cx + i * size * 0.03, cy, cx + i * size * 0.07, cy - size * 0.18);
+          ctx.quadraticCurveTo(cx + i * size * 0.03 + sway * size * 0.025, cy, cx + i * size * 0.07 + sway * size * 0.045, cy - size * 0.18);
           ctx.stroke();
         }
       } else if (tile.type === "mud" || tile.type === "nest") {
@@ -1022,7 +1065,7 @@
         for (let i = 0; i < 3; i += 1) {
           ctx.beginPath();
           ctx.arc(
-            cx + this.tileNoise(tile.id + i * 31, -0.14, 0.14) * size,
+            cx + this.tileNoise(tile.id + i * 31, -0.14, 0.14) * size + sway * size * (0.008 + i * 0.004),
             cy + this.tileNoise(tile.id + i * 37, -0.1, 0.1) * size,
             size * 0.055,
             0,
@@ -2538,8 +2581,24 @@
       const fill = visual.badge || ownerColor;
       const accent = visual.accent || "#edf8fb";
       const now = performance.now();
+      const serverNow = Number(this.state?.serverTime || 0);
+      const player = options.player || {};
+      const threatened = Number(player.flags?.underAttackUntil || 0) > serverNow;
+      const retreating = threatened && Number(player.energy || 0) < Math.max(1, Number(player.maxEnergy || 1)) * 0.18;
+      const abilityActive = Number(player.abilityActiveUntil || 0) > serverNow;
+      const victorious = Boolean(this.state?.ended && this.state?.winnerId === player.id);
       const wobble = options.animate ? Math.sin(now * 0.003 + (options.seed || 0)) * radius * 0.12 : 0;
+      const recoil = options.animate && threatened ? Math.sin(now * 0.026 + (options.seed || 0)) * radius * 0.13 : 0;
       ctx.save();
+      ctx.translate(recoil - (retreating ? radius * 0.12 : 0), victorious ? Math.sin(now * 0.006) * radius * 0.12 : 0);
+      if (abilityActive || victorious) {
+        ctx.globalAlpha = victorious ? 0.5 : 0.28;
+        ctx.strokeStyle = victorious ? "#f6dc79" : accent;
+        ctx.lineWidth = Math.max(1, radius * 0.12);
+        ctx.beginPath();
+        ctx.arc(x, y, radius * (1.28 + Math.sin(now * 0.006) * 0.08), 0, Math.PI * 2);
+        ctx.stroke();
+      }
       ctx.globalAlpha = 0.62;
       ctx.fillStyle = "rgba(210, 247, 250, 0.13)";
       ctx.beginPath();
@@ -2568,6 +2627,24 @@
         ctx.stroke();
       }
       this.drawAnimalBadge(ctx, animalId, x, y + wobble, radius, ownerColor, { compact: false });
+      if (threatened) {
+        ctx.globalAlpha = 0.58;
+        ctx.strokeStyle = "#ef8d82";
+        ctx.lineWidth = Math.max(1, radius * 0.12);
+        ctx.beginPath();
+        ctx.arc(x, y + wobble, radius * 1.08, -1.25, -0.2);
+        ctx.stroke();
+      }
+      if (victorious) {
+        ctx.globalAlpha = 0.78;
+        ctx.fillStyle = "#f6dc79";
+        for (let i = 0; i < 3; i += 1) {
+          const angle = now * 0.0015 + i * (Math.PI * 2 / 3);
+          ctx.beginPath();
+          ctx.arc(x + Math.cos(angle) * radius * 1.38, y + Math.sin(angle) * radius * 0.72, Math.max(1.2, radius * 0.1), 0, Math.PI * 2);
+          ctx.fill();
+        }
+      }
       ctx.restore();
     }
 

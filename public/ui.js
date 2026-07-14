@@ -9,6 +9,8 @@
       terrain: "Open Water",
       weakness: "Reed fights",
       strategy: "Beginner friendly expansion",
+      passive: "Faster, cheaper open-water growth",
+      difficulty: "Easy",
     },
     snake: {
       name: "Snake",
@@ -19,6 +21,8 @@
       terrain: "Reeds and Mud",
       weakness: "Open water speed",
       strategy: "Defensive ambush control",
+      passive: "Reed and mud attack defense",
+      difficulty: "Medium",
     },
     frog: {
       name: "Frog",
@@ -29,6 +33,8 @@
       terrain: "Lily Pads",
       weakness: "Open water defense",
       strategy: "Objective tactics",
+      passive: "Bonus lily income and gap jumps",
+      difficulty: "Medium",
     },
     turtle: {
       name: "Turtle",
@@ -39,6 +45,8 @@
       terrain: "Mud and defended borders",
       weakness: "Slow early expansion",
       strategy: "Defensive control",
+      passive: "Tougher borders and core defense",
+      difficulty: "Easy / Medium",
     },
     carp: {
       name: "Carp",
@@ -49,6 +57,8 @@
       terrain: "Open Water and Lily Pads",
       weakness: "Weak if rushed early",
       strategy: "Economy growth",
+      passive: "Stronger water and lily income",
+      difficulty: "Medium",
     },
   };
 
@@ -249,6 +259,8 @@
         objectiveCount: document.querySelector("#objectiveCount"),
         missionList: document.querySelector("#missionList"),
         missionCount: document.querySelector("#missionCount"),
+        worldActivityList: document.querySelector("#worldActivityList"),
+        worldAtmosphereStatus: document.querySelector("#worldAtmosphereStatus"),
         leaderboard: document.querySelector("#leaderboard"),
         leaderboardToggle: document.querySelector("#leaderboardToggle"),
         leaderboardExpandButton: document.querySelector("#leaderboardExpandButton"),
@@ -260,6 +272,10 @@
         coachHintTitle: document.querySelector("#coachHintTitle"),
         coachHintText: document.querySelector("#coachHintText"),
         coachHintClose: document.querySelector("#coachHintClose"),
+        matchIntroCard: document.querySelector("#matchIntroCard"),
+        matchIntroMap: document.querySelector("#matchIntroMap"),
+        matchIntroTitle: document.querySelector("#matchIntroTitle"),
+        matchIntroMeta: document.querySelector("#matchIntroMeta"),
         debugStatsPanel: document.querySelector("#debugStatsPanel"),
         percentRow: document.querySelector(".percent-row"),
         attackStyleRow: document.querySelector(".attack-style-row"),
@@ -292,6 +308,8 @@
         restoreBalancedButton: document.querySelector("#restoreBalancedButton"),
         particlesLevel: document.querySelector("#particlesLevel"),
         mapDecorations: document.querySelector("#mapDecorations"),
+        livingWorld: document.querySelector("#livingWorld"),
+        cameraEffects: document.querySelector("#cameraEffects"),
         floatingText: document.querySelector("#floatingText"),
         attackArrows: document.querySelector("#attackArrows"),
         abilityEffects: document.querySelector("#abilityEffects"),
@@ -319,8 +337,17 @@
         sfxVolume: document.querySelector("#sfxVolume"),
         musicVolume: document.querySelector("#musicVolume"),
         ambientVolume: document.querySelector("#ambientVolume"),
+        combatVolume: document.querySelector("#combatVolume"),
+        animalVolume: document.querySelector("#animalVolume"),
+        buildingVolume: document.querySelector("#buildingVolume"),
+        uiVolume: document.querySelector("#uiVolume"),
+        backgroundAudio: document.querySelector("#backgroundAudio"),
+        reducedSound: document.querySelector("#reducedSound"),
+        audioQuality: document.querySelector("#audioQuality"),
+        resetTutorialButton: document.querySelector("#resetTutorialButton"),
         tutorial: document.querySelector("#tutorial"),
         closeTutorial: document.querySelector("#closeTutorial"),
+        skipTutorial: document.querySelector("#skipTutorial"),
         resultScreen: document.querySelector("#resultScreen"),
         resultTitle: document.querySelector("#resultTitle"),
         resultSummary: document.querySelector("#resultSummary"),
@@ -417,7 +444,8 @@
       this.nodes.animalChoices.forEach((button) => {
         button.addEventListener("click", () => {
           this.audio?.unlock();
-          this.audio?.play("click", { ui: true });
+          const selected = button.dataset.animal;
+          this.audio?.play(`select${selected.charAt(0).toUpperCase()}${selected.slice(1)}`, { category: "animal", cooldown: 180 });
           this.selectedAnimal = button.dataset.animal;
           this.nodes.animalChoices.forEach((candidate) => candidate.classList.toggle("selected", candidate === button));
           this.updateLobbyAnimal();
@@ -609,6 +637,22 @@
       this.nodes.closeTutorial.addEventListener("click", () => {
         this.nodes.tutorial.classList.add("hidden");
         localStorage.setItem("pondfront:tutorial", "done");
+        localStorage.removeItem("pondfront:coachHints");
+        if (this.nodes.showCoachHints) this.nodes.showCoachHints.checked = true;
+      });
+      this.nodes.skipTutorial?.addEventListener("click", () => {
+        this.nodes.tutorial.classList.add("hidden");
+        localStorage.setItem("pondfront:tutorial", "done");
+      });
+      this.nodes.resetTutorialButton?.addEventListener("click", () => {
+        localStorage.removeItem("pondfront:tutorial");
+        localStorage.removeItem("pondfront:coachHints");
+        if (this.nodes.showCoachHints) this.nodes.showCoachHints.checked = true;
+        this.audio?.play("confirm", { ui: true, cooldown: 0 });
+        this.nodes.resetTutorialButton.textContent = "Tutorial Ready For Next Match";
+        setTimeout(() => {
+          if (this.nodes.resetTutorialButton) this.nodes.resetTutorialButton.textContent = "Reset Tutorial";
+        }, 1800);
       });
       this.nodes.playAgain.addEventListener("click", () => this.emit("start", this.startPayload()));
       this.nodes.viewProfileFromResult?.addEventListener("click", () => this.emit("openProfile"));
@@ -640,6 +684,8 @@
       this.nodes.visualQuality?.addEventListener("change", () => this.emit("viewChanged"));
       this.nodes.particlesLevel?.addEventListener("change", () => this.emit("viewChanged"));
       this.nodes.mapDecorations?.addEventListener("change", () => this.emit("viewChanged"));
+      this.nodes.livingWorld?.addEventListener("change", () => this.emit("viewChanged"));
+      this.nodes.cameraEffects?.addEventListener("change", () => this.emit("viewChanged"));
       this.nodes.floatingText.addEventListener("change", () => this.emit("viewChanged"));
       this.nodes.attackArrows.addEventListener("change", () => this.emit("viewChanged"));
       this.nodes.abilityEffects?.addEventListener("change", () => this.emit("viewChanged"));
@@ -675,6 +721,13 @@
         this.nodes.sfxVolume,
         this.nodes.musicVolume,
         this.nodes.ambientVolume,
+        this.nodes.combatVolume,
+        this.nodes.animalVolume,
+        this.nodes.buildingVolume,
+        this.nodes.uiVolume,
+        this.nodes.backgroundAudio,
+        this.nodes.reducedSound,
+        this.nodes.audioQuality,
       ].forEach((node) => node?.addEventListener("input", () => this.updateAudioSettings()));
       this.nodes.mobileMuteButton?.addEventListener("click", () => {
         this.audio?.unlock();
@@ -685,7 +738,7 @@
       });
       document.addEventListener("pointerover", (event) => {
         if (!event.target.closest?.("button, select, input[type='range']")) return;
-        this.audio?.play("hover", { ui: true, cooldown: 85, volume: 0.55 });
+        this.audio?.play("hover", { ui: true, cooldown: 240, volume: 0.48 });
       });
       document.addEventListener("click", (event) => {
         if (!event.target.closest?.("button, select, input, label")) return;
@@ -882,7 +935,7 @@
     }
 
     setRightPanelTab(tab = "leaderboard") {
-      const allowed = ["leaderboard", "objectives", "missions"];
+      const allowed = ["leaderboard", "objectives", "missions", "world"];
       this.rightPanelTab = allowed.includes(tab) ? tab : "leaderboard";
       this.nodes.rightPanelTabs?.forEach((button) => button.classList.toggle("active", button.dataset.rightPanelTab === this.rightPanelTab));
       this.nodes.rightTabPanels?.forEach((panel) => panel.classList.toggle("active", panel.dataset.rightPanel === this.rightPanelTab));
@@ -904,6 +957,8 @@
         setValue(this.nodes.effectsLevel, "low");
         setValue(this.nodes.particlesLevel, "low");
         setChecked(this.nodes.mapDecorations, false);
+        setChecked(this.nodes.livingWorld, false);
+        setChecked(this.nodes.cameraEffects, false);
         setChecked(this.nodes.floatingText, false);
         setChecked(this.nodes.showAnimalAnimations, false);
         setChecked(this.nodes.screenShake, false);
@@ -914,6 +969,8 @@
         setValue(this.nodes.effectsLevel, "high");
         setValue(this.nodes.particlesLevel, "high");
         setChecked(this.nodes.mapDecorations, true);
+        setChecked(this.nodes.livingWorld, true);
+        setChecked(this.nodes.cameraEffects, true);
         setChecked(this.nodes.floatingText, true);
         setChecked(this.nodes.showAnimalAnimations, true);
         setChecked(this.nodes.screenShake, true);
@@ -923,6 +980,8 @@
         setValue(this.nodes.effectsLevel, "ultra");
         setValue(this.nodes.particlesLevel, "ultra");
         setChecked(this.nodes.mapDecorations, true);
+        setChecked(this.nodes.livingWorld, true);
+        setChecked(this.nodes.cameraEffects, true);
         setChecked(this.nodes.floatingText, true);
         setChecked(this.nodes.showAnimalAnimations, true);
         setChecked(this.nodes.screenShake, true);
@@ -932,6 +991,8 @@
         setValue(this.nodes.effectsLevel, "medium");
         setValue(this.nodes.particlesLevel, "medium");
         setChecked(this.nodes.mapDecorations, true);
+        setChecked(this.nodes.livingWorld, true);
+        setChecked(this.nodes.cameraEffects, true);
         setChecked(this.nodes.floatingText, true);
         setChecked(this.nodes.showAnimalAnimations, true);
         setChecked(this.nodes.screenShake, true);
@@ -961,6 +1022,13 @@
       if (this.nodes.sfxVolume) this.nodes.sfxVolume.value = settings.sfxVolume;
       if (this.nodes.musicVolume) this.nodes.musicVolume.value = settings.musicVolume;
       if (this.nodes.ambientVolume) this.nodes.ambientVolume.value = settings.ambientVolume ?? 1;
+      if (this.nodes.combatVolume) this.nodes.combatVolume.value = settings.combatVolume ?? 0.85;
+      if (this.nodes.animalVolume) this.nodes.animalVolume.value = settings.animalVolume ?? 0.8;
+      if (this.nodes.buildingVolume) this.nodes.buildingVolume.value = settings.buildingVolume ?? 0.8;
+      if (this.nodes.uiVolume) this.nodes.uiVolume.value = settings.uiVolume ?? 0.75;
+      if (this.nodes.backgroundAudio) this.nodes.backgroundAudio.checked = Boolean(settings.backgroundAudio);
+      if (this.nodes.reducedSound) this.nodes.reducedSound.checked = Boolean(settings.reducedSound);
+      if (this.nodes.audioQuality) this.nodes.audioQuality.value = settings.audioQuality || "standard";
       this.updateMuteButton();
     }
 
@@ -975,6 +1043,14 @@
         sfxVolume: Number(this.nodes.sfxVolume?.value ?? 0.78),
         musicVolume: Number(this.nodes.musicVolume?.value ?? 0.28),
         ambientVolume: Number(this.nodes.ambientVolume?.value ?? 1),
+        environmentVolume: Number(this.nodes.ambientVolume?.value ?? 1),
+        combatVolume: Number(this.nodes.combatVolume?.value ?? 0.85),
+        animalVolume: Number(this.nodes.animalVolume?.value ?? 0.8),
+        buildingVolume: Number(this.nodes.buildingVolume?.value ?? 0.8),
+        uiVolume: Number(this.nodes.uiVolume?.value ?? 0.75),
+        backgroundAudio: Boolean(this.nodes.backgroundAudio?.checked),
+        reducedSound: Boolean(this.nodes.reducedSound?.checked),
+        audioQuality: this.nodes.audioQuality?.value || "standard",
       });
       this.updateMuteButton();
     }
@@ -1482,12 +1558,15 @@
       if (this.nodes.selectedAnimalName) this.nodes.selectedAnimalName.textContent = `${info.name} - ${visual.role || info.strategy}`;
       if (this.nodes.selectedAnimalSummary) this.nodes.selectedAnimalSummary.textContent = `${info.summary} Visual identity: ${visual.mapPose || "pond animal marker"} with ${visual.attackMotif || "themed attacks"}.`;
       if (this.nodes.selectedAnimalStats) {
+        const animalRules = root.PondAnimals?.[this.selectedAnimal] || {};
         this.nodes.selectedAnimalStats.innerHTML = `
-          <dt>Ability</dt><dd>${this.escape(visual.ability || info.ability)}</dd>
+          <dt>Active</dt><dd>${this.escape(visual.ability || info.ability)} - ${this.escape(animalRules.cooldown || "?")}s</dd>
+          <dt>Passive</dt><dd>${this.escape(info.passive || animalRules.perk || "Terrain specialist")}</dd>
           <dt>Best Terrain</dt><dd>${this.escape(visual.terrain || info.terrain)}</dd>
           <dt>Weakness</dt><dd>${this.escape(visual.weakness || info.weakness)}</dd>
           <dt>Role</dt><dd>${this.escape(visual.role || info.strategy)}</dd>
-          <dt>Counterplay</dt><dd>${this.escape(visual.counterplay || "Play around its favorite terrain.")}</dd>
+          <dt>Difficulty</dt><dd>${this.escape(info.difficulty || "Medium")}</dd>
+          <dt>Playstyle</dt><dd>${this.escape(info.strategy)}</dd>
         `;
       }
     }
@@ -1640,12 +1719,14 @@
         !this.lastWorldPanelRenderAt ||
         now - this.lastWorldPanelRenderAt > 900 ||
         this.rightPanelTab === "objectives" ||
-        this.rightPanelTab === "missions";
+        this.rightPanelTab === "missions" ||
+        this.rightPanelTab === "world";
       if (refreshWorldPanels) {
         this.lastWorldPanelRenderAt = now;
         this.updateObjectives(state);
         this.updateMissions(state);
         this.updateLakeEvent(state);
+        this.updateWorldActivity(state);
       }
       this.updateCurrentPushWarning(state, human);
       this.updateLeaderboard(state);
@@ -2202,6 +2283,75 @@
           .join("") || `<p class="empty-list">Missions loading.</p>`;
     }
 
+    updateWorldActivity(state) {
+      if (!this.nodes.worldActivityList || !this.nodes.worldAtmosphereStatus) return;
+      const atmosphere = root.PondWorldAtmosphere?.atmosphereFor?.(state) || {
+        phase: { label: "Bright Day" },
+        weather: { label: "Clear Water" },
+      };
+      this.nodes.worldAtmosphereStatus.textContent = `${atmosphere.phase.label} | ${atmosphere.weather.label}`;
+      const important = (state.events || [])
+        .slice(-100)
+        .map((event) => this.worldActivityEntry(event, state))
+        .filter(Boolean)
+        .slice(-6)
+        .reverse();
+      const atmosphereRow = {
+        icon: atmosphere.weather.visual === "rain" || atmosphere.weather.visual === "storm" ? "R" : atmosphere.weather.visual === "fog" ? "F" : atmosphere.weather.visual === "wind" ? "W" : "S",
+        title: atmosphere.phase.label,
+        detail: `${atmosphere.weather.label}. Visual atmosphere only.`,
+        tone: "weather",
+      };
+      this.nodes.worldActivityList.innerHTML = [atmosphereRow, ...important]
+        .map(
+          (entry) => `<div class="world-activity-row ${this.escape(entry.tone || "")}">
+            <i>${this.escape(entry.icon || "P")}</i>
+            <span><b>${this.escape(entry.title)}</b><small>${this.escape(entry.detail || "")}</small></span>
+          </div>`,
+        )
+        .join("");
+    }
+
+    worldActivityEntry(event, state) {
+      if (!event) return null;
+      const player = (id) => state.players?.find((entry) => entry.id === id)?.name || "An animal";
+      const ago = event.at == null ? "" : `${Math.max(0, Math.round((state.serverTime || 0) - event.at))}s ago`;
+      if (event.kind === "diplomacy") {
+        const title = ["alliance", "allianceAccepted"].includes(event.subtype)
+          ? "Alliance formed"
+          : ["broken", "war"].includes(event.subtype)
+            ? "Pond relations changed"
+            : null;
+        if (!title) return null;
+        return { icon: "A", title, detail: event.message || `${player(event.playerId)} and ${player(event.targetId)}. ${ago}`, tone: event.subtype === "war" ? "danger" : "alliance" };
+      }
+      if (event.kind === "attackWave" && Number(event.amount || 0) >= 35) return { icon: "!", title: "Large border attack", detail: `${player(event.playerId)} committed ${Math.round(event.amount || 0)} energy. ${ago}`, tone: "danger" };
+      if (event.kind === "specialLaunch") return { icon: "*", title: event.label || "Pond special launched", detail: `${player(event.playerId)} changed the battle. ${ago}`, tone: "danger" };
+      if (event.kind === "buildUpgrade") return { icon: "B", title: "Building upgraded", detail: `${player(event.playerId)} improved pond infrastructure. ${ago}`, tone: "build" };
+      if (event.kind === "buildingCaptured") return { icon: "B", title: "Building captured", detail: event.message || `${player(event.newOwnerId)} claimed a building. ${ago}`, tone: "build" };
+      if (event.kind === "eliminated") return { icon: "X", title: "Animal eliminated", detail: event.message || `${player(event.playerId)} left the pond. ${ago}`, tone: "danger" };
+      if (event.kind === "lakeEventStarted") return { icon: "W", title: event.label || "Weather changed", detail: event.message || `${event.eventType || "Pond conditions"} began. ${ago}`, tone: "weather" };
+      if (event.kind === "objectiveCaptured") return { icon: "O", title: "Objective captured", detail: event.message || `${player(event.playerId)} secured an objective. ${ago}`, tone: "objective" };
+      if (event.kind === "botReaction") return { icon: "B", title: player(event.playerId), detail: `${event.message || "Watching the pond"}. ${ago}`, tone: "bot" };
+      if (event.kind === "ended") return { icon: "V", title: "Match decided", detail: event.message || `${player(event.winnerId)} controls the pond.`, tone: "victory" };
+      return null;
+    }
+
+    showMatchIntro(state) {
+      const card = this.nodes.matchIntroCard;
+      if (!card || !state) return;
+      clearTimeout(this.matchIntroTimer);
+      const atmosphere = root.PondWorldAtmosphere?.atmosphereFor?.(state) || { phase: { label: "Bright Day" }, weather: { label: "Clear Water" } };
+      const map = state.matchSettings?.map || {};
+      const contenders = (state.players || []).filter((player) => !player.defeated).slice(0, 5);
+      this.nodes.matchIntroMap.textContent = map.name || map.label || "PondFront Wetlands";
+      this.nodes.matchIntroTitle.textContent = contenders.map((player) => `${player.name} (${state.config?.animals?.[player.animal]?.label || player.animal})`).join(" | ") || "Factions entering the water";
+      this.nodes.matchIntroMeta.textContent = `${atmosphere.phase.label} | ${atmosphere.weather.label} | ${state.gameModeState?.label || "Classic Elimination"}`;
+      card.classList.remove("hidden", "leaving");
+      this.matchIntroTimer = setTimeout(() => card.classList.add("leaving"), 2200);
+      setTimeout(() => card.classList.add("hidden"), 2800);
+    }
+
     updateLakeEvent(state) {
       const active = state.lakeEvent?.active;
       const upcoming = !active ? state.lakeEvent?.upcoming : null;
@@ -2428,7 +2578,10 @@
     }
 
     toast(message, bad = false) {
-      this.stackToast(message, bad);
+      if (document.body.classList.contains("touch-layout")) {
+        this.stackToast(message, bad);
+        return;
+      }
       clearTimeout(this.toastTimer);
       this.nodes.toast.textContent = message;
       this.nodes.toast.classList.toggle("bad", bad);
@@ -2492,6 +2645,8 @@
         colorVisionMode: this.nodes.colorVisionMode?.value || "standard",
         visualQuality: batterySaver ? "low" : this.nodes.visualQuality?.value || "high",
         mapDecorations: !batterySaver && this.nodes.mapDecorations?.checked !== false,
+        livingWorld: !batterySaver && this.nodes.livingWorld?.checked !== false,
+        cameraEffects: !batterySaver && this.nodes.cameraEffects?.checked !== false,
         isMobile: this.isMobile(),
         batterySaver,
         effects: {
