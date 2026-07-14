@@ -1,5 +1,7 @@
 # PondFront.io
 
+**Current release: Update 1.01 - Living World & Settings Rework**
+
 **Update 1 — Full Public Release**
 
 PondFront.io is a server-authoritative animal territory strategy game set across living ponds, lakes, rivers, and wetlands. Choose an animal faction, expand your habitat, build structures, manage Animal Energy, use unique abilities, form alliances, and compete to become the final surviving species.
@@ -27,6 +29,26 @@ The server owns territory, energy, combat results, buildings, bots, diplomacy, c
 - Guest play, local accounts, optional Google and Discord OAuth, profiles, XP, badges, achievements, missions, and match history.
 - Desktop and mobile controls with touch sheets, pinch zoom, safe-area layout, UI scaling, and low-performance presets.
 - Adaptive Web Audio ambience, spatial map feedback, distinct animal sounds, and a seven-channel mixer.
+- Server-synchronized sunrise, day, sunset, night, weather, and per-match seasons with equal global effects.
+- Searchable, category-based Settings with draft Apply/Cancel behavior, import/export, and mobile-safe scrolling.
+
+## Living World
+
+The server chooses the current time phase, season, and weather state. Every connected client receives the same clock and modifier breakdown. The standard day cycle lasts 20 minutes; private, custom, and Sandbox hosts can choose a 16-24 minute cycle or fix a phase and season.
+
+- **Sunrise** improves construction and upgrade speed by 4%.
+- **Day** improves Lily Farm income by 4% and economy building income by 2%.
+- **Sunset** improves animal ability recovery by 4%.
+- **Night** improves territory defense by 4% and Reed Guard defense by 2%.
+- **Spring** favors farms and construction, **Summer** favors energy and ability costs, **Autumn** favors expansion, and **Winter** favors defense while slightly reducing farm income.
+
+World bonuses are server-authoritative and equal for all players. Combined bonuses are capped at 15% income, 15% defense, 10% expansion discount, 15% construction speed, and 10% cooldown improvement. The World Status HUD shows the live phase, season, weather, next transition, and numeric effects.
+
+## Settings
+
+Settings are stored in one versioned document. Opening Settings creates a draft: **Apply** saves and activates it, while **Cancel**, Escape, and closing the panel discard uncommitted changes. The desktop layout uses category navigation and one content scroller; mobile uses a full-screen one-column layout with safe-area padding and an always-visible action footer.
+
+Adaptive Quality is disabled by default. When enabled, it can temporarily reduce only nonessential rendering work during sustained low frame rate and automatically restores it after performance stabilizes. It never rewrites the player's chosen graphics settings.
 
 ## How To Play
 
@@ -120,7 +142,7 @@ Modes marked Coming Soon in the interface are intentionally disabled and rejecte
 ### Desktop
 
 - Left click a tile to select it.
-- Double-click a valid neutral border to expand, or an owned border to reinforce.
+- Double-click a valid neutral border to expand, an owned border to reinforce, or a connected enemy border to attack.
 - Drag the map or use `WASD` / arrow keys to pan.
 - Use the mouse wheel or zoom controls to zoom.
 - Use the bottom action bar for energy percentage, expansion, attacks, defense, buildings, abilities, and specials.

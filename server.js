@@ -28,6 +28,7 @@ const CoreManager = require("./server/CoreManager");
 const SpecialManager = require("./server/SpecialManager");
 const ObjectiveManager = require("./server/ObjectiveManager");
 const EventManager = require("./server/EventManager");
+const WorldManager = require("./server/WorldManager");
 const ProgressionManager = require("./server/ProgressionManager");
 const MissionManager = require("./server/MissionManager");
 const PondDatabase = require("./server/db");
@@ -52,6 +53,7 @@ const specialConfig = require("./shared/specialConfig");
 const spawnConfig = require("./shared/spawnConfig");
 const gameModeConfig = require("./shared/gameModeConfig");
 const modifierConfig = require("./shared/modifierConfig");
+const worldAtmosphereConfig = require("./shared/worldAtmosphereConfig");
 
 const ROOT = __dirname;
 const PUBLIC = path.join(ROOT, "public");
@@ -106,6 +108,7 @@ class PondFrontServerGame {
     this.wars = new Map();
     this.tileManager = new TileManager(Date.now() % 999999, this.matchSettings.map);
     this.tileManager.generate();
+    this.world = new WorldManager(this.matchSettings.world, this.matchId, (event) => this.pushEvent(event));
     this.objectives = new ObjectiveManager(this.tileManager, (event) => this.pushEvent(event));
     this.eventsManager = new EventManager((event) => this.pushEvent(event));
     this.progression = new ProgressionManager((event) => this.pushEvent(event));
@@ -238,6 +241,11 @@ class PondFrontServerGame {
     const surrenderMode = this.normalizeSurrenderMode(settings.surrenderMode ?? settings.allowSurrender);
     const defaultSpawnSeconds = spawnConfig.defaultSeconds({ mapSize, privateMatch, teamMode });
     const spawnSelectionSeconds = spawnConfig.sanitizeSeconds(settings.spawnSelectionSeconds, defaultSpawnSeconds, privateMatch || sandboxEnabled);
+    const world = worldAtmosphereConfig.sanitizeWorldSettings(settings.world || {}, {
+      privateMatch,
+      customMatch,
+      sandbox: sandboxEnabled,
+    });
     return {
       difficulty,
       botCount,
@@ -291,6 +299,7 @@ class PondFrontServerGame {
       startingEnergy: Math.max(30, Math.min(500, Number(settings.startingEnergy || 64))),
       eventFrequency: ["off", "low", "normal", "high"].includes(settings.eventFrequency) ? settings.eventFrequency : "normal",
       objectiveFrequency: ["off", "low", "normal", "high"].includes(settings.objectiveFrequency) ? settings.objectiveFrequency : "normal",
+      world,
       skipSpawnSelection: Boolean(settings.skipSpawnSelection),
       sandbox: sandboxEnabled
         ? {
@@ -565,6 +574,7 @@ class PondFrontServerGame {
         return;
       }
       if (this.phase !== spawnConfig.PHASES.PLAYING) return;
+      this.world?.update(this, effectiveDt);
       this.combat.update(this, effectiveDt);
       this.diplomacy.update(this);
       this.teamManager.update(this);
@@ -1097,6 +1107,7 @@ class PondFrontServerGame {
       objectives: this.objectives.snapshot().objectives,
       camps: this.objectives.snapshot().camps,
       lakeEvent: this.eventsManager.snapshot(this.now()),
+      worldState: this.world?.snapshot(this) || null,
       finalTide: this.finalTideSnapshot(),
       missions: this.missions.snapshot(effectiveViewerId),
       wars: this.warSnapshot(),
@@ -1678,6 +1689,7 @@ function stateResponse(match, viewerId, query = {}) {
       objectives: objectiveSnapshot.objectives,
       camps: objectiveSnapshot.camps,
       lakeEvent: match.eventsManager.snapshot(now),
+      worldState: match.world?.snapshot(match) || null,
       finalTide: match.finalTideSnapshot(),
       buildingCosts: match.playerBuildingCosts(match.getPlayer(viewerId)),
       missions: match.missions.snapshot(viewerId),
@@ -1727,6 +1739,7 @@ function actionDelta(match, body, result, events, timing, viewerId = config.HUMA
     objectives: objectiveSnapshot.objectives,
     camps: objectiveSnapshot.camps,
     lakeEvent: match.eventsManager.snapshot(now),
+    worldState: match.world?.snapshot(match) || null,
     finalTide: match.finalTideSnapshot(),
     buildingCosts: match.playerBuildingCosts(match.getPlayer(viewerId)),
     missions: match.missions.snapshot(viewerId),
