@@ -70,5 +70,5 @@ vfx.configure({ level: "off", particles: "off" });
 assert.strictEqual(vfx.maxParticles, 0, "Particles Off must remove the active cap");
 assert.strictEqual(vfx.maxEffects, 0, "Effects Off must remove optional effects");
 
-assert.strictEqual(release.CURRENT.title, "Settings & Graphics Fix", "Update 1.01 title must identify this fix");
+assert.ok(release.HISTORY.some((entry) => entry.title === "Settings & Graphics Fix"), "release history must retain the Update 1.01 settings fix");
 console.log(`Settings & Graphics Fix test passed: Low ${lowParticles} particles, Ultra ${ultraParticles}, live manager/audio/render/FPS wiring verified.`);

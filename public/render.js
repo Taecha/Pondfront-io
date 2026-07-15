@@ -29,7 +29,7 @@
       const previousCamera = { ...this.camera };
       const previousDpr = this.dpr;
       const touchLayout = window.matchMedia?.("(max-width: 900px), (pointer: coarse)")?.matches;
-      const batterySaver = localStorage.getItem("pondfront:battery-saver") === "on";
+      const batterySaver = document.body.classList.contains("battery-saver");
       const dprCap = batterySaver ? 1.25 : touchLayout ? 1.6 : 2;
       this.dpr = Math.max(1, Math.min(dprCap, window.devicePixelRatio || 1));
       const rect = this.canvas.getBoundingClientRect();
@@ -386,7 +386,7 @@
         options.runtimeVisualState.autoStrategicActive = Boolean(autoStrategic && !options.strategicView);
         options.runtimeVisualState.effectivePerformanceLevel = performanceLevel;
       }
-      const lowPower = Boolean(effects.autoLowPerformance) && performanceLevel > 0;
+      const lowPower = Boolean(effects.autoLowPerformance) && performanceLevel > 0 && !options.adaptiveSettingsApplied;
       let visualQuality = options.visualQuality || "high";
       const next = {
         ...options,
@@ -432,7 +432,7 @@
     }
 
     downgradeQuality(value = "medium", steps = 1) {
-      const order = ["low", "medium", "high", "ultra"];
+      const order = ["off", "low", "medium", "high", "ultra"];
       const index = Math.max(0, order.indexOf(value));
       return order[Math.max(0, index - Math.max(0, steps))] || "low";
     }
@@ -492,14 +492,16 @@
       ctx.fillStyle = gradient;
       ctx.fillRect(0, 0, rect.width, rect.height);
       const now = performance.now();
-      const lowPower = options.visualQuality === "low" || options.effects?.level === "low" || options.effects?.reducedMotion;
+      const waterQuality = options.waterQuality || options.visualQuality || "medium";
+      const waterRank = { low: 0, medium: 1, high: 2, ultra: 3 }[waterQuality] ?? 1;
+      const lowPower = waterRank === 0 || options.effects?.reducedMotion;
       ctx.save();
       ctx.globalAlpha = 0.08;
       ctx.strokeStyle = "#b8edf5";
       ctx.lineWidth = 1;
-      for (let y = -24; y < rect.height + 42; y += lowPower ? 58 : 34) {
+      for (let y = -24; y < rect.height + 42; y += waterRank >= 3 ? 25 : waterRank >= 2 ? 30 : lowPower ? 58 : 40) {
         ctx.beginPath();
-        for (let x = -34; x <= rect.width + 34; x += lowPower ? 40 : 22) {
+        for (let x = -34; x <= rect.width + 34; x += waterRank >= 3 ? 18 : waterRank >= 2 ? 22 : lowPower ? 40 : 30) {
           const drift = now * 0.018 + y * 0.7;
           ctx.lineTo(x, y + Math.sin((x + drift) * 0.026) * 2.2);
         }
@@ -508,7 +510,7 @@
       ctx.globalAlpha = 0.05;
       ctx.strokeStyle = "#5ec9dc";
       ctx.lineWidth = 1.4;
-      for (let i = 0; i < (lowPower ? 5 : 16); i += 1) {
+      for (let i = 0; i < (waterRank >= 3 ? 24 : waterRank >= 2 ? 18 : lowPower ? 5 : 11); i += 1) {
         const y = (i * 71 + now * 0.009) % (rect.height + 90) - 45;
         const xOffset = ((i * 113 + now * 0.014) % 180) - 90;
         ctx.beginPath();
@@ -517,34 +519,39 @@
         }
         ctx.stroke();
       }
-      ctx.globalAlpha = 0.18;
-      const sheen = ctx.createLinearGradient(0, rect.height * 0.12, rect.width, rect.height * 0.82);
-      sheen.addColorStop(0, "rgba(255,255,255,0)");
-      sheen.addColorStop(0.48, "rgba(255,255,255,0.09)");
-      sheen.addColorStop(0.55, "rgba(255,255,255,0)");
-      ctx.fillStyle = sheen;
-      ctx.fillRect(0, 0, rect.width, rect.height);
+      if (waterRank >= 1 && options.world?.waterReflections !== false) {
+        ctx.globalAlpha = waterRank >= 3 ? 0.24 : waterRank >= 2 ? 0.2 : 0.13;
+        const sheen = ctx.createLinearGradient(0, rect.height * 0.12, rect.width, rect.height * 0.82);
+        sheen.addColorStop(0, "rgba(255,255,255,0)");
+        sheen.addColorStop(0.48, "rgba(255,255,255,0.09)");
+        sheen.addColorStop(0.55, "rgba(255,255,255,0)");
+        ctx.fillStyle = sheen;
+        ctx.fillRect(0, 0, rect.width, rect.height);
+      }
       ctx.restore();
-      this.drawLakeEventOverlay(ctx, rect);
+      this.drawLakeEventOverlay(ctx, rect, options);
     }
 
-  drawLakeEventOverlay(ctx, rect) {
+  drawLakeEventOverlay(ctx, rect, options = {}) {
       const permanentFog = this.state?.modifiers?.active?.some((modifier) => modifier.id === "permanentFog");
       const event =
         this.state?.lakeEvent?.active ||
         this.state?.lakeEvent?.upcoming ||
         (permanentFog ? { type: "permanentFog", visual: "fog", color: "#b8dce2" } : null);
       if (!event) return;
+      const visual = event.visual || event.type;
+      if (visual === "fog" && (options.world?.fogEffects === false || options.world?.fogQuality === "off")) return;
+      if (["storm", "rain", "wind"].includes(visual) && options.world?.weatherEffects === false) return;
       ctx.save();
       const now = performance.now();
       const pulse = 0.5 + Math.sin(now * 0.004) * 0.5;
       const warning = Boolean(!this.state?.lakeEvent?.active && this.state?.lakeEvent?.upcoming);
-      const visual = event.visual || event.type;
+      const fogRank = { off: 0, low: 1, medium: 2, high: 3, ultra: 4 }[options.world?.fogQuality || "medium"] ?? 2;
       ctx.globalAlpha = warning ? 0.035 + pulse * 0.02 : 0.05 + pulse * 0.025;
       ctx.fillStyle = event.color || "#83dced";
       ctx.fillRect(0, 0, rect.width, rect.height);
       if (visual === "storm") {
-        const lines = warning ? 10 : 18;
+        const lines = warning ? 8 : options.world?.animationQuality === "ultra" ? 26 : options.world?.animationQuality === "high" ? 21 : options.world?.animationQuality === "low" ? 10 : 16;
         ctx.globalAlpha = warning ? 0.12 : 0.18;
         ctx.strokeStyle = "rgba(210,245,255,0.62)";
         ctx.lineWidth = 1;
@@ -559,7 +566,7 @@
       } else if (visual === "fog") {
         ctx.globalAlpha = warning ? 0.09 : 0.16;
         ctx.fillStyle = "rgba(218,240,245,0.56)";
-        for (let i = 0; i < 6; i += 1) {
+        for (let i = 0; i < Math.max(2, fogRank * 2); i += 1) {
           const x = ((i * 211 + now * 0.014) % (rect.width + 220)) - 110;
           const y = rect.height * (0.18 + i * 0.12);
           ctx.beginPath();
@@ -576,11 +583,13 @@
       const mapW = this.state.cols * s;
       const mapH = this.state.rows * s;
       const radius = Math.max(8, Math.min(20, 12 * this.camera.zoom));
-      const cleanMode = options.strategicView || options.visualQuality === "low" || options.effects?.level === "low";
+      const cleanMode = options.strategicView || options.visualQuality === "low";
       ctx.save();
-      ctx.shadowColor = "rgba(0,0,0,0.32)";
-      ctx.shadowBlur = cleanMode ? 8 : 28;
-      ctx.shadowOffsetY = cleanMode ? 3 : 10;
+      const shadow = options.shadowQuality || "low";
+      const shadowProfile = shadow === "high" ? { blur: 34, y: 12, alpha: 0.4 } : shadow === "medium" ? { blur: 24, y: 8, alpha: 0.34 } : shadow === "low" ? { blur: 10, y: 4, alpha: 0.28 } : { blur: 0, y: 0, alpha: 0 };
+      ctx.shadowColor = `rgba(0,0,0,${shadowProfile.alpha})`;
+      ctx.shadowBlur = cleanMode ? Math.min(8, shadowProfile.blur) : shadowProfile.blur;
+      ctx.shadowOffsetY = cleanMode ? Math.min(3, shadowProfile.y) : shadowProfile.y;
       ctx.fillStyle = "rgba(3,12,19,0.48)";
       this.roundRect(ctx, topLeft.x - 10, topLeft.y - 10, mapW + 20, mapH + 20, radius + 8);
       ctx.fill();
@@ -598,7 +607,7 @@
       ctx.save();
       this.roundRect(ctx, topLeft.x, topLeft.y, mapW, mapH, radius);
       ctx.clip();
-      if (!cleanMode) this.drawMapWaterTexture(ctx, topLeft, mapW, mapH, options);
+      if (!cleanMode && options.waterQuality !== "low") this.drawMapWaterTexture(ctx, topLeft, mapW, mapH, options);
       if (!cleanMode) this.drawRegionUnderlays(ctx);
       const visibleTiles = this.visibleTiles(1);
       visibleTiles.forEach((tile) => this.drawTile(ctx, tile, options));
@@ -608,7 +617,7 @@
       if (!cleanMode) this.livingWorld?.drawGround?.(ctx, visibleTiles, options);
       if (!cleanMode) this.livingWorld?.drawLighting?.(ctx, this.drawingSize(), options);
       visibleTiles.forEach((tile) => this.drawBorders(ctx, tile));
-      if (!cleanMode) this.drawLocalGlow(ctx, visibleTiles);
+      if (!cleanMode && options.effects?.borderEffects !== false) this.drawLocalGlow(ctx, visibleTiles);
       if (!cleanMode) this.drawRegionNames(ctx);
       this.drawDefense(ctx, visibleTiles);
       this.drawBorderStatus(ctx, visibleTiles, options);
@@ -819,10 +828,11 @@
     }
 
     drawMapWaterTexture(ctx, topLeft, mapW, mapH, options) {
-      if (!options.mapDecorations || options.visualQuality === "low") return;
+      const waterQuality = options.waterQuality || options.visualQuality || "medium";
+      if (!options.mapDecorations || waterQuality === "low") return;
       const now = performance.now();
-      const ultra = options.visualQuality === "ultra";
-      const high = options.visualQuality === "high" || ultra;
+      const ultra = waterQuality === "ultra";
+      const high = waterQuality === "high" || ultra;
       const quality = ultra ? 1.1 : high ? 0.9 : 0.56;
       ctx.save();
       ctx.globalAlpha = 0.1 * quality;
@@ -851,7 +861,7 @@
         ctx.stroke();
       }
       if (this.state.regions?.length) {
-        this.state.regions.slice(0, ultra ? 12 : options.visualQuality === "high" ? 8 : 5).forEach((region, index) => {
+        this.state.regions.slice(0, ultra ? 12 : waterQuality === "high" ? 8 : 5).forEach((region, index) => {
           const p = this.worldToScreen((region.x + 0.5) * this.baseTile, (region.y + 0.5) * this.baseTile);
           const r = Math.max(18, region.radius * this.baseTile * this.camera.zoom * (0.42 + index * 0.012));
           ctx.globalAlpha = 0.06 * quality;
@@ -865,7 +875,10 @@
     }
 
     drawMapDecorations(ctx, visibleTiles, options) {
-      if (!options.mapDecorations || options.visualQuality === "low" || this.camera.zoom < 0.42) return;
+      if (!options.mapDecorations || options.visualQuality === "low" || this.camera.zoom < 0.42) {
+        this.lastDecorationCount = 0;
+        return;
+      }
       const now = performance.now();
       const ultra = options.visualQuality === "ultra";
       const high = options.visualQuality === "high" || ultra;
@@ -905,6 +918,7 @@
         }
       }
       ctx.restore();
+      this.lastDecorationCount = drawn;
     }
 
     drawTerrainEdges(ctx, visibleTiles, options) {

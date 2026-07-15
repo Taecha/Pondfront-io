@@ -28,6 +28,7 @@
       this.sfxGain = null;
       this.musicGain = null;
       this.environmentGain = null;
+      this.categoryGains = {};
       this.musicNodes = [];
       this.musicMood = "lobby";
       this.lowOscillator = null;
@@ -58,7 +59,7 @@
       return { ...this.settings, unlocked: this.unlocked };
     }
 
-    setSettings(next = {}) {
+    setSettings(next = {}, options = {}) {
       this.settings = {
         ...this.settings,
         ...next,
@@ -76,7 +77,7 @@
         audioQuality: ["low", "standard", "high"].includes(next.audioQuality) ? next.audioQuality : (this.settings.audioQuality || "standard"),
         ambientWorldSounds: Boolean(next.ambientWorldSounds ?? this.settings.ambientWorldSounds),
       };
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(this.settings));
+      if (options.persist !== false) localStorage.setItem(STORAGE_KEY, JSON.stringify(this.settings));
       this.applyVolumes();
       if (!this.settings.musicEnabled || this.settings.muted || !this.settings.soundEnabled) this.stopMusic();
       else if (this.unlocked) this.startMusic();
@@ -104,6 +105,14 @@
       this.sfxGain = this.ctx.createGain();
       this.musicGain = this.ctx.createGain();
       this.environmentGain = this.ctx.createGain();
+      this.categoryGains = {
+        sfx: this.ctx.createGain(),
+        ui: this.ctx.createGain(),
+        combat: this.ctx.createGain(),
+        animal: this.ctx.createGain(),
+        building: this.ctx.createGain(),
+      };
+      Object.values(this.categoryGains).forEach((gain) => gain.connect(this.sfxGain));
       this.sfxGain.connect(this.masterGain);
       this.musicGain.connect(this.masterGain);
       this.environmentGain.connect(this.masterGain);
@@ -126,6 +135,11 @@
       set(this.sfxGain, sfx);
       set(this.musicGain, music);
       set(this.environmentGain, environment);
+      set(this.categoryGains.sfx, 1);
+      set(this.categoryGains.ui, this.settings.uiVolume ?? 0.75);
+      set(this.categoryGains.combat, this.settings.combatVolume ?? 0.85);
+      set(this.categoryGains.animal, this.settings.animalVolume ?? 0.8);
+      set(this.categoryGains.building, this.settings.buildingVolume ?? 0.8);
     }
 
     play(name, options = {}) {
@@ -135,7 +149,7 @@
       const nowMs = performance.now();
       const cooldown = options.cooldown ?? 32;
       if (nowMs - (this.lastPlayed.get(name) || 0) < cooldown) return;
-      const maxVoices = this.settings.reducedSound ? 5 : this.settings.audioQuality === "high" ? 12 : this.settings.audioQuality === "low" ? 6 : 9;
+      const maxVoices = this.settings.batterySaver ? 4 : this.settings.reducedSound ? 5 : this.settings.audioQuality === "high" ? 12 : this.settings.audioQuality === "low" ? 6 : 9;
       if (this.activeVoices >= maxVoices && !options.priority) return;
       this.lastPlayed.set(name, nowMs);
       this.activeVoices += 1;
@@ -148,7 +162,7 @@
       const pan = Math.max(-1, Math.min(1, Number(options.pan ?? spatial.pan) || 0));
       const category = this.soundCategory(name, options);
       const variation = options.fixed ? 1 : 0.94 + Math.random() * 0.12;
-      const out = this.sfxOutput(pan, (options.volume ?? 1) * (spatial.volume ?? 1) * this.categoryVolume(category) * variation);
+      const out = this.sfxOutput(pan, (options.volume ?? 1) * (spatial.volume ?? 1) * variation, category);
       if (!out) return;
 
       const map = {
@@ -385,9 +399,10 @@
       const normalizedY = (screenY - height / 2) / Math.max(1, height * 0.5);
       const distance = Math.hypot(normalizedX, normalizedY);
       const zoomGain = Math.max(0.72, Math.min(1, 0.72 + zoom * 0.18));
+      const batteryScale = this.settings.batterySaver ? Math.max(0.58, 1 - distance * 0.22) : 1;
       return {
         pan: Math.max(-0.82, Math.min(0.82, normalizedX * 0.76)),
-        volume: Math.max(0.3, Math.min(1, (1 - Math.max(0, distance - 0.35) * 0.32) * zoomGain)),
+        volume: Math.max(0.22, Math.min(1, (1 - Math.max(0, distance - 0.35) * 0.32) * zoomGain * batteryScale)),
       };
     }
 
@@ -462,7 +477,7 @@
       if (String(name).startsWith("ability") || String(name).startsWith("select")) return "animal";
       if (["attack", "maxAttack", "currentPush", "currentImpact", "specialLaunch", "specialImpact", "specialDefense", "capture", "blocked", "retreat", "defend", "elimination", "warning"].includes(name)) return "combat";
       if (["build", "buildComplete", "buildingCaptured", "upgrade", "upgradeComplete"].includes(name)) return "building";
-      if (String(name).startsWith("lake") || String(name).startsWith("ambient") || ["expand", "expandLarge", "expandProgress", "objective", "objectiveSpawn", "objectiveCapture"].includes(name)) return "environment";
+      if (String(name).startsWith("lake") || String(name).startsWith("ambient")) return "environment";
       return "sfx";
     }
 
@@ -509,7 +524,7 @@
         this.ambientTimer = null;
         if (!this.unlocked || !this.settings.soundEnabled || this.settings.muted) return;
         if (!document.hidden || this.settings.backgroundAudio) this.playAmbientMoment();
-        const base = this.settings.reducedSound ? 10500 : this.settings.audioQuality === "high" ? 4300 : this.settings.audioQuality === "low" ? 8200 : 6200;
+        const base = this.settings.batterySaver ? 12500 : this.settings.reducedSound ? 10500 : this.settings.audioQuality === "high" ? 4300 : this.settings.audioQuality === "low" ? 8200 : 6200;
         const spread = this.settings.reducedSound ? 7000 : 5200;
         this.ambientTimer = setTimeout(schedule, base + Math.random() * spread);
       };
@@ -568,18 +583,19 @@
       return true;
     }
 
-    sfxOutput(pan = 0, volume = 1) {
+    sfxOutput(pan = 0, volume = 1, category = "sfx") {
       if (!this.ctx || !this.sfxGain) return null;
       const gain = this.ctx.createGain();
+      const destination = category === "environment" ? this.environmentGain : this.categoryGains[category] || this.categoryGains.sfx || this.sfxGain;
       gain.gain.value = Math.max(0, Math.min(1.8, volume));
       if (this.ctx.createStereoPanner) {
         const panner = this.ctx.createStereoPanner();
         panner.pan.value = pan;
         gain.connect(panner);
-        panner.connect(this.sfxGain);
+        panner.connect(destination);
         return { gain, end: panner };
       }
-      gain.connect(this.sfxGain);
+      gain.connect(destination);
       return { gain, end: gain };
     }
 

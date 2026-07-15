@@ -45,7 +45,7 @@
     ]),
   });
 
-  const CURRENT = Object.freeze({
+  const UPDATE_1_01 = Object.freeze({
     id: "update-1-01",
     label: "Update 1.01",
     displayName: "PondFront.io - Update 1.01",
@@ -88,6 +88,46 @@
     ]),
   });
 
+  const CURRENT = Object.freeze({
+    id: "update-2",
+    label: "Update 2",
+    displayName: "PondFront.io - Update 2",
+    version: "2.0.0",
+    title: "The Great Lake Update",
+    date: "2026-07-15",
+    new: Object.freeze([
+      "One shared five-step send system across the HUD, context menu, touch dock, and server validation",
+      "Probe 10% as a low-risk expansion and frontline pressure option",
+      "Live action previews for committed energy, defense spending, terrain pressure, cooldowns, and blocked reasons",
+      "A complete Update 2 audit covering gameplay, balance, performance, security, persistence, mobile controls, and release readiness",
+    ]),
+    improved: Object.freeze([
+      "Expand, attack, reinforce, and ally support actions now use consistent shared profiles",
+      "Desktop and mobile attack selectors expose the same five choices",
+      "Context actions refresh from current server snapshots as energy, ownership, relationships, construction, and cooldowns change",
+      "Frontline hints explain expected pressure without pretending uncertain multi-tile outcomes are guaranteed",
+      "Update notes and server health metadata now identify the Great Lake release",
+    ]),
+    balance: Object.freeze([
+      "No hidden combat power increase was added; Probe commits only 10% of current Animal Energy.",
+      "Defense still uses the authoritative 78% spend efficiency, now shown accurately before committing.",
+      "Existing fair Easy and Normal bot pacing remains intact after simulation verification.",
+    ]),
+    fixed: Object.freeze([
+      "Fixed the right-click and long-press menus omitting the 75% send choice",
+      "Fixed the HUD showing a 75% defense efficiency while the server deducted 78%",
+      "Fixed mobile and desktop attack selectors exposing different action sets",
+      "Fixed duplicate attack labels drifting away from shared combat terminology",
+      "Added server rejection for modified clients sending unsupported percentages",
+    ]),
+    knownIssues: Object.freeze([
+      "Google and Discord sign-in require provider credentials and callback URLs configured by the deployment owner.",
+      "Free Render instances can sleep while idle and may take time to wake on the first request.",
+      "SQLite needs a persistent host disk or external database when deployed on an ephemeral filesystem.",
+      "The Node.js built-in SQLite API may print its standard experimental warning on supported Node 22 builds.",
+    ]),
+  });
+
   const TIPS = Object.freeze([
     "Large attacks consume more Animal Energy.",
     "Buildings remain on a tile when that territory is captured.",
@@ -114,7 +154,7 @@
 
   return Object.freeze({
     CURRENT,
-    HISTORY: Object.freeze([CURRENT, UPDATE_1]),
+    HISTORY: Object.freeze([CURRENT, UPDATE_1_01, UPDATE_1]),
     TIPS,
     CREDITS,
     VIEWED_STORAGE_KEY: "pondfront:latest-update-viewed",

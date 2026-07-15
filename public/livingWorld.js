@@ -9,6 +9,7 @@
       this.lastSpawnAt = 0;
       this.lastElapsed = 0;
       this.options = {};
+      this.debugPreview = null;
       this.profile = this.qualityProfile("medium");
       this.status = { phase: { id: "day", label: "Bright Day" }, weather: { id: "clear", label: "Clear Water" } };
     }
@@ -24,14 +25,16 @@
       const base = this.qualityProfile(quality);
       const mobileScale = options.isMobile ? 0.58 : 1;
       const performanceScale = options.performanceLevel >= 2 ? 0.3 : options.performanceLevel >= 1 ? 0.62 : 1;
-      const worldMotionScale = options.world?.reducedAnimation ? 0.45 : 1;
+      const animationScale = { low: 0.42, medium: 0.7, high: 0.9, ultra: 1.1 }[options.world?.animationQuality || "medium"] || 0.7;
+      const particleScale = { off: 0, low: 0.35, medium: 0.65, high: 0.9, ultra: 1.15 }[options.effects?.particles || "medium"] ?? 0.65;
+      const worldMotionScale = options.world?.reducedAnimation ? 0.3 : animationScale;
       this.profile = {
         ...base,
         entities: Math.max(4, Math.round(base.entities * mobileScale * performanceScale * worldMotionScale)),
         wildlife: Math.max(1, Math.round(base.wildlife * mobileScale * performanceScale * worldMotionScale)),
         identity: Math.max(4, Math.round(base.identity * mobileScale * performanceScale)),
         buildings: Math.max(4, Math.round(base.buildings * mobileScale * performanceScale)),
-        rain: Math.max(8, Math.round(base.rain * mobileScale * performanceScale)),
+        rain: Math.max(0, Math.round(base.rain * mobileScale * performanceScale * particleScale)),
         spawnMs: Math.round(base.spawnMs / Math.max(0.45, mobileScale * performanceScale)),
       };
       if (options.effects?.reducedMotion || options.batterySaver || options.strategicView || options.mapDecorations === false || options.livingWorld === false) this.trim(0);
@@ -45,6 +48,15 @@
       this.lastElapsed = elapsed;
       this.state = state;
       this.status = root.PondWorldAtmosphere?.atmosphereFor?.(state) || this.status;
+    }
+
+    setDebugPreview(type) {
+      const now = performance.now();
+      const preview = { until: now + 12000 };
+      if (type === "rain") preview.weather = { id: "rain", label: "Debug Rain", visual: "rain", intensity: 1 };
+      if (type === "night") preview.phase = { id: "night", label: "Debug Night", tint: "#07152d", alpha: 0.13 };
+      if (type === "season") preview.season = { id: "autumn", label: "Debug Autumn", tint: "#d5a35b" };
+      this.debugPreview = preview;
     }
 
     reset() {
@@ -85,9 +97,10 @@
 
     drawLighting(ctx, rect, options = {}) {
       if (!this.state || options.strategicView || options.livingWorld === false || options.visualQuality === "low") return;
-      const phase = this.status.phase || {};
-      const season = this.status.season || {};
-      const weather = this.status.weather || {};
+      if (this.debugPreview?.until < performance.now()) this.debugPreview = null;
+      const phase = this.debugPreview?.phase || this.status.phase || {};
+      const season = this.debugPreview?.season || this.status.season || {};
+      const weather = this.debugPreview?.weather || this.status.weather || {};
       ctx.save();
       if (options.world?.dayNightVisuals !== false) {
         ctx.fillStyle = phase.tint || "#b7edf2";
@@ -111,8 +124,8 @@
         ctx.fillStyle = shine;
         ctx.fillRect(0, 0, rect.width, rect.height);
       }
-      if (options.world?.waterReflections !== false && phase.id !== "night") this.drawReflections(ctx, rect);
-      if (options.world?.fogEffects !== false && (phase.id === "sunrise" || (options.world?.weatherEffects !== false && weather.visual === "fog"))) this.drawFog(ctx, rect, weather.visual === "fog" ? weather.intensity || 0.5 : 0.22);
+      if (options.world?.waterReflections !== false && options.waterQuality !== "low" && phase.id !== "night") this.drawReflections(ctx, rect);
+      if (options.world?.fogEffects !== false && options.world?.fogQuality !== "off" && (phase.id === "sunrise" || (options.world?.weatherEffects !== false && weather.visual === "fog"))) this.drawFog(ctx, rect, weather.visual === "fog" ? weather.intensity || 0.5 : 0.22);
       if (options.world?.weatherEffects !== false && (weather.visual === "rain" || weather.visual === "storm")) this.drawRain(ctx, rect, weather.visual === "storm" ? 1 : weather.intensity || 0.45);
       if (options.world?.weatherEffects !== false && weather.visual === "wind") this.drawWind(ctx, rect, weather.intensity || 0.45);
       ctx.restore();
@@ -158,7 +171,9 @@
       const phase = this.status.phase?.id;
       const season = this.status.season?.id;
       const roll = this.hash(seed + tile.id * 19);
-      if (phase === "night" && this.options.world?.fireflies !== false && ["reeds", "lily", "grassIsland", "jungleIsland"].includes(tile.type) && roll < 0.68) return "firefly";
+      const particlesOff = this.options.effects?.particles === "off";
+      if (!particlesOff && phase === "night" && this.options.world?.fireflies !== false && ["reeds", "lily", "grassIsland", "jungleIsland"].includes(tile.type) && roll < 0.68) return "firefly";
+      if (particlesOff && ["reeds", "mud"].includes(tile.type)) return this.options.world?.decorativeAnimals === false ? null : roll < 0.2 ? "animal" : null;
       if (this.options.world?.decorativeAnimals === false && ["water", "lily"].includes(tile.type)) return roll < 0.62 ? "bubble" : this.options.world?.seasonalDecorations !== false ? "leaf" : null;
       if (season === "autumn" && this.options.world?.seasonalDecorations !== false && roll < 0.42) return "leaf";
       if (tile.owner && roll < 0.3) return "animal";
@@ -166,7 +181,7 @@
       if (tile.type === "reeds" || tile.type === "grassIsland" || tile.type === "jungleIsland") return roll < 0.42 ? "insect" : "leaf";
       if (tile.type === "mud") return roll < 0.5 ? "mud" : "insect";
       if (tile.type === "water" && !tile.owner && roll < 0.16) return "duck";
-      if (tile.type === "water") return roll < 0.5 ? "fish" : roll < 0.76 ? "bubble" : roll < 0.93 ? "leaf" : "bird";
+      if (tile.type === "water") return particlesOff ? (roll < 0.42 ? "fish" : roll > 0.9 ? "bird" : null) : roll < 0.5 ? "fish" : roll < 0.76 ? "bubble" : roll < 0.93 ? "leaf" : "bird";
       return null;
     }
 
@@ -422,7 +437,7 @@
       ctx.lineWidth = Math.max(1, size * 0.025);
       if (tile.building === "nest") {
         ctx.shadowColor = this.status.phase?.id === "night" ? "#fff1a8" : ownerColor;
-        ctx.shadowBlur = size * (this.status.phase?.id === "night" ? 0.5 : 0.18);
+        ctx.shadowBlur = this.options.shadowQuality === "off" ? 0 : size * (this.options.shadowQuality === "high" ? 0.5 : this.options.shadowQuality === "medium" ? 0.3 : 0.14);
         ctx.beginPath();
         ctx.arc(x, y, size * (0.23 + pulse * 0.03), 0, Math.PI * 2);
         ctx.stroke();
@@ -459,7 +474,8 @@
       const now = performance.now();
       ctx.fillStyle = "rgba(218,240,245,0.48)";
       ctx.globalAlpha = Math.min(0.16, intensity * 0.16);
-      const count = this.options.isMobile ? 3 : 5;
+      const rank = { low: 1, medium: 2, high: 3, ultra: 4 }[this.options.world?.fogQuality || "medium"] || 2;
+      const count = Math.max(2, (this.options.isMobile ? 1 : 2) + rank);
       for (let i = 0; i < count; i += 1) {
         const x = ((i * 263 + now * 0.009) % (rect.width + 300)) - 150;
         const y = rect.height * (0.2 + i * 0.14);
@@ -511,7 +527,8 @@
       ctx.strokeStyle = "rgba(205,244,245,0.32)";
       ctx.globalAlpha = this.options.world?.reducedAnimation ? 0.05 : 0.09;
       ctx.lineWidth = 1;
-      const count = this.options.isMobile ? 5 : 9;
+      const rank = { low: 0, medium: 1, high: 2, ultra: 3 }[this.options.waterQuality || "medium"] ?? 1;
+      const count = (this.options.isMobile ? 3 : 5) + rank * (this.options.isMobile ? 1 : 3);
       for (let index = 0; index < count; index += 1) {
         const y = rect.height * (0.12 + index * 0.095);
         const x = ((index * 137 + now * 0.008) % (rect.width + 120)) - 60;

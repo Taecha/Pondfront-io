@@ -10,6 +10,7 @@
       root.PondProfile = this.profileView;
       this.audio = this.ui.audio || null;
       this.renderer = new root.PondRenderer(this.canvas, this.miniMap);
+      this.settingsUnsubscribe = this.ui.settingsManager?.subscribe?.((event) => this.handleSettingsEvent(event)) || null;
       this.contextMenu = root.PondContextMenu ? new root.PondContextMenu() : null;
       this.sandboxPanel = root.PondSandboxPanel
         ? new root.PondSandboxPanel({
@@ -548,6 +549,19 @@
       this.updateUi();
     }
 
+    handleSettingsEvent(event = {}) {
+      const view = this.ui.viewOptions();
+      this.renderer.vfx?.configure?.({
+        ...(view.effects || {}),
+        visualQuality: view.visualQuality,
+        mapDecorations: view.mapDecorations,
+        isMobile: Boolean(view.isMobile),
+      });
+      this.renderer.livingWorld?.configure?.(view);
+      this.renderer.invalidateVisualCaches?.(event.reason || event.type || "settings event");
+      if (event.changedKeys?.includes("batterySaver")) this.scheduleRendererResize();
+    }
+
     playMatchIntro(state) {
       this.ui.showMatchIntro?.(state);
       clearTimeout(this.matchIntroTimer);
@@ -575,6 +589,7 @@
       this.runtimeVisualState.fpsLowReason = "";
       this.runtimeVisualState.stableFpsSince = 0;
       this.runtimeVisualState.renderCacheVersion += 1;
+      this.ui.settingsManager?.clearAdaptiveOverrides?.();
       if (!options.silent) this.runtimeVisualState.lastAutoChangeTime = performance.now();
       this.renderer.invalidateVisualCaches?.(reason);
     }
@@ -855,15 +870,24 @@
         return;
       }
 
-      const sendPercent = Math.max(0.1, Math.min(1, Number(payload.percent || this.ui.percent) || this.ui.percent));
+      const sendPercent = root.PondCombat?.profileForPercent?.(payload.percent || this.ui.percent, this.ui.percent)?.percent
+        ?? Math.max(0.1, Math.min(1, Number(payload.percent || this.ui.percent) || this.ui.percent));
       if (payload.percent) this.ui.setPercent(sendPercent);
-      const spend = human.energy * sendPercent;
-      if ((type === "expand" || type === "attack" || type === "waterRoute") && spend < (type === "waterRoute" ? 10 : 4)) {
+      const spend = root.PondActions?.sendAmount?.(human, sendPercent) ?? Math.round(human.energy * sendPercent);
+      const minimumSend = type === "waterRoute"
+        ? Number(this.state.config.combat?.currentPush?.minEnergy || 10)
+        : type === "attack"
+          ? Number(this.state.config.combat?.minimumAttackEnergy || 5)
+          : Number(this.state.config.combat?.minimumExpansionEnergy || 1);
+      if ((type === "expand" || type === "attack" || type === "waterRoute") && spend < minimumSend) {
         this.ui.toast("Not enough Animal Energy to send.", true);
         this.ui.flashEnergy();
         return;
       }
-      if (type === "defend" && spend * 0.75 < 3) {
+      const defendPreview = type === "defend"
+        ? root.PondActions?.defendPreview?.(this.state, human, tile, sendPercent, this.state.serverTime)
+        : null;
+      if (type === "defend" && (!defendPreview || defendPreview.cost < 3)) {
         this.ui.toast("Not enough Animal Energy to defend.", true);
         this.ui.flashEnergy();
         return;
@@ -2305,9 +2329,9 @@
     loop() {
       const draw = () => {
         const now = performance.now();
-        const fpsLimit = this.ui.mobilePreferences?.().fpsLimit || 60;
-        const frameInterval = 1000 / fpsLimit;
-        if (this.isTouchLayout() && this.lastRenderAt && now - this.lastRenderAt < frameInterval - 1) {
+        const fpsLimit = Number(this.ui.mobilePreferences?.().fpsLimit ?? 60);
+        const frameInterval = fpsLimit > 0 ? 1000 / fpsLimit : 0;
+        if (frameInterval > 0 && this.lastRenderAt && now - this.lastRenderAt < frameInterval - 1) {
           requestAnimationFrame(draw);
           return;
         }
@@ -2391,9 +2415,13 @@
     updateRuntimeVisualPerformance(fps, now, view = null) {
       const autoEnabled = view?.effects?.autoLowPerformance !== false;
       const runtime = this.runtimeVisualState;
+      const configuredLimit = Number(this.ui.mobilePreferences?.().fpsLimit || 0);
+      const targetFps = configuredLimit > 0 ? Math.min(60, configuredLimit) : 60;
+      const lowThreshold = Math.max(18, Math.round(targetFps * 0.72));
+      const recoveryThreshold = Math.max(lowThreshold + 2, Math.round(targetFps * 0.86));
       if (!autoEnabled) {
         if (runtime.temporaryPerformanceLevel > 0 || this.performanceAutoLow) this.clearRuntimeVisualReduction("auto performance disabled", { silent: true });
-        if (fps < 40) {
+        if (fps < lowThreshold) {
           this.performanceLowSince = this.performanceLowSince || now;
           if (!this.adaptiveSuggestionShown && now - this.performanceLowSince > 8000) {
             this.adaptiveSuggestionShown = this.ui.offerAdaptiveQuality?.() !== false;
@@ -2404,13 +2432,14 @@
         return;
       }
       const cooldownReady = now - (runtime.lastAutoChangeTime || 0) > 10000;
-      if (fps < 45) {
+      if (fps < lowThreshold) {
         this.performanceLowSince = this.performanceLowSince || now;
         runtime.stableFpsSince = 0;
         if (now - this.performanceLowSince > 3000 && cooldownReady && runtime.temporaryPerformanceLevel < 2) {
           runtime.temporaryPerformanceLevel += 1;
+          this.ui.settingsManager?.setAdaptiveLevel?.(runtime.temporaryPerformanceLevel);
           runtime.autoReducedEffects = true;
-          runtime.fpsLowReason = `FPS ${fps} below 45`;
+          runtime.fpsLowReason = `FPS ${fps} below ${lowThreshold}`;
           runtime.lastAutoChangeTime = now;
           runtime.renderCacheVersion += 1;
           this.performanceAutoLow = runtime.temporaryPerformanceLevel > 0;
@@ -2423,10 +2452,11 @@
         return;
       }
       this.performanceLowSince = 0;
-      if (fps >= 50) runtime.stableFpsSince = runtime.stableFpsSince || now;
+      if (fps >= recoveryThreshold) runtime.stableFpsSince = runtime.stableFpsSince || now;
       else runtime.stableFpsSince = 0;
       if (runtime.temporaryPerformanceLevel > 0 && runtime.stableFpsSince && now - runtime.stableFpsSince > 15000 && cooldownReady) {
         runtime.temporaryPerformanceLevel -= 1;
+        this.ui.settingsManager?.setAdaptiveLevel?.(runtime.temporaryPerformanceLevel);
         runtime.lastAutoChangeTime = now;
         runtime.renderCacheVersion += 1;
         runtime.fpsLowReason = runtime.temporaryPerformanceLevel > 0 ? "Restoring visuals gradually" : "";

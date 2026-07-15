@@ -18,10 +18,17 @@
       this.importInput = document.querySelector("#settingsImportInput");
       this.dirtyStatus = document.querySelector("#settingsDirtyStatus");
       this.activeCategory = "gameplay";
-      this.applied = this.load();
-      this.draft = { ...this.applied };
-      this.writeControls(this.applied);
-      this.applyRuntime(this.applied, { initial: true });
+      this.listeners = new Set();
+      this.adaptiveOverrides = {};
+      this.adaptiveLevel = 0;
+      this.savedSettings = this.load();
+      this.activeSettings = { ...this.savedSettings };
+      this.draftSettings = { ...this.activeSettings };
+      this.openSnapshot = { ...this.activeSettings };
+      this.applied = this.activeSettings;
+      this.draft = this.draftSettings;
+      this.writeControls(this.activeSettings);
+      this.applyRuntime(this.activeSettings, { initial: true, persistAudio: false, reason: "startup" });
       this.bind();
       this.showCategory(this.activeCategory);
     }
@@ -30,9 +37,67 @@
       return this.form?.elements?.namedItem(key) || document.getElementById(key);
     }
 
+    get() {
+      return { ...this.activeSettings };
+    }
+
+    getEffective() {
+      const selected = this.activeSettings;
+      const effective = this.config.sanitize({ ...selected, ...this.adaptiveOverrides });
+      if (selected.batterySaver) {
+        effective.effectsLevel = "low";
+        effective.particlesLevel = "low";
+        effective.waterQuality = "low";
+        effective.shadowQuality = "off";
+        effective.fogQuality = "low";
+        effective.worldAnimationQuality = "low";
+        effective.decorativeAnimals = false;
+        effective.mapDecorations = false;
+        effective.screenShake = false;
+      }
+      return effective;
+    }
+
+    getValue(key, options = {}) {
+      return (options.effective ? this.getEffective() : this.activeSettings)[key];
+    }
+
+    subscribe(listener) {
+      if (typeof listener !== "function") return () => {};
+      this.listeners.add(listener);
+      return () => this.listeners.delete(listener);
+    }
+
+    notify(type, changedKeys = [], reason = "settings changed") {
+      const uniqueKeys = [...new Set(changedKeys)];
+      const event = Object.freeze({
+        type,
+        reason,
+        changedKeys: uniqueKeys,
+        channels: this.changeChannels(uniqueKeys),
+        activeSettings: this.get(),
+        savedSettings: { ...this.savedSettings },
+        draftSettings: { ...this.draftSettings },
+        effectiveSettings: this.getEffective(),
+        adaptiveOverrides: { ...this.adaptiveOverrides },
+      });
+      this.listeners.forEach((listener) => {
+        try {
+          listener(event);
+        } catch (error) {
+          console.error("Settings subscriber failed", error);
+        }
+      });
+      return event;
+    }
+
     load() {
       const raw = localStorage.getItem(this.config.STORAGE_KEY);
-      if (raw) return this.config.parseDocument(raw).values;
+      if (raw) {
+        const values = this.config.parseDocument(raw).values;
+        this.persist(values);
+        return values;
+      }
       const migrated = { ...this.config.DEFAULTS };
       Object.entries(this.config.LEGACY_KEYS).forEach(([key, storageKey]) => {
         const value = localStorage.getItem(storageKey);
@@ -46,7 +111,8 @@
         const mapped = key === "muted" ? "muteAll" : key;
         if (mapped in migrated) migrated[mapped] = audio[key];
       });
-      const values = this.config.sanitize(migrated);
+      const clean = this.config.sanitize(migrated);
+      const values = this.config.PRESETS[clean.visualPreset] ? this.config.valuesForPreset(clean.visualPreset, clean) : clean;
       this.persist(values);
       return values;
     }
@@ -60,15 +126,23 @@
       this.categorySelect?.addEventListener("change", () => this.showCategory(this.categorySelect.value));
       this.search?.addEventListener("input", () => this.filter(this.search.value));
       this.form?.addEventListener("input", (event) => {
-        if (!event.target.matches("input, select")) return;
-        if (event.target.id === "visualPreset") this.applyPresetToDraft(event.target.value);
-        this.draft = this.readControls();
-        this.updateRangeOutput(event.target);
+        const target = event.target;
+        if (!target.matches("input, select")) return;
+        const key = target.name || target.id;
+        if (key === "visualPreset") this.applyPresetToDraft(target.value);
+        else if (this.config.PRESET_KEYS.includes(key)) {
+          const preset = this.control("visualPreset");
+          if (preset) preset.value = "custom";
+        }
+        this.draftSettings = this.readControls();
+        this.draft = this.draftSettings;
+        this.previewDraft([key, ...(key === "visualPreset" ? this.config.PRESET_KEYS : [])]);
+        this.updateRangeOutput(target);
         this.updateDirty();
       });
-      this.applyButton?.addEventListener("click", () => this.apply());
-      this.cancelButton?.addEventListener("click", () => this.cancel());
-      this.restoreButton?.addEventListener("click", () => this.restoreDefaults());
+      this.applyButton?.addEventListener("click", () => this.applyDraft());
+      this.cancelButton?.addEventListener("click", () => this.cancelDraft());
+      this.restoreButton?.addEventListener("click", () => this.resetAll());
       this.resetCategoryButton?.addEventListener("click", () => this.resetCategory());
       this.exportButton?.addEventListener("click", () => this.exportSettings());
       this.importButton?.addEventListener("click", () => this.importInput?.click());
@@ -77,8 +151,10 @@
     }
 
     open() {
-      this.draft = { ...this.applied };
-      this.writeControls(this.draft);
+      this.openSnapshot = { ...this.activeSettings };
+      this.draftSettings = { ...this.activeSettings };
+      this.draft = this.draftSettings;
+      this.writeControls(this.draftSettings);
       this.filter("");
       if (this.search) this.search.value = "";
       this.updateDirty();
@@ -86,41 +162,87 @@
     }
 
     closeWithCancel() {
-      this.cancel(true);
+      this.cancelDraft(true);
     }
 
-    apply() {
-      this.draft = this.readControls();
-      this.applied = { ...this.draft };
-      this.persist(this.applied);
-      this.applyRuntime(this.applied);
+    setDraft(key, value) {
+      if (!(key in this.config.DEFAULTS)) return;
+      this.writeControl(this.control(key), this.config.sanitizeValue(key, value));
+      if (this.config.PRESET_KEYS.includes(key)) this.writeControl(this.control("visualPreset"), "custom");
+      this.draftSettings = this.readControls();
+      this.draft = this.draftSettings;
+      this.previewDraft([key]);
+      this.updateDirty();
+    }
+
+    previewDraft(changedKeys = []) {
+      const previous = this.activeSettings;
+      this.activeSettings = this.config.sanitize(this.draftSettings);
+      this.applied = this.activeSettings;
+      this.applyRuntime(this.activeSettings, { persistAudio: false, reason: "preview" });
+      this.notify("settings:previewed", changedKeys.length ? changedKeys : this.changedKeys(previous, this.activeSettings), "preview");
+    }
+
+    applyDraft() {
+      const previous = this.savedSettings;
+      this.draftSettings = this.readControls();
+      this.activeSettings = this.config.sanitize(this.draftSettings);
+      this.savedSettings = { ...this.activeSettings };
+      this.openSnapshot = { ...this.activeSettings };
+      this.applied = this.activeSettings;
+      this.draft = this.draftSettings;
+      this.persist(this.savedSettings);
+      this.applyRuntime(this.activeSettings, { persistAudio: true, reason: "apply" });
+      this.notify("settings:applied", this.changedKeys(previous, this.activeSettings), "apply");
       this.updateDirty();
       this.ui.audio?.play("confirm", { ui: true, cooldown: 0 });
       this.ui.toast("Settings applied.");
       this.ui.hideSettingsPanel();
     }
 
-    cancel(close = true) {
-      this.draft = { ...this.applied };
-      this.writeControls(this.applied);
+    apply() {
+      this.applyDraft();
+    }
+
+    cancelDraft(close = true) {
+      const previous = this.activeSettings;
+      this.activeSettings = this.config.sanitize(this.openSnapshot);
+      this.draftSettings = { ...this.activeSettings };
+      this.applied = this.activeSettings;
+      this.draft = this.draftSettings;
+      this.writeControls(this.activeSettings);
+      this.applyRuntime(this.activeSettings, { persistAudio: false, reason: "cancel" });
+      this.notify("settings:cancelled", this.changedKeys(previous, this.activeSettings), "cancel");
       this.updateDirty();
       if (close) this.ui.hideSettingsPanel();
     }
 
-    restoreDefaults() {
+    cancel(close = true) {
+      this.cancelDraft(close);
+    }
+
+    resetAll() {
       if (!window.confirm("Restore every PondFront setting to its default value?")) return;
-      this.draft = { ...this.config.DEFAULTS };
-      this.writeControls(this.draft);
+      this.draftSettings = { ...this.config.DEFAULTS };
+      this.draft = this.draftSettings;
+      this.writeControls(this.draftSettings);
+      this.previewDraft(Object.keys(this.config.DEFAULTS));
+      this.notify("settings:reset", Object.keys(this.config.DEFAULTS), "reset all preview");
       this.updateDirty();
     }
 
+    restoreDefaults() {
+      this.resetAll();
+    }
+
     resetCategory() {
-      const page = this.pages.find((entry) => entry.dataset.settingsPage === this.activeCategory);
-      page?.querySelectorAll("[name]").forEach((node) => {
-        const key = node.name;
-        if (key in this.config.DEFAULTS) this.writeControl(node, this.config.DEFAULTS[key]);
-      });
-      this.draft = this.readControls();
+      const keys = this.config.CATEGORY_KEYS[this.activeCategory] || [];
+      keys.forEach((key) => this.writeControl(this.control(key), this.config.DEFAULTS[key]));
+      if (keys.some((key) => this.config.PRESET_KEYS.includes(key))) this.writeControl(this.control("visualPreset"), "custom");
+      this.draftSettings = this.readControls();
+      this.draft = this.draftSettings;
+      this.previewDraft(keys);
+      this.notify("settings:reset", keys, `reset ${this.activeCategory}`);
       this.updateDirty();
     }
 
@@ -155,8 +277,7 @@
     }
 
     applyPresetToDraft(preset) {
-      const values = this.config.PRESETS[preset];
-      if (!values) return;
+      const values = this.config.valuesForPreset(preset, this.readControls());
       Object.entries(values).forEach(([key, value]) => this.writeControl(this.control(key), value));
     }
 
@@ -185,39 +306,104 @@
       if (!node?.id || node.type !== "range") return;
       const output = document.querySelector(`[data-setting-value-for="${node.id}"]`);
       if (!output) return;
-      output.textContent = node.id === "cameraSensitivity" ? `${Math.round(Number(node.value) * 100)}%` : `${Math.round(Number(node.value) * 100)}%`;
+      output.textContent = `${Math.round(Number(node.value) * 100)}%`;
     }
 
     updateDirty() {
-      const dirty = JSON.stringify(this.config.sanitize(this.draft)) !== JSON.stringify(this.config.sanitize(this.applied));
+      const dirty = JSON.stringify(this.config.sanitize(this.draftSettings)) !== JSON.stringify(this.config.sanitize(this.savedSettings));
       this.panel?.classList.toggle("settings-dirty", dirty);
-      if (this.dirtyStatus) this.dirtyStatus.textContent = dirty ? "Unsaved changes" : "All changes saved";
+      if (this.dirtyStatus) this.dirtyStatus.textContent = dirty ? "Unsaved preview" : "All changes saved";
     }
 
     applyRuntime(values, options = {}) {
-      this.writeControls(values);
+      if (options.initial) this.writeControls(values);
       this.ui.setUiScale(values.uiScale, { store: false, emit: false });
       document.body.dataset.colorVision = values.colorVisionMode;
-      localStorage.setItem("pondfront:coachHints", values.showCoachHints ? "on" : "off");
-      this.ui.applyMobilePreferences();
-      this.ui.updateAudioSettings();
+      document.body.classList.toggle("reduced-motion", values.reducedMotion);
+      document.body.classList.toggle("battery-saver", values.batterySaver);
+      this.ui.applyMobilePreferences(values);
+      this.ui.updateAudioSettings(values, { persist: options.persistAudio === true });
       this.ui.updateMuteButton();
-      this.ui.updateWorldSettings?.();
-      if (!options.initial) this.ui.emit("viewChanged");
+      this.ui.updateWorldSettings?.(values);
+      if (!options.initial) this.ui.emit("viewChanged", { reason: options.reason || "settings changed" });
     }
 
     setRuntimeValue(key, value) {
       if (!(key in this.config.DEFAULTS)) return;
-      const next = this.config.sanitize({ ...this.applied, [key]: value });
-      this.applied = next;
-      this.draft = { ...next };
+      const previous = this.activeSettings;
+      const next = this.config.sanitize({ ...this.activeSettings, [key]: value });
+      if (this.config.PRESET_KEYS.includes(key)) next.visualPreset = this.config.matchingPreset(next);
+      this.activeSettings = next;
+      this.savedSettings = { ...next };
+      this.draftSettings = { ...next };
+      this.openSnapshot = { ...next };
+      this.applied = this.activeSettings;
+      this.draft = this.draftSettings;
       this.persist(next);
-      this.applyRuntime(next);
+      this.writeControls(next);
+      this.applyRuntime(next, { persistAudio: true, reason: "runtime control" });
+      this.notify("settings:applied", this.changedKeys(previous, next), "runtime control");
       this.updateDirty();
     }
 
+    setAdaptiveLevel(level = 0) {
+      const nextLevel = Math.max(0, Math.min(2, Number(level) || 0));
+      if (!this.activeSettings.adaptiveQuality) return this.clearAdaptiveOverrides();
+      const previous = JSON.stringify(this.adaptiveOverrides);
+      this.adaptiveLevel = nextLevel;
+      this.adaptiveOverrides = nextLevel <= 0
+        ? {}
+        : nextLevel === 1
+          ? { particlesLevel: this.downgrade(this.activeSettings.particlesLevel, 1), waterQuality: this.downgrade(this.activeSettings.waterQuality, 1), fogQuality: this.downgrade(this.activeSettings.fogQuality, 1), worldAnimationQuality: this.downgrade(this.activeSettings.worldAnimationQuality, 1) }
+          : { particlesLevel: "low", waterQuality: "low", fogQuality: "low", worldAnimationQuality: "low", decorativeAnimals: false, mapDecorations: false };
+      if (previous !== JSON.stringify(this.adaptiveOverrides)) this.notify("settings:performanceChanged", Object.keys(this.adaptiveOverrides), "adaptive quality");
+    }
+
+    clearAdaptiveOverrides() {
+      if (!Object.keys(this.adaptiveOverrides).length && this.adaptiveLevel === 0) return;
+      const keys = Object.keys(this.adaptiveOverrides);
+      this.adaptiveOverrides = {};
+      this.adaptiveLevel = 0;
+      this.notify("settings:performanceChanged", keys, "adaptive quality restored");
+    }
+
+    downgrade(value = "medium", steps = 1) {
+      const order = ["off", "low", "medium", "high", "ultra"];
+      const index = Math.max(1, order.indexOf(value));
+      return order[Math.max(1, index - Math.max(0, steps))] || "low";
+    }
+
+    changedKeys(before = {}, after = {}) {
+      return Object.keys(this.config.DEFAULTS).filter((key) => before[key] !== after[key]);
+    }
+
+    changeChannels(keys = []) {
+      const channels = new Set();
+      const categoryFor = (key) => Object.entries(this.config.CATEGORY_KEYS).find(([, values]) => values.includes(key))?.[0];
+      keys.forEach((key) => {
+        const category = categoryFor(key);
+        if (["graphics", "camera", "accessibility"].includes(category)) channels.add("settings:graphicsChanged");
+        if (category === "effects") channels.add("settings:effectsChanged");
+        if (category === "audio") channels.add("settings:audioChanged");
+        if (category === "world") channels.add("settings:worldChanged");
+        if (category === "performance") channels.add("settings:performanceChanged");
+      });
+      return [...channels];
+    }
+
+    diagnostics() {
+      return {
+        activePreset: this.activeSettings.visualPreset,
+        draftPreset: this.draftSettings.visualPreset,
+        savedPreset: this.savedSettings.visualPreset,
+        effectivePreset: this.config.matchingPreset(this.getEffective()),
+        adaptiveOverrides: { ...this.adaptiveOverrides },
+        fpsLimit: Number(this.getEffective().batterySaver ? 30 : this.getEffective().fpsLimit),
+      };
+    }
+
     exportSettings() {
-      const blob = new Blob([JSON.stringify(this.config.documentFor(this.draft), null, 2)], { type: "application/json" });
+      const blob = new Blob([JSON.stringify(this.config.documentFor(this.draftSettings), null, 2)], { type: "application/json" });
       const anchor = document.createElement("a");
       anchor.href = URL.createObjectURL(blob);
       anchor.download = "pondfront-settings.json";
@@ -230,9 +416,11 @@
       if (!file) return;
       try {
         const next = this.config.parseDocument(await file.text()).values;
-        if (!window.confirm("Replace the current settings draft with this imported file?")) return;
-        this.draft = next;
+        if (!window.confirm("Replace the current settings preview with this imported file?")) return;
+        this.draftSettings = next;
+        this.draft = this.draftSettings;
         this.writeControls(next);
+        this.previewDraft(Object.keys(this.config.DEFAULTS));
         this.updateDirty();
       } catch {
         this.ui.toast("That settings file could not be read.", true);

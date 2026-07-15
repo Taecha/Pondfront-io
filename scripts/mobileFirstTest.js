@@ -65,7 +65,7 @@ const state = {
   },
 };
 const neutral = PondActions.getAvailableTileActions({ state, player, tile: { id: 1, type: "water", owner: null }, context: { canExpand: true }, helpers: { isBlocked: () => false } });
-check("mobile resolver exposes four neutral sends", neutral.actions.filter((action) => action.id === "expand").length === 4);
+check("mobile resolver exposes five shared neutral sends", neutral.actions.filter((action) => action.id === "expand").length === 5);
 
 checks.forEach((entry) => console.log(`${entry.pass ? "PASS" : "FAIL"} ${entry.name}${entry.detail ? ` - ${entry.detail}` : ""}`));
 const failed = checks.filter((entry) => !entry.pass);

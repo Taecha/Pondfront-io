@@ -54,10 +54,10 @@ const helpers = {
 };
 
 const neutral = PondActions.getAvailableTileActions({ state, player, tile: { id: 1, type: "water", owner: null }, context: { canExpand: true }, helpers });
-check("neutral actions include four expansion sizes", ids(neutral).filter((id) => id === "expand").length === 4, ids(neutral).join(","));
+check("neutral actions include five shared expansion sizes", ids(neutral).filter((id) => id === "expand").length === 5, ids(neutral).join(","));
 
 const enemy = PondActions.getAvailableTileActions({ state, player, tile: { id: 2, type: "water", owner: "enemy" }, context: { canAttack: true, currentPushPreview: { valid: true } }, helpers });
-check("enemy actions include attacks and specials", ids(enemy).filter((id) => id === "attack").length === 4 && ids(enemy).includes("waterRoute") && ids(enemy).includes("special"), ids(enemy).join(","));
+check("enemy actions include five attacks and specials", ids(enemy).filter((id) => id === "attack").length === 5 && ids(enemy).includes("waterRoute") && ids(enemy).includes("special"), ids(enemy).join(","));
 
 const own = PondActions.getAvailableTileActions({ state, player, tile: { id: 3, type: "water", owner: "human" }, context: { canBuild: true, canDefend: true }, helpers });
 const buildMenu = own.actions.find((item) => item.id === "buildMenu");

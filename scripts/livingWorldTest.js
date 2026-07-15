@@ -29,7 +29,8 @@ assert.match(html, /data-right-panel-tab="world"/, "world activity tab should be
 const ui = read("public/ui.js");
 assert.match(ui, /updateWorldActivity\(state\)/, "world activity should refresh from match state");
 assert.match(ui, /showMatchIntro\(state\)/, "match intro should be available");
-assert.match(ui, /livingWorld: !batterySaver/, "view options should carry living-world preference");
+assert.match(ui, /livingWorld: settings\.livingWorld !== false/, "view options should carry the central effective living-world preference");
+assert.match(ui, /getEffective/, "view options should consume effective settings, including Battery Saver overrides");
 
 const render = read("public/render.js");
 assert.match(render, /const threatened =/, "animal leaders should react when their territory is threatened");

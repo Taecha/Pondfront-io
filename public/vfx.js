@@ -8,6 +8,7 @@
   };
 
   const QUALITY = {
+    off: { effects: 0, particles: 0, scale: 0, ambient: 0 },
     low: { effects: 48, particles: 42, scale: 0.34, ambient: 12 },
     medium: { effects: 92, particles: 92, scale: 0.58, ambient: 28 },
     high: { effects: 160, particles: 210, scale: 0.86, ambient: 52 },
@@ -69,6 +70,7 @@
       const hardParticleCap = this.settings.isMobile ? 120 : 520;
       this.maxEffects = Math.min(hardEffectCap, Math.round(effectQuality.effects * mobileScale * motionScale * visualScale));
       this.maxParticles = Math.min(hardParticleCap, Math.round(particleQuality.particles * mobileScale * motionScale * visualScale));
+      this.trim();
     }
 
     addEvents(events, state) {
@@ -906,7 +908,7 @@
           color,
           style,
           born: performance.now(),
-          life: this.life(620 + Math.random() * 360),
+          life: this.particleLife(620 + Math.random() * 360),
           size: 1 + Math.random() * 2.6,
         });
       }
@@ -1926,6 +1928,12 @@
       if (this.settings.level === "low") return value * 0.72;
       if (this.settings.level === "ultra") return value * 1.12;
       return value;
+    }
+
+    particleLife(value) {
+      if (this.settings.reducedMotion) return Math.min(value, 420);
+      const scale = { off: 0, low: 0.62, medium: 0.82, high: 1, ultra: 1.16 }[this.settings.particles || "medium"] ?? 0.82;
+      return value * scale;
     }
 
     count(value) {

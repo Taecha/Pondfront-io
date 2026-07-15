@@ -3,8 +3,57 @@
   if (typeof module !== "undefined" && module.exports) module.exports = combatConfig;
   else root.PondCombat = combatConfig;
 })(typeof self !== "undefined" ? self : this, function factory() {
+  const sendProfiles = Object.freeze([
+    Object.freeze({ id: "probe", label: "Probe", short: "Probe", expansion: "Scout", defense: "Light", percent: 0.1, danger: false }),
+    Object.freeze({ id: "bite", label: "Quick Bite", short: "Bite", expansion: "Small", defense: "Standard", percent: 0.25, danger: false }),
+    Object.freeze({ id: "push", label: "Strong Push", short: "Push", expansion: "Medium", defense: "Strong", percent: 0.5, danger: true }),
+    Object.freeze({ id: "wave", label: "Full Wave", short: "Wave", expansion: "Large", defense: "Heavy", percent: 0.75, danger: true }),
+    Object.freeze({ id: "max", label: "Max Wave", short: "Max", expansion: "Max", defense: "Max", percent: 1, danger: true }),
+  ]);
+  const attackStyles = Object.freeze(Object.fromEntries(sendProfiles.map((profile) => [
+    profile.id,
+    Object.freeze({
+      label: profile.label,
+      short: profile.short,
+      percent: profile.percent,
+      description:
+        profile.id === "probe"
+          ? "Low-risk pressure that scouts or softens a weak border."
+          : profile.id === "bite"
+            ? "Cheap pressure that weakens or nips weak borders."
+            : profile.id === "push"
+              ? "Recommended attack for breaking normal borders."
+              : profile.id === "wave"
+                ? "Large splash attack for pushing through several tiles."
+                : "All-in attack when the enemy border is ready to break.",
+    }),
+  ])));
+
+  function profileForPercent(value, fallback = 0.25) {
+    const percent = Math.max(0.1, Math.min(1, Number(value) || fallback));
+    return sendProfiles.reduce((best, profile) =>
+      Math.abs(profile.percent - percent) < Math.abs(best.percent - percent) ? profile : best,
+    sendProfiles[1]);
+  }
+
+  function isAllowedSendPercent(value) {
+    const percent = Number(value);
+    return Number.isFinite(percent) && sendProfiles.some((profile) => Math.abs(profile.percent - percent) < 0.0001);
+  }
+
+  function energyForPercent(energy, value, fallback = 0.25) {
+    const available = Math.max(0, Number(energy) || 0);
+    const percent = Math.max(0.1, Math.min(1, Number(value) || fallback));
+    return Math.min(available, Math.max(0, Math.round(available * percent)));
+  }
+
   return {
+    sendProfiles,
+    profileForPercent,
+    isAllowedSendPercent,
+    energyForPercent,
     attackCooldownSeconds: 0,
+    minimumExpansionEnergy: 1,
     minimumAttackEnergy: 5,
     maxActiveAttacksPerPlayer: 3,
     waveTickSeconds: 0.4,
@@ -33,12 +82,7 @@
       turtleShellPowerMultiplier: 0.82,
       beginnerHumanPowerMultiplier: 0.75,
     },
-    attackStyles: {
-      bite: { label: "Quick Bite", short: "Bite", percent: 0.25, description: "Cheap pressure that weakens or nips weak borders." },
-      push: { label: "Strong Push", short: "Push", percent: 0.5, description: "Recommended attack for breaking normal borders." },
-      wave: { label: "Full Wave", short: "Wave", percent: 0.75, description: "Large splash attack for pushing through several tiles." },
-      max: { label: "Max Wave", short: "Max", percent: 1, description: "All-in attack when the enemy border is ready to break." },
-    },
+    attackStyles,
     pressure: {
       captureThreshold: 0.82,
       nearMissKeepRatio: 0.72,

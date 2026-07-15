@@ -61,6 +61,6 @@ assert.match(css, /\.settings-content-scroll[\s\S]*overflow-y:\s*auto/, "the con
 const serverText = read("server.js");
 assert.match(serverText, /worldState:\s*this\.world\?\.snapshot/, "full snapshots must include authoritative world state");
 assert.match(serverText, /worldState:\s*match\.world\?\.snapshot/g, "delta snapshots must include authoritative world state");
-assert.strictEqual(release.CURRENT.label, "Update 1.01", "release notes must identify Update 1.01");
+assert.ok(release.HISTORY.some((entry) => entry.label === "Update 1.01"), "release history must retain Update 1.01");
 
 console.log("Update 1.01 test passed: settings draft/apply flow, responsive scroller, authoritative world state, caps, and release metadata are wired.");

@@ -1,14 +1,45 @@
 (function initPondActions(root, factory) {
-  const api = factory();
+  const combat = typeof module !== "undefined" && module.exports ? require("./combatConfig") : root.PondCombat;
+  const api = factory(combat);
   if (typeof module !== "undefined" && module.exports) module.exports = api;
   else root.PondActions = api;
-})(typeof globalThis !== "undefined" ? globalThis : this, function createPondActions() {
-  const PERCENTS = [
-    { value: 0.1, small: "Small", attack: "Bite" },
-    { value: 0.25, small: "Medium", attack: "Push" },
-    { value: 0.5, small: "Large", attack: "Wave" },
-    { value: 1, small: "Max", attack: "Max Attack" },
-  ];
+})(typeof globalThis !== "undefined" ? globalThis : this, function createPondActions(combat = {}) {
+  const PERCENTS = Object.freeze((combat.sendProfiles || [
+    { id: "probe", label: "Probe", short: "Probe", expansion: "Scout", defense: "Light", percent: 0.1, danger: false },
+    { id: "bite", label: "Quick Bite", short: "Bite", expansion: "Small", defense: "Standard", percent: 0.25, danger: false },
+    { id: "push", label: "Strong Push", short: "Push", expansion: "Medium", defense: "Strong", percent: 0.5, danger: true },
+    { id: "wave", label: "Full Wave", short: "Wave", expansion: "Large", defense: "Heavy", percent: 0.75, danger: true },
+    { id: "max", label: "Max Wave", short: "Max", expansion: "Max", defense: "Max", percent: 1, danger: true },
+  ]).map((profile) => Object.freeze({
+    id: profile.id,
+    value: profile.percent,
+    small: profile.expansion,
+    defense: profile.defense,
+    attack: profile.label,
+    short: profile.short,
+    danger: Boolean(profile.danger),
+  })));
+
+  function sendAmount(player, percent) {
+    return combat.energyForPercent?.(player?.energy, percent) ?? Math.max(0, Math.round((Number(player?.energy) || 0) * percent));
+  }
+
+  function defendAmount(state, player, percent) {
+    const multiplier = Number(state?.config?.balance?.defendSpendMultiplier ?? 0.78);
+    return Math.round(sendAmount(player, percent) * multiplier);
+  }
+
+  function defendPreview(state, player, tile, percent, now = Number(state?.serverTime || 0)) {
+    const balance = state?.config?.balance || {};
+    const cost = defendAmount(state, player, percent);
+    const turtle = player?.animal === "turtle";
+    const animalBoost = turtle ? Number(balance.turtleDefendMultiplier ?? 1.16) : 1;
+    const shellBoost = turtle && now < Number(player?.abilityActiveUntil || 0) ? 1.18 : 1;
+    const cap = turtle ? Number(balance.turtleDefendMaxEnergy ?? 72) : Number(balance.defendMaxEnergy ?? 56);
+    const current = Math.max(0, Number(tile?.defenseEnergy || 0));
+    const total = Math.min(cap, current + cost * Number(balance.defendEnergyMultiplier ?? 0.58) * animalBoost * shellBoost);
+    return Object.freeze({ cost, stored: Math.max(0, Math.round(total - current)), total: Math.round(total), cap });
+  }
 
   function action(id, label, payload = {}, options = {}) {
     const available = options.available !== false;
@@ -84,12 +115,16 @@
     if (!tile.owner) {
       const canExpand = Boolean(context.canExpand);
       PERCENTS.forEach(({ value, small }) => {
-        const send = Math.round((player?.energy || 0) * value);
+        const send = Math.round(sendAmount(player, value));
+        const remaining = Math.max(0, Number(context.expansionRemaining || context.expansionCost || 0));
         add("expand", `Expand ${small}`, { tileId: tile.id, percent: value }, {
           icon: `${Math.round(value * 100)}`,
-          available: canExpand && send >= 4,
-          disabledReason: !canExpand ? "This tile is not connected to your border." : "Need at least 4 Animal Energy to expand.",
+          available: canExpand && send >= (combat.minimumExpansionEnergy || 1),
+          disabledReason: !canExpand ? "This tile is not connected to your border." : `Need at least ${combat.minimumExpansionEnergy || 1} Animal Energy to expand.`,
           cost: send,
+          hint: remaining > 0
+            ? `Commit ${send} Animal Energy. This tile needs about ${Math.ceil(remaining)} more pressure.`
+            : `Commit ${send} Animal Energy to this expansion front.`,
         });
       });
       add("viewTerrain", "Inspect Terrain", { tileId: tile.id }, { icon: "i", hint: helpers.terrainText?.(tile.type) || tileLabel });
@@ -119,17 +154,22 @@
         });
         add("buildMenu", "Build", { tileId: tile.id }, { icon: "B", available: Boolean(submenu.length), disabledReason: "No buildings are available.", submenu });
       }
-      add("defend", core ? "Defend Nest" : tile.building ? "Defend Building" : "Defend", { tileId: tile.id, percent: 0.25 }, {
-        icon: "D",
-        available: canDefend && defendLeft <= 0,
-        disabledReason: defendLeft > 0 ? `Reinforce cooldown ${Math.ceil(defendLeft)}s.` : "Choose an owned border or building tile.",
-        cooldownRemaining: defendLeft,
-      });
-      add("defend", "Reinforce", { tileId: tile.id, percent: 0.5 }, {
-        icon: "R",
-        available: canDefend && defendLeft <= 0,
-        disabledReason: defendLeft > 0 ? `Reinforce cooldown ${Math.ceil(defendLeft)}s.` : "This tile cannot be reinforced.",
-        cooldownRemaining: defendLeft,
+      PERCENTS.forEach(({ value, defense }) => {
+        const preview = defendPreview(state, player, tile, value, now);
+        const cost = preview.cost;
+        const label = core ? `${defense} Nest Guard` : tile.building ? `${defense} Building Guard` : `${defense} Reinforce`;
+        add("defend", label, { tileId: tile.id, percent: value }, {
+          icon: value >= 0.75 ? "R" : "D",
+          available: canDefend && defendLeft <= 0 && cost >= 3,
+          disabledReason: defendLeft > 0
+            ? `Reinforce cooldown ${Math.ceil(defendLeft)}s.`
+            : !canDefend
+              ? "Choose an owned border or building tile."
+              : "Need at least 3 Animal Energy after defense efficiency.",
+          cooldownRemaining: defendLeft,
+          cost,
+          hint: `Spend ${cost} Animal Energy to add about ${preview.stored} defense and clear attack pressure.`,
+        });
       });
       if (core) {
         add("viewTile", "Inspect Nest", { tileId: tile.id }, { icon: "N" });
@@ -143,11 +183,18 @@
     } else if (ally) {
       add("viewPlayer", "Inspect Ally", { tileId: tile.id, targetId: tile.owner }, { icon: "i" });
       const supportLeft = Math.max(0, (player?.supportReadyAt || 0) - now);
-      add("support", "Send Support Energy", { targetId: tile.owner, percent: 0.25 }, {
-        icon: "S",
-        available: supportLeft <= 0 && (player?.energy || 0) >= 8,
-        disabledReason: supportLeft > 0 ? `Support cooldown ${Math.ceil(supportLeft)}s.` : "Need at least 8 Animal Energy.",
-        cooldownRemaining: supportLeft,
+      const supportMinimum = Number(state?.config?.balance?.supportMinEnergy ?? 6);
+      const supportEfficiency = Number(state?.config?.balance?.supportEfficiency ?? 0.75);
+      PERCENTS.filter(({ value }) => value >= 0.25 && value <= 0.75).forEach(({ value, small }) => {
+        const cost = sendAmount(player, value);
+        add("support", `${small} Support`, { targetId: tile.owner, percent: value }, {
+          icon: "S",
+          available: supportLeft <= 0 && cost >= supportMinimum,
+          disabledReason: supportLeft > 0 ? `Support cooldown ${Math.ceil(supportLeft)}s.` : `Need at least ${supportMinimum} Animal Energy.`,
+          cooldownRemaining: supportLeft,
+          cost,
+          hint: `Send ${cost} Animal Energy; your ally receives up to ${Math.round(cost * supportEfficiency)}.`,
+        });
       });
       addTeamPing("help", "Team Help Ping");
       add("defendAlly", "Defend Ally", { tileId: tile.id }, { icon: "D", available: false, disabledReason: "Direct ally defense is not enabled in this match." });
@@ -155,14 +202,18 @@
     } else {
       const canAttack = Boolean(context.canAttack);
       const canDiplomacyAttack = relationship?.canAttack !== false;
-      PERCENTS.forEach(({ value, attack }) => {
-        const send = Math.round((player?.energy || 0) * value);
+      PERCENTS.forEach(({ value, attack, danger }) => {
+        const send = Math.round(sendAmount(player, value));
+        const firstCost = Number(context.attackRemaining || context.nextCost || context.rawNextCost || 0);
         add("attack", attack, { tileId: tile.id, targetId: tile.owner, percent: value }, {
           icon: "A",
-          danger: value >= 0.5,
+          danger,
           available: canAttack && canDiplomacyAttack && send >= 5,
           disabledReason: !canDiplomacyAttack ? relationship?.blockReason || "Diplomacy blocks this attack." : !canAttack ? "Attack from a connected border tile." : "Need at least 5 Animal Energy.",
           cost: send,
+          hint: firstCost > 0
+            ? `Commit ${send} Animal Energy. The first border currently needs about ${Math.ceil(firstCost)} pressure.`
+            : `Commit ${send} Animal Energy to a connected frontline wave.`,
         });
       });
       const pushLeft = Math.max(0, (player?.currentPushCooldownUntil || 0) - now);
@@ -172,6 +223,8 @@
         available: canDiplomacyAttack && currentValid && pushLeft <= 0 && (player?.energy || 0) * 0.5 >= 10,
         disabledReason: pushLeft > 0 ? `Current Push cooldown ${Math.ceil(pushLeft)}s.` : !currentValid ? "No open-water route reaches this target." : "Need at least 20 Animal Energy for a 50% Current Push.",
         cooldownRemaining: pushLeft,
+        cost: sendAmount(player, 0.5),
+        hint: "Commit energy to a delayed open-water route. Distance and interception reduce impact power.",
       });
       addSpecial(actions, state, player, tile, "lilyBarrage", now, helpers, "Lily Barrage");
       add("viewPlayer", "Inspect Enemy", { tileId: tile.id, targetId: tile.owner }, { icon: "i" });
@@ -184,7 +237,13 @@
       add("viewTile", "Inspect Objective", { tileId: tile.id }, { icon: "O", hint: "View capture, contest, and bonus information." });
       add("viewTile", "Capture / Contest Information", { tileId: tile.id }, { icon: "i" });
       addTeamPing("objective", "Team Objective Ping");
-      add("defend", "Defend Objective", { tileId: tile.id, percent: 0.25 }, { icon: "D", available: own && Boolean(context.canDefend), disabledReason: own ? "Choose an objective border tile." : "Capture this objective before defending it." });
+      add("defend", "Defend Objective", { tileId: tile.id, percent: 0.25 }, {
+        icon: "D",
+        available: own && Boolean(context.canDefend) && defendAmount(state, player, 0.25) >= 3,
+        disabledReason: own ? "Choose an objective border tile or wait for enough energy." : "Capture this objective before defending it.",
+        cost: defendAmount(state, player, 0.25),
+        hint: "Store defense on this objective and reduce incoming capture pressure.",
+      });
     }
 
     return {
@@ -224,5 +283,5 @@
     }));
   }
 
-  return Object.freeze({ PERCENTS, getAvailableTileActions });
+  return Object.freeze({ PERCENTS, sendAmount, defendAmount, defendPreview, getAvailableTileActions });
 });

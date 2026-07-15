@@ -6,6 +6,7 @@
       this.onInfo = options.onInfo || (() => {});
       this.onTeam = options.onTeam || (() => {});
       this.onLeaderboard = options.onLeaderboard || (() => {});
+      this.getSettings = options.getSettings || (() => ({}));
       this.root = document.querySelector("#mobileTouchDock");
       this.title = document.querySelector("#mobileDockTitle");
       this.meta = document.querySelector("#mobileDockMeta");
@@ -137,13 +138,14 @@
         ability,
       ];
       else if (tile.owner === human.id) {
-        if (tile.building) result = [item(byId("upgradeBuilding")[0], "Upgrade", "+"), item(byId("defend")[0], "Defend", "D"), item(byId("ability")[0], "Ability", "A")];
-        else result = [item(byId("buildMenu")[0], "Build", "B"), item(byId("defend")[0], "Defend", "D"), item(byId("ability")[0], "Ability", "A")];
+        const normalDefend = byId("defend").find((entry) => entry.payload?.percent === 0.25) || byId("defend")[0];
+        if (tile.building) result = [item(byId("upgradeBuilding")[0], "Upgrade", "+"), item(normalDefend, "Defend", "D"), item(byId("ability")[0], "Ability", "A")];
+        else result = [item(byId("buildMenu")[0], "Build", "B"), item(normalDefend, "Defend", "D"), item(byId("ability")[0], "Ability", "A")];
       } else if (context.relationship?.allied || context.relationship?.teammate) {
         result = [item(byId("support")[0], "Support", "S"), item(byId("ping")[0], "Ping", "P"), item(byId("special")[0], "Guard", "G")];
       } else {
         const attacks = byId("attack");
-        result = [item(attacks.find((entry) => entry.payload?.percent === 0.25), "Bite", "B"), item(attacks.find((entry) => entry.payload?.percent === 0.5), "Push", "P"), item(attacks.find((entry) => entry.payload?.percent === 1), "Wave", "W")];
+        result = [item(attacks.find((entry) => entry.payload?.percent === 0.25), "Bite", "B"), item(attacks.find((entry) => entry.payload?.percent === 0.5), "Push", "P"), item(attacks.find((entry) => entry.payload?.percent === 1), "Max", "M")];
       }
       return [...result.filter(Boolean), synthetic("more", "More", "...")];
     }
@@ -188,13 +190,14 @@
     }
 
     applyPreferences() {
-      document.body.dataset.dockSide = localStorage.getItem("pondfront:mobile-dock-side") || "center";
-      document.body.dataset.mobileButtons = localStorage.getItem("pondfront:mobile-button-size") || "normal";
-      document.body.dataset.minimapSize = localStorage.getItem("pondfront:mobile-minimap-size") || "medium";
+      const settings = this.getSettings();
+      document.body.dataset.dockSide = settings.mobileDockSide || "center";
+      document.body.dataset.mobileButtons = settings.mobileButtonSize || "normal";
+      document.body.dataset.minimapSize = settings.mobileMinimapSize || "medium";
     }
 
     vibrate(duration = 10) {
-      if (localStorage.getItem("pondfront:mobile-vibration") === "off") return;
+      if (this.getSettings().mobileVibration === false) return;
       navigator.vibrate?.(duration);
     }
   }

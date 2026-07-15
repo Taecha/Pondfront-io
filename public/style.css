@@ -2901,6 +2901,40 @@ body[data-match-phase="COUNTDOWN"] .mode-objective-panel { display: none; }
   background: linear-gradient(180deg, #f2d87a, #d8ad48);
 }
 
+.graphics-test-panel {
+  position: absolute;
+  z-index: 10;
+  left: 50%;
+  top: 118px;
+  display: none;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 5px;
+  width: min(660px, calc(100% - 520px));
+  padding: 6px;
+  border: 1px solid rgba(131, 220, 237, 0.28);
+  border-radius: 8px;
+  background: rgba(4, 14, 22, 0.88);
+  transform: translateX(-50%);
+}
+
+body.debug-open .graphics-test-panel {
+  display: flex;
+}
+
+.graphics-test-panel strong,
+.graphics-test-panel button {
+  min-height: 28px;
+  padding: 4px 8px;
+  font-size: 0.67rem;
+}
+
+.graphics-test-panel strong {
+  display: inline-flex;
+  align-items: center;
+  color: #f2d87a;
+}
+
 .mobile-map-controls {
   position: absolute;
   z-index: 7;
@@ -2976,7 +3010,7 @@ body[data-match-phase="COUNTDOWN"] .mode-objective-panel { display: none; }
 .mobile-attack-actions {
   display: grid;
   grid-column: 1 / -1;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(5, minmax(0, 1fr));
   gap: 6px;
 }
 
@@ -3417,7 +3451,7 @@ body[data-match-phase="COUNTDOWN"] .mode-objective-panel { display: none; }
 }
 
 .attack-style-row {
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(5, minmax(0, 1fr));
 }
 
 .action-row {

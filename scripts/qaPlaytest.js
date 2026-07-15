@@ -407,6 +407,11 @@ function runBotSimulation(checks) {
     player.personality = personalities[index % personalities.length];
     player.energy = Math.max(player.energy, player.maxEnergy * 0.72);
   });
+  // Seed several legal front lines so this long-run check measures bot combat,
+  // independent of how far apart the random spawn layout happens to be.
+  for (let index = 2; index < game.players.length - 1; index += 1) {
+    makeEnemyBorder(game, game.players[index], game.players[index + 1]);
+  }
   const initialDiplomacy = game.diplomacy.handle(game, game.players[0], game.players[1].id, "requestAlliance");
   const initialDiplomacyEvents = game.events.filter((event) => event.kind === "diplomacy").length;
   for (let tick = 0; tick < 600 && !game.ended; tick += 1) {
