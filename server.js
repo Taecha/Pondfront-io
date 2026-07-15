@@ -622,7 +622,12 @@ class PondFrontServerGame {
     if (["spawnReserve", "spawnConfirm", "spawnRandom", "spawnFind", "spawnRelease", "spawnStartCountdown"].includes(body.type)) {
       return { ok: false, message: "Starting locations are locked." };
     }
-    const percent = Math.max(0.01, Math.min(1, Number(body.percent) || 0.25));
+    const percentActions = new Set(["expand", "attack", "defend", "startContinuousAttack", "support", "waterRoute"]);
+    if (percentActions.has(body.type) && body.percent != null && !combatConfig.isAllowedSendPercent?.(body.percent)) {
+      return { ok: false, resultType: "invalidPercent", message: "Choose 10%, 25%, 50%, 75%, or 100% Animal Energy." };
+    }
+    const percent = combatConfig.profileForPercent?.(body.percent, 0.25)?.percent
+      ?? Math.max(0.1, Math.min(1, Number(body.percent) || 0.25));
     if (body.type === "sandbox") return this.sandbox?.handle(this, player, body) || { ok: false, message: "Sandbox tools only work in Sandbox Mode." };
 
     const sandboxCheck = this.sandbox?.beforeAction(this, player, body);

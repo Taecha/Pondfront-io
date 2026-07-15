@@ -1,6 +1,6 @@
 # PondFront.io
 
-**Current release: Update 1.01 - Living World & Settings Rework**
+**Current release: Update 2 - The Great Lake Update**
 
 **Update 1 — Full Public Release**
 
@@ -262,7 +262,7 @@ Release screenshots are planned for the repository gallery. Until they are added
 - Corrected stale version wording, lobby Settings access, tutorial replay, building audio routing, and health response metadata.
 - Preserved the existing authoritative gameplay balance while expanding regression coverage.
 
-The exact in-game changelog is stored in `shared/releaseConfig.js`. Future labels such as Update 1.01, Update 1.02, and later entries can be added there without rebuilding the release interface.
+The exact in-game changelog and release history are stored in `shared/releaseConfig.js`, so later update entries can be added without rebuilding the release interface.
 
 ## Roadmap
 
