@@ -1,4 +1,5 @@
 const config = require("../shared/gameConfig");
+const combatConfig = require("../shared/combatConfig");
 
 const balance = config.BALANCE;
 
@@ -17,8 +18,8 @@ class SupportManager {
       return { ok: false, message: `Support cooldown ${Math.ceil(actor.supportReadyAt - now)}s.` };
     }
 
-    const cleanPercent = Math.max(0.05, Math.min(1, Number(percent) || 0.25));
-    const sent = Math.min(actor.energy, actor.energy * cleanPercent);
+    const sent = combatConfig.energyForPercent?.(actor.energy, percent)
+      ?? Math.min(actor.energy, Math.max(0, Math.round(actor.energy * Math.max(0.1, Math.min(1, Number(percent) || 0.25)))));
     if (sent < (balance.supportMinEnergy || 6)) return { ok: false, message: "Not enough Animal Energy to send support." };
 
     const efficiency = balance.supportEfficiency || 0.75;

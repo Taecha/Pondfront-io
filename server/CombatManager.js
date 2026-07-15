@@ -1,6 +1,7 @@
 const config = require("../shared/gameConfig");
 const animals = require("../shared/animals");
 const combatConfig = require("../shared/combatConfig");
+const actionConfig = require("../shared/actionConfig");
 const balance = config.BALANCE;
 
 const MAX_ACTIVE_ATTACKS_PER_PLAYER = combatConfig.maxActiveAttacksPerPlayer;
@@ -1537,15 +1538,13 @@ class CombatManager {
     if (now < (player.defendCooldownUntil || 0)) {
       return { ok: false, resultType: "defendCooldown", message: `Reinforce cooldown ${Math.ceil(player.defendCooldownUntil - now)}s.` };
     }
-    const spend = this.spendEnergy(player, percent) * balance.defendSpendMultiplier;
+    const preview = actionConfig.defendPreview({ config: { balance }, serverTime: now }, player, tile, percent, now);
+    const spend = preview.cost;
     if (spend < 3) return { ok: false, message: "Not enough Animal Energy. Defending needs at least 3 energy." };
     player.energy -= spend;
     player.stats.energyUsed += spend;
     player.stats.defenses = (player.stats.defenses || 0) + 1;
-    const animalBoost = player.animal === "turtle" ? balance.turtleDefendMultiplier || 1.16 : 1;
-    const shellBoost = player.animal === "turtle" && now < (player.abilityActiveUntil || 0) ? 1.18 : 1;
-    const maxDefense = player.animal === "turtle" ? balance.turtleDefendMaxEnergy || 72 : balance.defendMaxEnergy || 56;
-    tile.defenseEnergy = Math.min(maxDefense, tile.defenseEnergy + spend * balance.defendEnergyMultiplier * animalBoost * shellBoost);
+    tile.defenseEnergy = preview.total;
     this.clearAttackPressure(tile, spend * 0.9, player.id);
     player.defendCooldownUntil = now + (balance.defendCooldownSeconds || 10);
     tile.lastDefendedAt = now;
@@ -1554,6 +1553,8 @@ class CombatManager {
     return {
       ok: true,
       resultType: "reinforced",
+      spentEnergy: spend,
+      energyAfter: Math.round(player.energy),
       defenseEnergy: Math.round(tile.defenseEnergy),
       cooldown: balance.defendCooldownSeconds || 10,
       message: `Border reinforced: ${Math.round(tile.defenseEnergy)} stored defense energy. Attack pressure was reduced.`,
@@ -1807,8 +1808,8 @@ class CombatManager {
   }
 
   spendEnergy(player, percent) {
-    const clean = Math.max(0.01, Math.min(1, Number(percent) || 0.25));
-    return Math.min(player.energy, Math.max(0, player.energy * clean));
+    return combatConfig.energyForPercent?.(player.energy, percent)
+      ?? Math.min(player.energy, Math.max(0, Math.round(player.energy * Math.max(0.1, Math.min(1, Number(percent) || 0.25)))));
   }
 
   captureCost(game, attacker, defender, target, reach) {
